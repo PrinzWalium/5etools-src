@@ -109,6 +109,22 @@ class _PageGeneratorConverter extends PageGeneratorGeneric {
 	];
 }
 
+class _PageGeneratorCharactersheet extends PageGeneratorGeneric {
+	_filename = "page/template-page-charactersheet.hbs";
+	_page = "charactersheet.html";
+
+	_pageTitle = "Character Sheet";
+	_navbarDescription = "Build and manage a character. Autosaves to your browser.";
+
+	_stylesheets = [
+		"charactersheet",
+	];
+
+	_scriptsModules = [
+		"charactersheet.js",
+	];
+}
+
 class _PageGeneratorCrcalculator extends PageGeneratorGeneric {
 	_filename = "page/template-page-crcalculator.hbs";
 	_page = "crcalculator.html";
@@ -403,6 +419,7 @@ export const PAGE_GENERATORS = 	[
 	new _PageGeneratorBlocklist(),
 	new _PageGeneratorChangelog(),
 	new _PageGeneratorConverter(),
+	new _PageGeneratorCharactersheet(),
 	new _PageGeneratorCrcalculator(),
 	new _PageGeneratorIndex(),
 	new _PageGeneratorInittrackerplayerview(),
