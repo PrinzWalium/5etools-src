@@ -31,11 +31,43 @@
 			</div>
 			<div class="ve-col-8">
 				<div class="cs__hdr-grid">
-					<label class="cs__field"><span class="cs__lbl">Class &amp; Level</span><input type="text" id="cs-classlevel" class="ve-form-control ve-input-xs" placeholder="e.g. Fighter 5"></label>
-					<label class="cs__field"><span class="cs__lbl">Background</span><input type="text" id="cs-background" class="ve-form-control ve-input-xs" placeholder="e.g. Soldier"></label>
+					<div class="cs__field">
+						<span class="cs__lbl">Class &amp; Level <span class="cs__pick-link" id="cs-link-class"></span></span>
+						<div class="cs__pick-group">
+							<input type="text" id="cs-classlevel" class="ve-form-control ve-input-xs" placeholder="e.g. Fighter 5">
+							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn no-print" id="cs-pick-class" title="Choose a class from the data"><span class="glyphicon glyphicon-search"></span></button>
+						</div>
+					</div>
+					<div class="cs__field">
+						<span class="cs__lbl">Background <span class="cs__pick-link" id="cs-link-background"></span></span>
+						<div class="cs__pick-group">
+							<input type="text" id="cs-background" class="ve-form-control ve-input-xs" placeholder="e.g. Soldier">
+							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn no-print" id="cs-pick-background" title="Choose a background from the data"><span class="glyphicon glyphicon-search"></span></button>
+						</div>
+					</div>
 					<label class="cs__field"><span class="cs__lbl">Player Name</span><input type="text" id="cs-playername" class="ve-form-control ve-input-xs"></label>
-					<label class="cs__field"><span class="cs__lbl">Species</span><input type="text" id="cs-species" class="ve-form-control ve-input-xs" placeholder="e.g. Human"></label>
-					<label class="cs__field"><span class="cs__lbl">Alignment</span><input type="text" id="cs-alignment" class="ve-form-control ve-input-xs" placeholder="e.g. LG"></label>
+					<div class="cs__field">
+						<span class="cs__lbl">Species <span class="cs__pick-link" id="cs-link-species"></span></span>
+						<div class="cs__pick-group">
+							<input type="text" id="cs-species" class="ve-form-control ve-input-xs" placeholder="e.g. Human">
+							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn no-print" id="cs-pick-species" title="Choose a species from the data"><span class="glyphicon glyphicon-search"></span></button>
+						</div>
+					</div>
+					<label class="cs__field"><span class="cs__lbl">Alignment</span>
+						<select id="cs-alignment" class="ve-form-control ve-input-xs">
+							<option value="">&mdash;</option>
+							<option value="Lawful Good">Lawful Good</option>
+							<option value="Neutral Good">Neutral Good</option>
+							<option value="Chaotic Good">Chaotic Good</option>
+							<option value="Lawful Neutral">Lawful Neutral</option>
+							<option value="True Neutral">True Neutral</option>
+							<option value="Chaotic Neutral">Chaotic Neutral</option>
+							<option value="Lawful Evil">Lawful Evil</option>
+							<option value="Neutral Evil">Neutral Evil</option>
+							<option value="Chaotic Evil">Chaotic Evil</option>
+							<option value="Unaligned">Unaligned</option>
+						</select>
+					</label>
 					<label class="cs__field"><span class="cs__lbl">Experience Points</span><input type="number" id="cs-xp" min="0" class="ve-form-control ve-input-xs"></label>
 				</div>
 			</div>
@@ -127,7 +159,10 @@
 				<div class="cs__panel">
 					<div class="cs__panel-title-row ve-flex-v-center ve-flex-h-between">
 						<h5 class="cs__panel-title ve-mb-0">Attacks &amp; Spellcasting</h5>
-						<button type="button" id="cs-attack-add" class="ve-btn ve-btn-xs ve-btn-default no-print" title="Add a row"><span class="glyphicon glyphicon-plus"></span> Add</button>
+						<div class="ve-flex-v-center no-print">
+							<button type="button" id="cs-attack-add-weapon" class="ve-btn ve-btn-xs ve-btn-default ve-mr-2" title="Add a row from a weapon in the data"><span class="glyphicon glyphicon-search"></span> Add Weapon</button>
+							<button type="button" id="cs-attack-add" class="ve-btn ve-btn-xs ve-btn-default" title="Add a blank row"><span class="glyphicon glyphicon-plus"></span> Add</button>
+						</div>
 					</div>
 					<table class="cs__attacks w-100">
 						<thead>
@@ -143,6 +178,10 @@
 				</div>
 
 				<div class="cs__panel">
+					<div class="cs__panel-title-row ve-flex-v-center ve-flex-h-between no-print">
+						<span class="cs__lbl ve-mb-0">Spells</span>
+						<button type="button" id="cs-spell-add" class="ve-btn ve-btn-xs ve-btn-default" title="Search and add a spell reference to the notes below"><span class="glyphicon glyphicon-search"></span> Add Spell</button>
+					</div>
 					<div class="cs__spellhdr">
 						<label class="cs__field cs__field--inline">
 							<span class="cs__lbl">Spellcasting Ability</span>

@@ -79,6 +79,26 @@
 		gap: 6px;
 	}
 
+	.cs__pick-group {
+		display: flex;
+		align-items: stretch;
+		gap: 4px;
+	}
+
+	.cs__pick-group .ve-form-control {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.cs__pick-btn {
+		flex: 0 0 auto;
+	}
+
+	.cs__pick-link {
+		font-weight: normal;
+		margin-left: 4px;
+	}
+
 	.cs__field--inline .cs__lbl {
 		margin-bottom: 0;
 	}
