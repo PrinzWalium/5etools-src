@@ -455,6 +455,8 @@ class CharacterSheetPage {
 	}
 
 	async _onPickSpell () {
+		await SearchUiUtil.pDoGlobalInit();
+		SearchWidget.pDoGlobalInit();
 		const doc = await SearchWidget.pGetUserSpellSearch();
 		if (!doc) return;
 		this._appendToTextarea("cs-spells", doc.tag);
