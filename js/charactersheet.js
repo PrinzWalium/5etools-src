@@ -384,6 +384,7 @@ class CharacterSheetPage {
 			...(await DataLoader.pCacheAndGetAllPrerelease(page)),
 			...(await DataLoader.pCacheAndGetAllBrew(page)),
 		].filter(it => {
+			if (!it.hd || it.className) return false; // base classes only (subclasses lack `hd`)
 			const hash = UrlUtil.URL_TO_HASH_BUILDER[page](it);
 			return !ExcludeUtil.isExcluded(hash, "class", it.source);
 		});
