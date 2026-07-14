@@ -1,6 +1,7 @@
 class CharacterSheetPage {
 	static _STORAGE_KEY = "charactersheet-state";
 	static _FILE_TYPE = "charactersheet";
+	static _SKILL_KEY_BY_NAME = null;
 
 	static _ABILITIES = [
 		["str", "Strength"],
@@ -46,6 +47,8 @@ class CharacterSheetPage {
 		this._deathSuccess = 0;
 		this._deathFail = 0;
 		this._isLoading = false;
+		this._pickTags = {};
+		this._classCache = null;
 	}
 
 	init () {
@@ -55,11 +58,13 @@ class CharacterSheetPage {
 		this._buildDeathSaves();
 
 		this._bindStaticControls();
+		this._bindDataPickers();
 
 		const stored = StorageUtil.syncGetForPage(CharacterSheetPage._STORAGE_KEY);
 		if (stored) this._setStateFrom(stored);
 		else this._addAttackRow();
 
+		this._renderPickLinks();
 		this._recomputeAll();
 
 		window.dispatchEvent(new Event("toolsLoaded"));
@@ -265,6 +270,199 @@ class CharacterSheetPage {
 		this._saveStateDebounced();
 	}
 
+	/* -------------------------------------------- Data pickers -------------------------------------------- */
+
+	_bindDataPickers () {
+		document.getElementById("cs-pick-species").addEventListener("click", () => this._onPickSpecies());
+		document.getElementById("cs-pick-background").addEventListener("click", () => this._onPickBackground());
+		document.getElementById("cs-pick-class").addEventListener("click", () => this._onPickClass());
+		document.getElementById("cs-attack-add-weapon").addEventListener("click", () => this._onPickWeapon());
+		document.getElementById("cs-spell-add").addEventListener("click", () => this._onPickSpell());
+	}
+
+	static _getSkillKeyByName (name) {
+		if (!CharacterSheetPage._SKILL_KEY_BY_NAME) {
+			CharacterSheetPage._SKILL_KEY_BY_NAME = {};
+			CharacterSheetPage._SKILLS.forEach(s => { CharacterSheetPage._SKILL_KEY_BY_NAME[s.key.toLowerCase()] = s.key; });
+		}
+		const norm = String(name).replace(/[^a-z]/gi, "").toLowerCase();
+		return CharacterSheetPage._SKILL_KEY_BY_NAME[norm] || null;
+	}
+
+	_setSkillProfByName (name, val) {
+		const key = CharacterSheetPage._getSkillKeyByName(name);
+		if (!key) return;
+		this._setProfState(document.getElementById(`cs-skillprof-${key}`), val);
+	}
+
+	static _fmtProfList (arr) {
+		if (!arr || !arr.length) return "";
+		const out = [];
+		arr.forEach(grp => {
+			Object.entries(grp).forEach(([k, v]) => {
+				if (v === true) out.push(k.toTitleCase());
+				else if (k === "choose" && v && v.from) out.push(`${v.count || 1} of your choice`);
+				else if (typeof v === "number") out.push(/^any/i.test(k) ? `${v} of your choice` : `${v}\u00d7 ${k.toTitleCase()}`);
+				else if (/^any/i.test(k)) out.push("one of your choice");
+			});
+		});
+		return out.join(", ");
+	}
+
+	_appendToTextarea (id, text) {
+		if (!text) return;
+		const ele = document.getElementById(id);
+		const cur = (ele.value || "").trim();
+		if (cur.includes(text)) return;
+		ele.value = cur ? `${cur}\n${text}` : text;
+	}
+
+	_renderPickLink (which) {
+		const ele = document.getElementById(`cs-link-${which}`);
+		if (!ele) return;
+		const tag = this._pickTags[which];
+		ele.innerHTML = tag ? Renderer.get().render(tag) : "";
+	}
+
+	_renderPickLinks () {
+		["species", "background", "class"].forEach(w => this._renderPickLink(w));
+	}
+
+	async _onPickSpecies () {
+		const doc = await SearchWidget.pGetUserRaceSearch();
+		if (!doc) return;
+		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
+		document.getElementById("cs-species").value = doc.n;
+		this._pickTags.species = doc.tag;
+		this._renderPickLink("species");
+		if (ent) this._applyRace(ent);
+		this._recomputeAll();
+		this._saveStateDebounced();
+	}
+
+	_applyRace (race) {
+		const speed = race.speed;
+		let spd = null;
+		if (typeof speed === "number") spd = speed;
+		else if (speed && typeof speed === "object" && typeof speed.walk === "number") spd = speed.walk;
+		if (spd != null) document.getElementById("cs-speed").value = `${spd} ft.`;
+
+		(race.skillProficiencies || []).forEach(grp => {
+			Object.entries(grp).forEach(([k, v]) => { if (v === true) this._setSkillProfByName(k, 1); });
+		});
+	}
+
+	async _onPickBackground () {
+		const doc = await SearchWidget.pGetUserBackgroundSearch();
+		if (!doc) return;
+		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
+		document.getElementById("cs-background").value = doc.n;
+		this._pickTags.background = doc.tag;
+		this._renderPickLink("background");
+		if (ent) this._applyBackground(ent);
+		this._recomputeAll();
+		this._saveStateDebounced();
+	}
+
+	_applyBackground (bg) {
+		(bg.skillProficiencies || []).forEach(grp => {
+			Object.entries(grp).forEach(([k, v]) => { if (v === true) this._setSkillProfByName(k, 1); });
+		});
+		const tools = CharacterSheetPage._fmtProfList(bg.toolProficiencies);
+		const langs = CharacterSheetPage._fmtProfList(bg.languageProficiencies);
+		const parts = [];
+		if (tools) parts.push(`Tools: ${tools}`);
+		if (langs) parts.push(`Languages: ${langs}`);
+		if (parts.length) this._appendToTextarea("cs-proficiencies", parts.join("\n"));
+	}
+
+	async _pGetClasses () {
+		if (this._classCache) return this._classCache;
+		const page = UrlUtil.PG_CLASSES;
+		const all = [
+			...(await DataLoader.pCacheAndGetAllSite(page)),
+			...(await DataLoader.pCacheAndGetAllPrerelease(page)),
+			...(await DataLoader.pCacheAndGetAllBrew(page)),
+		].filter(it => {
+			if (!it.hd || it.className) return false; // base classes only (subclasses lack `hd`)
+			const hash = UrlUtil.URL_TO_HASH_BUILDER[page](it);
+			return !ExcludeUtil.isExcluded(hash, "class", it.source);
+		});
+		all.sort((a, b) => SortUtil.ascSortLower(a.name, b.name) || SortUtil.ascSortLower(a.source, b.source));
+		return this._classCache = all;
+	}
+
+	async _onPickClass () {
+		const classes = await this._pGetClasses();
+		if (!classes.length) return;
+		const cls = await InputUiUtil.pGetUserEnum({
+			values: classes,
+			isResolveItem: true,
+			fnDisplay: c => `${c.name} (${Parser.sourceJsonToAbv(c.source)})`,
+			title: "Select Class",
+			placeholder: "Select a class...",
+		});
+		if (cls == null) return;
+
+		const level = this._getLevel();
+		document.getElementById("cs-classlevel").value = `${cls.name} ${level}`;
+		this._pickTags.class = `{@class ${cls.name}${cls.source !== Parser.SRC_PHB ? `|${cls.source}` : ""}}`;
+		this._renderPickLink("class");
+		this._applyClass(cls, level);
+		this._recomputeAll();
+		this._saveStateDebounced();
+	}
+
+	_applyClass (cls, level) {
+		if (cls.hd && cls.hd.faces) document.getElementById("cs-hd-total").value = `${level}d${cls.hd.faces}`;
+
+		(cls.proficiency || []).forEach(abv => {
+			const ele = document.getElementById(`cs-save-${abv}`);
+			if (ele) ele.checked = true;
+		});
+
+		if (cls.spellcastingAbility) document.getElementById("cs-spell-ability").value = cls.spellcastingAbility;
+	}
+
+	async _onPickWeapon () {
+		const doc = await SearchWidget.pGetUserItemSearch();
+		if (!doc) return;
+		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
+		this._addAttackRow(this._weaponToAttack(ent || {}, doc.n));
+		this._saveStateDebounced();
+	}
+
+	_weaponToAttack (item, name) {
+		const pb = this._getProfBonus();
+		const typeAbv = String(item.type || "").split("|")[0];
+		const props = (item.property || []).map(p => String(p).split("|")[0]);
+		const isFinesse = props.includes("F");
+		const isRanged = typeAbv === "R";
+
+		let abv = "str";
+		if (isRanged) abv = "dex";
+		else if (isFinesse) abv = this._getAbilMod("dex") > this._getAbilMod("str") ? "dex" : "str";
+		const abilMod = this._getAbilMod(abv);
+
+		let damage = "";
+		if (item.dmg1) {
+			const dmgType = item.dmgType ? ` ${Parser.dmgTypeToFull(item.dmgType)}` : "";
+			const modStr = abilMod === 0 ? "" : (abilMod > 0 ? `+${abilMod}` : `${abilMod}`);
+			damage = `${item.dmg1}${modStr}${dmgType}`;
+		}
+
+		return {name: name || item.name || "", atkBonus: abilMod + pb, damage};
+	}
+
+	async _onPickSpell () {
+		await SearchUiUtil.pDoGlobalInit();
+		SearchWidget.pDoGlobalInit();
+		const doc = await SearchWidget.pGetUserSpellSearch();
+		if (!doc) return;
+		this._appendToTextarea("cs-spells", doc.tag);
+		this._saveStateDebounced();
+	}
+
 	/* -------------------------------------------- Calculations -------------------------------------------- */
 
 	_getLevel () { return Math.min(20, Math.max(1, Number(document.getElementById("cs-level").value) || 1)); }
@@ -350,6 +548,7 @@ class CharacterSheetPage {
 
 		state.deathSuccess = this._deathSuccess;
 		state.deathFail = this._deathFail;
+		state.pickTags = {...this._pickTags};
 
 		document.querySelectorAll("#cs-attacks-body .cs__atk-row").forEach(tr => {
 			state.attacks.push({
@@ -388,6 +587,9 @@ class CharacterSheetPage {
 		this._deathSuccess = Math.min(3, Math.max(0, Number(state.deathSuccess) || 0));
 		this._deathFail = Math.min(3, Math.max(0, Number(state.deathFail) || 0));
 		this._renderDeathSaves();
+
+		this._pickTags = state.pickTags && typeof state.pickTags === "object" ? {...state.pickTags} : {};
+		this._renderPickLinks();
 
 		document.getElementById("cs-attacks-body").innerHTML = "";
 		const attacks = Array.isArray(state.attacks) && state.attacks.length ? state.attacks : [{}];
