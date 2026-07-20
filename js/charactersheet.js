@@ -7,6 +7,7 @@ import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js
 import {getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses} from "./charactersheet/charactersheet-choices.js";
 import {CharacterInventoryPanel} from "./charactersheet/charactersheet-inventorypanel.js";
 import {CharacterSpellsPanel} from "./charactersheet/charactersheet-spellspanel.js";
+import {getCharacterLabel, getMigratedStore, getNewStore} from "./charactersheet/charactersheet-charstore.js";
 
 /** Renders the attacks table from the model's `attacks` collection. */
 class _AttacksRenderableCollection extends RenderableCollectionBase {
@@ -135,6 +136,8 @@ class CharacterSheetPage {
 		this._attacksCollection = null;
 		this._isLoading = false;
 		this._saveTimer = null;
+		this._store = null; // {storeVersion, currentId, characters: {id: envelope}}
+		this._fnsSyncInput = []; // unconditional input-sync functions, for bulk state loads
 	}
 
 	init () {
@@ -164,9 +167,13 @@ class CharacterSheetPage {
 		this._comp._addHookBase("deathFail", () => this._renderDeathSaves());
 		this._comp._addHookAllBase(() => this._onStateChange());
 
-		const stored = StorageUtil.syncGetForPage(CharacterSheetPage._STORAGE_KEY);
-		if (stored) this._doLoadState(stored);
+		this._store = getMigratedStore(StorageUtil.syncGetForPage(CharacterSheetPage._STORAGE_KEY)) || getNewStore();
+		this._bindCharacterSwitcher();
+
+		const envelope = this._store.characters[this._store.currentId];
+		if (envelope) this._doLoadState(envelope);
 		if (!this._comp._state.attacks.length) this._comp.addAttack();
+		this._renderCharacterSelect();
 
 		this._doRenderAll();
 
@@ -191,6 +198,8 @@ class CharacterSheetPage {
 	}
 
 	_doRenderAll () {
+		// Bypass the inputs' focus guards: a bulk load must win over whatever was focused
+		this._fnsSyncInput.forEach(fn => fn());
 		this._attacksCollection.render();
 		this._renderPickLinks();
 		this._renderDeathSaves();
@@ -294,6 +303,7 @@ class CharacterSheetPage {
 			if (ele.value !== `${val}`) ele.value = val;
 		};
 		this._comp._addHookBase(prop, hook);
+		this._fnsSyncInput.push(hook);
 		hook();
 	}
 
@@ -307,14 +317,18 @@ class CharacterSheetPage {
 		ele.addEventListener("input", setState);
 		ele.addEventListener("change", setState);
 
-		const hook = () => {
+		const doSync = () => {
 			const val = this._comp._state[prop];
 			const asStr = val == null ? "" : `${val}`;
-			if (document.activeElement === ele) return;
 			if (ele.value !== asStr) ele.value = asStr;
 		};
+		const hook = () => {
+			if (document.activeElement === ele) return; // don't clobber while typing
+			doSync();
+		};
 		this._comp._addHookBase(prop, hook);
-		hook();
+		this._fnsSyncInput.push(doSync);
+		doSync();
 	}
 
 	_bindCb (id, prop) {
@@ -323,6 +337,7 @@ class CharacterSheetPage {
 
 		const hook = () => ele.checked = !!this._comp._state[prop];
 		this._comp._addHookBase(prop, hook);
+		this._fnsSyncInput.push(hook);
 		hook();
 	}
 
@@ -506,13 +521,74 @@ class CharacterSheetPage {
 		}
 	}
 
-	/* -------------------------------------------- Persistence -------------------------------------------- */
+	/* -------------------------------------------- Persistence & characters -------------------------------------------- */
 
 	_saveStateDebounced () {
 		if (this._saveTimer) clearTimeout(this._saveTimer);
-		this._saveTimer = setTimeout(() => {
-			StorageUtil.syncSetForPage(CharacterSheetPage._STORAGE_KEY, this._comp.getSaveableState());
-		}, 150);
+		this._saveTimer = setTimeout(() => this._persistNow(), 150);
+	}
+
+	_persistNow () {
+		if (this._saveTimer) {
+			clearTimeout(this._saveTimer);
+			this._saveTimer = null;
+		}
+		this._store.characters[this._store.currentId] = this._comp.getSaveableState();
+		StorageUtil.syncSetForPage(CharacterSheetPage._STORAGE_KEY, this._store);
+		this._renderCharacterSelect();
+	}
+
+	_renderCharacterSelect () {
+		const sel = document.getElementById("cs-char-select");
+		sel.innerHTML = Object.entries(this._store.characters)
+			.map(([id, envelope]) => `<option value="${id.qq()}">${getCharacterLabel(id === this._store.currentId ? this._comp.getSaveableState() : envelope).qq()}</option>`)
+			.join("");
+		sel.value = this._store.currentId;
+	}
+
+	_bindCharacterSwitcher () {
+		const sel = document.getElementById("cs-char-select");
+		sel.addEventListener("change", () => this._switchCharacter(sel.value));
+
+		document.getElementById("cs-char-new").addEventListener("click", () => {
+			this._persistNow();
+			const id = CryptUtil.uid();
+			this._store.characters[id] = null;
+			this._switchCharacter(id);
+		});
+
+		document.getElementById("cs-char-delete").addEventListener("click", () => this._onDeleteCharacter());
+	}
+
+	_switchCharacter (id, {isSkipPersist = false} = {}) {
+		if (!(id in this._store.characters)) return;
+		if (!isSkipPersist && id !== this._store.currentId) this._persistNow();
+		this._store.currentId = id;
+
+		const envelope = this._store.characters[id];
+		this._isLoading = true;
+		try {
+			this._comp._setState(this._comp._getDefaultState());
+		} finally {
+			this._isLoading = false;
+		}
+		if (envelope) this._doLoadState(envelope);
+		else this._doRenderAll();
+		if (!this._comp._state.attacks.length) this._comp.addAttack();
+		this._persistNow();
+	}
+
+	async _onDeleteCharacter () {
+		if (!await InputUiUtil.pGetUserBoolean({
+			title: "Delete Character",
+			htmlDescription: `<div>Delete <b>${getCharacterLabel(this._comp.getSaveableState()).qq()}</b>?<br>This cannot be undone.</div>`,
+			textYes: "Delete",
+			textNo: "Cancel",
+		})) return;
+
+		delete this._store.characters[this._store.currentId];
+		if (!Object.keys(this._store.characters).length) this._store.characters[CryptUtil.uid()] = null;
+		this._switchCharacter(Object.keys(this._store.characters)[0], {isSkipPersist: true});
 	}
 
 	/* -------------------------------------------- Toolbar actions -------------------------------------------- */
@@ -533,13 +609,20 @@ class CharacterSheetPage {
 	async _onReset () {
 		if (!await InputUiUtil.pGetUserBoolean({
 			title: "Reset Character Sheet",
-			htmlDescription: `<div>This will clear the entire sheet.<br>Are you sure?</div>`,
+			htmlDescription: `<div>This will clear the current character's sheet (other characters are kept).<br>Are you sure?</div>`,
 			textYes: "Reset",
 			textNo: "Cancel",
 		})) return;
 
-		StorageUtil.syncSetForPage(CharacterSheetPage._STORAGE_KEY, null);
-		window.location.reload();
+		this._isLoading = true;
+		try {
+			this._comp._setState(this._comp._getDefaultState());
+		} finally {
+			this._isLoading = false;
+		}
+		if (!this._comp._state.attacks.length) this._comp.addAttack();
+		this._doRenderAll();
+		this._persistNow();
 	}
 }
 
