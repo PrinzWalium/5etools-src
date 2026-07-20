@@ -36,6 +36,71 @@ export class CharacterSheetClassData {
 		return DataLoader.pCacheAndGet(UrlUtil.PG_CLASSES, source, hash, {isCopy: true});
 	}
 
+	static _pAllSubclasses = null;
+
+	/** All subclasses (site + prerelease + brew), dereferenced and blocklist-filtered. */
+	static pGetAllSubclasses () {
+		return this._pAllSubclasses ||= (async () => {
+			const page = UrlUtil.PG_CLASSES;
+			return [
+				...(await DataLoader.pCacheAndGetAllSite(page)),
+				...(await DataLoader.pCacheAndGetAllPrerelease(page)),
+				...(await DataLoader.pCacheAndGetAllBrew(page)),
+			].filter(it => it.className && it.shortName);
+		})();
+	}
+
+	/** Subclasses available for a given class. */
+	static async pGetSubclassesForClass ({className, classSource}) {
+		return (await this.pGetAllSubclasses())
+			.filter(it => it.className === className && it.classSource === classSource)
+			.sort((a, b) => SortUtil.ascSortLower(a.name, b.name) || SortUtil.ascSortLower(a.source, b.source));
+	}
+
+	static async pGetSubclass ({className, classSource, shortName, source}) {
+		return (await this.pGetAllSubclasses())
+			.find(it => it.className === className && it.classSource === classSource && it.shortName === shortName && it.source === source);
+	}
+
+	static _pAllOptionalFeatures = null;
+
+	/** All optional features (fighting styles, invocations, maneuvers, ...; site + prerelease + brew). */
+	static pGetAllOptionalFeatures () {
+		return this._pAllOptionalFeatures ||= (async () => {
+			const page = UrlUtil.PG_OPT_FEATURES;
+			return [
+				...(await DataLoader.pCacheAndGetAllSite(page)),
+				...(await DataLoader.pCacheAndGetAllPrerelease(page)),
+				...(await DataLoader.pCacheAndGetAllBrew(page)),
+			].filter(it => {
+				const hash = UrlUtil.URL_TO_HASH_BUILDER[page](it);
+				return !ExcludeUtil.isExcluded(hash, "optionalfeature", it.source);
+			});
+		})();
+	}
+
+	/** Optional features matching any of the given feature type tags (e.g. ["FS:F"], ["EI"]). */
+	static async pGetOptionalFeaturesByTypes (featureTypes) {
+		const all = await this.pGetAllOptionalFeatures();
+		return all
+			.filter(it => (it.featureType || []).some(ft => featureTypes.includes(ft)))
+			.sort((a, b) => SortUtil.ascSortLower(a.name, b.name) || SortUtil.ascSortLower(a.source, b.source));
+	}
+
+	/**
+	 * Display name/source for a dereferenced feature. The dereferencer's entry-nesting step strips
+	 * `name`/`source` from wrapper features with a `header`, moving the named content into
+	 * `entries[0]`, so resolve by drilling down.
+	 */
+	static getFeatureNameMeta (feature) {
+		let cur = feature;
+		while (cur && cur.name == null && Array.isArray(cur.entries)) cur = cur.entries[0];
+		return {
+			name: cur?.name ?? feature._displayName ?? null,
+			source: cur?.source ?? feature.source ?? null,
+		};
+	}
+
 	/**
 	 * Resolved class feature entries gained at exactly `level`.
 	 * Entries flagged `gainSubclassFeature: true` mark where subclass features slot into the timeline.

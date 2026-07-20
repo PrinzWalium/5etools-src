@@ -215,24 +215,104 @@ export class CharacterModel extends BaseComponent {
 		if (cls.spellcastingAbility) this._state.spellAbility = cls.spellcastingAbility;
 	}
 
-	/** Set the (single) class from picked class data. Multiclass support arrives with the leveling engine. */
+	/** Set the (single) primary class from picked class data, replacing any existing classes. */
 	setSingleClass (cls) {
+		const existing = this._state.classes.length === 1 ? this._state.classes[0] : null;
+		const isSameClass = existing && existing.name === cls.name && existing.source === cls.source;
 		this._state.classes = [{
 			id: CryptUtil.uid(),
 			name: cls.name,
 			source: cls.source,
 			level: this.getLevelNumber(),
 			hdFaces: cls.hd?.faces ?? null,
-			subclass: null,
+			// Re-picking the same class (e.g. to refresh level) keeps its subclass/feature choices
+			subclass: isSameClass ? existing.subclass : null,
+			optionalFeatures: isSameClass ? (existing.optionalFeatures || []) : [],
 		}];
 	}
 
-	_syncSingleClassLevel () {
-		if (this._state.classes.length !== 1) return;
-		const cls = this._state.classes[0];
-		if (cls.level === this.getLevelNumber()) return;
-		cls.level = this.getLevelNumber();
+	/** Add an additional (multiclass) class entry. */
+	addClassEntry (cls, level) {
+		this._state.classes = [
+			...this._state.classes,
+			{
+				id: CryptUtil.uid(),
+				name: cls.name,
+				source: cls.source,
+				level: Math.min(20, Math.max(1, Number(level) || 1)),
+				hdFaces: cls.hd?.faces ?? null,
+				subclass: null,
+				optionalFeatures: [],
+			},
+		];
+		this._syncDisplayFromClasses();
+	}
+
+	removeClassEntry (id) {
+		this._state.classes = this._state.classes.filter(it => it.id !== id);
+		this._syncDisplayFromClasses();
+	}
+
+	setClassEntryLevel (id, level) {
+		const entry = this._state.classes.find(it => it.id === id);
+		if (!entry) return;
+		entry.level = Math.min(20, Math.max(1, Number(level) || 1));
 		this._triggerCollectionUpdate("classes");
+		this._syncDisplayFromClasses();
+	}
+
+	setSubclassForClass (id, subclass) {
+		const entry = this._state.classes.find(it => it.id === id);
+		if (!entry) return;
+		entry.subclass = subclass ? {name: subclass.name, shortName: subclass.shortName, source: subclass.source} : null;
+		this._triggerCollectionUpdate("classes");
+	}
+
+	addOptionalFeatureForClass (id, {name, source, progressionName}) {
+		const entry = this._state.classes.find(it => it.id === id);
+		if (!entry) return;
+		entry.optionalFeatures = entry.optionalFeatures || [];
+		if (entry.optionalFeatures.some(it => it.name === name && it.source === source)) return;
+		entry.optionalFeatures.push({name, source, progressionName});
+		this._triggerCollectionUpdate("classes");
+	}
+
+	removeOptionalFeatureForClass (id, {name, source}) {
+		const entry = this._state.classes.find(it => it.id === id);
+		if (!entry?.optionalFeatures) return;
+		entry.optionalFeatures = entry.optionalFeatures.filter(it => !(it.name === name && it.source === source));
+		this._triggerCollectionUpdate("classes");
+	}
+
+	/** Update the display fields (class text, total level, hit dice) after structural class changes. */
+	_syncDisplayFromClasses () {
+		const classes = this._state.classes;
+		if (!classes.length) return;
+
+		this._state.classText = classes.map(it => `${it.name} ${it.level}`).join(" / ");
+		this._state.level = Math.min(20, classes.reduce((acc, it) => acc + (Number(it.level) || 0), 0));
+
+		const byFaces = {};
+		classes.forEach(it => {
+			if (!it.hdFaces) return;
+			byFaces[it.hdFaces] = (byFaces[it.hdFaces] || 0) + (Number(it.level) || 0);
+		});
+		const hd = Object.entries(byFaces).map(([faces, cnt]) => `${cnt}d${faces}`).join(" + ");
+		if (hd) this._state.hdTotal = hd;
+	}
+
+	_syncSingleClassLevel () {
+		const classes = this._state.classes;
+		if (!classes.length) return;
+
+		if (classes.length === 1 && classes[0].level !== this.getLevelNumber()) {
+			classes[0].level = this.getLevelNumber();
+			this._triggerCollectionUpdate("classes");
+		}
+
+		// With multiple classes the total is derived from per-class levels; this also refreshes
+		// the class text and hit dice displays (equal-value assignments are no-ops, so no loops)
+		this._syncDisplayFromClasses();
 	}
 
 	/* -------------------------------------------- Persistence -------------------------------------------- */

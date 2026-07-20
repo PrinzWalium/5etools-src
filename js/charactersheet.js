@@ -3,6 +3,7 @@ import {CharacterModel} from "./charactersheet/charactersheet-model.js";
 import {deriveCharacterSheet, getAbilityModifier, getProfBonus} from "./charactersheet/charactersheet-derive.js";
 import {CharacterSheetClassData} from "./charactersheet/charactersheet-classdata.js";
 import {CharacterWizard} from "./charactersheet/charactersheet-wizard.js";
+import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js";
 
 /** Renders the attacks table from the model's `attacks` collection. */
 class _AttacksRenderableCollection extends RenderableCollectionBase {
@@ -145,6 +146,8 @@ class CharacterSheetPage {
 
 		this._attacksCollection = new _AttacksRenderableCollection(this._comp, document.getElementById("cs-attacks-body"));
 		this._comp._addHookBase("attacks", () => this._attacksCollection.render());
+		this._classPanel = new CharacterClassPanel({comp: this._comp, wrp: document.getElementById("cs-class-panel")});
+		this._classPanel.init();
 		this._comp._addHookBase("pickTags", () => this._renderPickLinks());
 		this._comp._addHookBase("deathSuccess", () => this._renderDeathSaves());
 		this._comp._addHookBase("deathFail", () => this._renderDeathSaves());
