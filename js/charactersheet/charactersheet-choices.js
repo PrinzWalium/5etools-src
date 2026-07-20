@@ -13,6 +13,7 @@ export const MUSICAL_INSTRUMENTS = ["Bagpipes", "Drum", "Dulcimer", "Flute", "Ho
 export const CHOICE_TYPE_SKILL = "skill";
 export const CHOICE_TYPE_LANGUAGE = "language";
 export const CHOICE_TYPE_TOOL = "tool";
+export const CHOICE_TYPE_ABILITY = "ability";
 
 let _ID = 0;
 const _nextId = () => `csc-${_ID++}`;
@@ -132,6 +133,93 @@ export function getToolChoices ({groups, sourceName}) {
 	return out;
 }
 
+const _ABILITY_NAMES = {str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma"};
+
+/**
+ * Normalise an `ability` array (race/background/feat) into packages of
+ * `{fixed: {abv: n}, choose: {from, count, amount} | null, weighted: {from, weights} | null}`.
+ * Multiple array entries are alternative packages ("choose one of these").
+ */
+export function getAbilityPackages (ability) {
+	return (ability || []).map(pkg => {
+		const fixed = {};
+		Object.entries(pkg).forEach(([k, v]) => {
+			if (k !== "choose" && typeof v === "number") fixed[k] = v;
+		});
+		const choose = pkg.choose && !pkg.choose.weighted
+			? {from: pkg.choose.from || [], count: pkg.choose.count || 1, amount: pkg.choose.amount || 1}
+			: null;
+		const weighted = pkg.choose?.weighted
+			? {from: pkg.choose.weighted.from || [], weights: pkg.choose.weighted.weights || []}
+			: null;
+		return {fixed, choose, weighted};
+	});
+}
+
+/**
+ * The fixed ability bonuses of an `ability` array, when unambiguous (exactly one package).
+ * Alternative packages route through the choice queue instead.
+ */
+export function getFixedAbilityBonuses (ability) {
+	const packages = getAbilityPackages(ability);
+	if (packages.length !== 1) return {};
+	return packages[0].fixed;
+}
+
+/** Short display for one ability package, e.g. "+2 Cha; +1 to 2 of Str, Dex" or "+2/+1 among Con, Int, Wis". */
+export function getAbilityPackageDisplay (pkg) {
+	const pts = [];
+	Object.entries(pkg.fixed).forEach(([abv, n]) => pts.push(`${n >= 0 ? "+" : ""}${n} ${_ABILITY_NAMES[abv] || abv}`));
+	if (pkg.choose) {
+		const ptFrom = pkg.choose.from.length === 6 ? "any" : pkg.choose.from.map(abv => _ABILITY_NAMES[abv] || abv).join(", ");
+		pts.push(`+${pkg.choose.amount} to ${pkg.choose.count} of ${ptFrom}`);
+	}
+	if (pkg.weighted) {
+		const ptWeights = pkg.weighted.weights.map(w => `+${w}`).join("/");
+		pts.push(`${ptWeights} among ${pkg.weighted.from.map(abv => _ABILITY_NAMES[abv] || abv).join(", ")}`);
+	}
+	return pts.join("; ");
+}
+
+/**
+ * Ability score increase choices from an `ability` array. Fixed single-package bonuses are not
+ * queued (apply them via `getFixedAbilityBonuses`); anything with alternatives or picks is.
+ */
+export function getAbilityChoices ({ability, sourceName}) {
+	const packages = getAbilityPackages(ability);
+	if (!packages.length) return [];
+	const isChoice = packages.length > 1 || packages.some(pkg => pkg.choose || pkg.weighted);
+	if (!isChoice) return [];
+
+	return [{
+		id: _nextId(),
+		type: CHOICE_TYPE_ABILITY,
+		sourceName,
+		label: packages.length > 1
+			? `Ability scores: choose ${packages.map(pkg => getAbilityPackageDisplay(pkg)).join(" — or — ")}`
+			: `Ability scores: ${getAbilityPackageDisplay(packages[0])}`,
+		packages,
+	}];
+}
+
+/** Granted-feat entries (`feats` on 2024-style backgrounds/races) are `{"name|source": true}` maps. */
+export function getGrantedFeats (feats) {
+	const out = [];
+	(feats || []).forEach(grp => {
+		Object.entries(grp).forEach(([uid, v]) => {
+			if (v !== true) return;
+			const [name, source] = uid.split("|");
+			if (!name) return;
+			out.push({
+				name,
+				source: source || "PHB",
+				displayName: name.split(";").map(pt => _titleCase(pt.trim())).join(" — "),
+			});
+		});
+	});
+	return out;
+}
+
 /**
  * All pending choices for a set of picked entities, in creation-flow order.
  * `cls` skill choices come from `startingProficiencies`; class tools/languages are
@@ -142,6 +230,7 @@ export function getPendingChoices ({race = null, background = null, cls = null} 
 
 	if (race) {
 		const sourceName = `Species: ${race.name}`;
+		out.push(...getAbilityChoices({ability: race.ability, sourceName}));
 		out.push(...getSkillChoices({groups: race.skillProficiencies, sourceName}));
 		out.push(...getLanguageChoices({groups: race.languageProficiencies, sourceName}));
 		out.push(...getToolChoices({groups: race.toolProficiencies, sourceName}));
@@ -154,6 +243,7 @@ export function getPendingChoices ({race = null, background = null, cls = null} 
 
 	if (background) {
 		const sourceName = `Background: ${background.name}`;
+		out.push(...getAbilityChoices({ability: background.ability, sourceName}));
 		out.push(...getSkillChoices({groups: background.skillProficiencies, sourceName}));
 		out.push(...getLanguageChoices({groups: background.languageProficiencies, sourceName}));
 		out.push(...getToolChoices({groups: background.toolProficiencies, sourceName}));

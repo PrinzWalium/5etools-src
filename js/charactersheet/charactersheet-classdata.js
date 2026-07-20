@@ -79,6 +79,25 @@ export class CharacterSheetClassData {
 		})();
 	}
 
+	static _pAllFeats = null;
+
+	/** All feats (site + prerelease + brew), blocklist-filtered and sorted. */
+	static pGetAllFeats () {
+		return this._pAllFeats ||= (async () => {
+			const page = UrlUtil.PG_FEATS;
+			const all = [
+				...(await DataLoader.pCacheAndGetAllSite(page)),
+				...(await DataLoader.pCacheAndGetAllPrerelease(page)),
+				...(await DataLoader.pCacheAndGetAllBrew(page)),
+			].filter(it => {
+				const hash = UrlUtil.URL_TO_HASH_BUILDER[page](it);
+				return !ExcludeUtil.isExcluded(hash, "feat", it.source);
+			});
+			all.sort((a, b) => SortUtil.ascSortLower(a.name, b.name) || SortUtil.ascSortLower(a.source, b.source));
+			return all;
+		})();
+	}
+
 	/** Optional features matching any of the given feature type tags (e.g. ["FS:F"], ["EI"]). */
 	static async pGetOptionalFeaturesByTypes (featureTypes) {
 		const all = await this.pGetAllOptionalFeatures();

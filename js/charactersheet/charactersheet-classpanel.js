@@ -1,5 +1,6 @@
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {
+	getAsiCount,
 	getCantripsKnown,
 	getMulticlassRequirementsDisplay,
 	getOptionalFeatureCounts,
@@ -9,6 +10,7 @@ import {
 	isMulticlassRequirementMet,
 } from "./charactersheet-levelengine.js";
 import {CHAR_SHEET_ABILITIES} from "./charactersheet-consts.js";
+import {getAbilityPackages, getFixedAbilityBonuses, getProfListDisplay} from "./charactersheet-choices.js";
 
 /**
  * The "Class & Leveling" sheet panel: renders the derived feature timeline, subclass and
@@ -111,6 +113,7 @@ export class CharacterClassPanel {
 
 		this._renderSubclassRow({wrp, entry, cls});
 		this._renderOptionalFeatureRows({wrp, entry, cls, sc});
+		this._renderAsiFeatRow({wrp, entry, cls});
 		this._renderFeatureTimeline({wrp, entry, cls, sc});
 
 		this._wrp.appendChild(wrp);
@@ -228,6 +231,148 @@ export class CharacterClassPanel {
 		});
 		if (feat == null) return;
 		this._comp.addOptionalFeatureForClass(entry.id, {name: feat.name, source: feat.source, progressionName: prog.name});
+	}
+
+	/* -------------------------------------------- ASI / feats -------------------------------------------- */
+
+	_renderAsiFeatRow ({wrp, entry, cls}) {
+		const total = getAsiCount(cls, entry.level);
+		if (!total) return;
+		const chosen = entry.asiFeatChoices || [];
+
+		const row = document.createElement("div");
+		row.className = "ve-small ve-mb-1";
+
+		const lbl = document.createElement("span");
+		lbl.className = "ve-muted";
+		lbl.textContent = `ASI / Feats (${Math.min(chosen.length, total)}/${total}): `;
+		row.appendChild(lbl);
+
+		chosen.forEach(choice => {
+			const spn = document.createElement("span");
+			spn.className = "ve-mr-1";
+			if (choice.type === "feat") {
+				spn.innerHTML = Renderer.get().render(`{@feat ${choice.name}${choice.source !== Parser.SRC_PHB ? `|${choice.source}` : ""}}`);
+			} else {
+				spn.textContent = Object.entries(choice.bonuses || {}).map(([abv, n]) => `+${n} ${abv.toUpperCase()}`).join(" ");
+			}
+			const btnRm = document.createElement("button");
+			btnRm.type = "button";
+			btnRm.className = "ve-btn ve-btn-xxs ve-btn-default no-print ve-ml-1";
+			btnRm.title = "Remove; ability score bonuses are reverted (other applied effects are kept)";
+			btnRm.textContent = "×";
+			btnRm.addEventListener("click", () => this._comp.removeAsiFeatChoice(entry.id, choice.id));
+			spn.appendChild(btnRm);
+			row.appendChild(spn);
+		});
+
+		if (chosen.length < total) {
+			const btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = "ve-btn ve-btn-xxs ve-btn-primary no-print";
+			btn.textContent = "Choose...";
+			btn.addEventListener("click", () => this._pOnChooseAsiFeat({entry}));
+			row.appendChild(btn);
+		}
+
+		wrp.appendChild(row);
+	}
+
+	/** Sequentially pick `count` distinct abilities from `from`; null on cancel. */
+	async _pPickAbilities ({count, from, title}) {
+		const out = [];
+		for (let i = 0; i < count; ++i) {
+			const remaining = from.filter(abv => !out.includes(abv));
+			const abv = await InputUiUtil.pGetUserEnum({
+				values: remaining,
+				isResolveItem: true,
+				fnDisplay: it => Parser.attAbvToFull(it),
+				title: count > 1 ? `${title} (${i + 1} of ${count})` : title,
+				placeholder: "Select an ability...",
+			});
+			if (abv == null) return null;
+			out.push(abv);
+		}
+		return out;
+	}
+
+	async _pOnChooseAsiFeat ({entry}) {
+		const mode = await InputUiUtil.pGetUserEnum({
+			values: ["Ability Score Improvement", "Feat"],
+			isResolveItem: true,
+			title: "Ability Score Improvement or Feat?",
+			placeholder: "Select...",
+		});
+		if (mode == null) return;
+
+		if (mode === "Ability Score Improvement") return this._pOnChooseAsi({entry});
+		return this._pOnChooseFeat({entry});
+	}
+
+	async _pOnChooseAsi ({entry}) {
+		const allAbvs = CHAR_SHEET_ABILITIES.map(([abv]) => abv);
+		const spread = await InputUiUtil.pGetUserEnum({
+			values: ["+2 to one ability", "+1 to two abilities"],
+			isResolveItem: true,
+			title: "Ability Score Improvement",
+			placeholder: "Select...",
+		});
+		if (spread == null) return;
+
+		const isSingle = spread === "+2 to one ability";
+		const picked = await this._pPickAbilities({count: isSingle ? 1 : 2, from: allAbvs, title: "Increase which ability?"});
+		if (!picked) return;
+
+		const bonuses = {};
+		picked.forEach(abv => bonuses[abv] = (bonuses[abv] || 0) + (isSingle ? 2 : 1));
+		this._comp.addAsiFeatChoice(entry.id, {type: "asi", bonuses});
+	}
+
+	async _pOnChooseFeat ({entry}) {
+		const feats = await CharacterSheetClassData.pGetAllFeats();
+		const feat = await InputUiUtil.pGetUserEnum({
+			values: feats,
+			isResolveItem: true,
+			fnDisplay: it => `${it.name} (${Parser.sourceJsonToAbv(it.source)})`,
+			title: "Select Feat",
+			placeholder: "Select a feat...",
+		});
+		if (feat == null) return;
+
+		// Resolve the feat's ability increases: fixed parts apply directly; choose-based parts prompt
+		const bonuses = {...getFixedAbilityBonuses(feat.ability)};
+		const packages = getAbilityPackages(feat.ability);
+		if (packages.length === 1 && packages[0].choose) {
+			const {from, count, amount} = packages[0].choose;
+			const picked = await this._pPickAbilities({count, from, title: `${feat.name}: increase which ability?`});
+			if (!picked) return;
+			picked.forEach(abv => bonuses[abv] = (bonuses[abv] || 0) + amount);
+		}
+
+		this._applyFeatSecondaryGrants(feat);
+		this._comp.addAsiFeatChoice(entry.id, {type: "feat", name: feat.name, source: feat.source, bonuses});
+	}
+
+	/** Apply a feat's non-ability structured grants: fixed skills, languages/tools/senses as notes. */
+	_applyFeatSecondaryGrants (feat) {
+		(feat.skillProficiencies || []).forEach(grp => {
+			Object.entries(grp).forEach(([k, v]) => { if (v === true) this._comp.setSkillProfByName(k, 1); });
+		});
+		(feat.expertise || []).forEach(grp => {
+			Object.entries(grp).forEach(([k, v]) => { if (v === true) this._comp.setSkillProfByName(k, 2); });
+		});
+
+		const pts = [];
+		// Fixed skill/expertise grants were applied above; anything choice-shaped becomes a note
+		const skillsNote = getProfListDisplay(feat.skillProficiencies).split(", ").filter(pt => /choice/i.test(pt)).join(", ");
+		if (skillsNote) pts.push(`Skills: ${skillsNote}`);
+		const expertiseNote = getProfListDisplay(feat.expertise).split(", ").filter(pt => /choice/i.test(pt)).join(", ");
+		if (expertiseNote) pts.push(`Expertise: ${expertiseNote}`);
+		const langs = getProfListDisplay(feat.languageProficiencies);
+		if (langs) pts.push(`Languages: ${langs}`);
+		const tools = getProfListDisplay(feat.toolProficiencies);
+		if (tools) pts.push(`Tools: ${tools}`);
+		if (pts.length) this._comp.appendToTextProp("proficienciesText", `${feat.name}: ${pts.join("; ")}`);
 	}
 
 	/* -------------------------------------------- Feature timeline -------------------------------------------- */

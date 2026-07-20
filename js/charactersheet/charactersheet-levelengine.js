@@ -177,6 +177,17 @@ export function getOptionalFeatureCounts (clsOrSc, level) {
 }
 
 /**
+ * Number of Ability Score Improvement features gained by `level` (dereferenced class data).
+ * These are the "ASI or feat" slots.
+ */
+export function getAsiCount (cls, level) {
+	level = _clampLevel(level);
+	return (cls?.classFeatures || [])
+		.slice(0, level)
+		.reduce((acc, lvlFeatures) => acc + (lvlFeatures || []).filter(f => f.name === "Ability Score Improvement").length, 0);
+}
+
+/**
  * Check multiclassing ability requirements. Top-level ability keys are all required; keys within
  * an object inside `or` are alternatives (e.g. Fighter's `{or: [{str: 13, dex: 13}]}` means
  * "Strength 13 or Dexterity 13"), matching how the site renders these (see `render-class.js`).

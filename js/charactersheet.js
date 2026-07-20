@@ -4,6 +4,7 @@ import {deriveCharacterSheet, getAbilityModifier, getProfBonus} from "./characte
 import {CharacterSheetClassData} from "./charactersheet/charactersheet-classdata.js";
 import {CharacterWizard} from "./charactersheet/charactersheet-wizard.js";
 import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js";
+import {getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses} from "./charactersheet/charactersheet-choices.js";
 
 /** Renders the attacks table from the model's `attacks` collection. */
 class _AttacksRenderableCollection extends RenderableCollectionBase {
@@ -366,6 +367,7 @@ class CharacterSheetPage {
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
 		this._comp.applyPickedRace({doc, ent});
+		if (ent) await this._pOfferAbilityBonuses(ent, doc.n);
 	}
 
 	async _onPickBackground () {
@@ -373,6 +375,36 @@ class CharacterSheetPage {
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
 		this._comp.applyPickedBackground({doc, ent});
+		if (ent) await this._pOfferAbilityBonuses(ent, doc.n);
+	}
+
+	/**
+	 * After a standalone pick: offer to apply fixed ability bonuses (opt-in, since the sheet's
+	 * scores are final values), and note choose-based increases for manual resolution.
+	 * The wizard flow applies both automatically instead.
+	 */
+	async _pOfferAbilityBonuses (ent, name) {
+		const fixed = getFixedAbilityBonuses(ent.ability);
+		if (Object.keys(fixed).length) {
+			const ptBonuses = Object.entries(fixed).map(([abv, n]) => `${n >= 0 ? "+" : ""}${n} ${Parser.attAbvToFull(abv)}`).join(", ");
+			const isApply = await InputUiUtil.pGetUserBoolean({
+				title: "Apply Ability Score Increases?",
+				htmlDescription: `<div>${name.qq()} grants: <b>${ptBonuses.qq()}</b>.<br>Add this to the current ability scores?</div>`,
+				textYes: "Apply",
+				textNo: "Skip",
+			});
+			if (isApply) this._comp.applyAbilityBonuses(fixed);
+		}
+
+		getAbilityChoices({ability: ent.ability, sourceName: name}).forEach(choice => {
+			// Single package: describe only the unresolved choose part (fixed was offered above);
+			// alternative packages: describe the whole choice
+			const ptChoose = choice.packages.length === 1
+				? getAbilityPackageDisplay({...choice.packages[0], fixed: {}})
+				: choice.label.replace(/^Ability scores: choose /, "");
+			if (!ptChoose) return;
+			this._comp.appendToTextProp("proficienciesText", `Ability Scores (${name}): ${ptChoose} — assign manually`);
+		});
 	}
 
 	async _onPickClass () {

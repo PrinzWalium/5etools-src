@@ -1,5 +1,5 @@
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SCHEMA_VERSION, CHAR_SHEET_SKILLS, getSkillKeyByName} from "./charactersheet-consts.js";
-import {getProfListDisplay} from "./charactersheet-choices.js";
+import {getGrantedFeats, getProfListDisplay} from "./charactersheet-choices.js";
 
 /**
  * The character data model: single source of truth for the sheet.
@@ -166,6 +166,9 @@ export class CharacterModel extends BaseComponent {
 		if (ent) this.applyRaceData(ent);
 	}
 
+	// Trait entries that are boilerplate rather than named features worth surfacing
+	static _RACE_TRAIT_NAMES_IGNORED = new Set(["Age", "Size", "Speed", "Languages", "Alignment", "Ability Score Increase", "Creature Type", "Darkvision"]);
+
 	applyRaceData (race) {
 		const speed = race.speed;
 		let spd = null;
@@ -181,6 +184,29 @@ export class CharacterModel extends BaseComponent {
 			.map(grp => Object.entries(grp).filter(([, v]) => v === true).map(([k]) => k))
 			.flat();
 		if (fixedLangs.length) this.appendToTextProp("proficienciesText", `Languages: ${getProfListDisplay([Object.fromEntries(fixedLangs.map(k => [k, true]))])}`);
+
+		if (race.darkvision) this.appendToTextProp("proficienciesText", `Senses: Darkvision ${race.darkvision} ft.`);
+
+		[["resist", "Resistances"], ["immune", "Immunities"], ["vulnerable", "Vulnerabilities"], ["conditionImmune", "Condition Immunities"]]
+			.forEach(([prop, label]) => {
+				const vals = (race[prop] || []).filter(it => typeof it === "string");
+				if (vals.length) this.appendToTextProp("proficienciesText", `${label}: ${vals.join(", ")}`);
+			});
+
+		const traitNames = (race.entries || [])
+			.filter(it => it && typeof it === "object" && it.name && !CharacterModel._RACE_TRAIT_NAMES_IGNORED.has(it.name))
+			.map(it => it.name);
+		if (traitNames.length) this.appendToTextProp("featuresText", `${race.name} Traits: ${traitNames.join(", ")}`);
+	}
+
+	/** Add (or, with `isRevert`, subtract) a `{abv: n}` bonus map to the ability scores. */
+	applyAbilityBonuses (bonuses, {isRevert = false} = {}) {
+		Object.entries(bonuses || {}).forEach(([abv, n]) => {
+			const prop = `abil_${abv}`;
+			if (!(prop in this.__state)) return;
+			const cur = Number(this._state[prop]) || 10;
+			this._state[prop] = cur + (isRevert ? -n : n);
+		});
 	}
 
 	/** Apply a picked background: search doc bookkeeping + mechanical fields from the entity. */
@@ -202,6 +228,10 @@ export class CharacterModel extends BaseComponent {
 		if (tools) parts.push(`Tools: ${tools}`);
 		if (langs) parts.push(`Languages: ${langs}`);
 		if (parts.length) this.appendToTextProp("proficienciesText", parts.join("\n"));
+
+		// 2024-style backgrounds grant a feat directly
+		getGrantedFeats(bg.feats)
+			.forEach(feat => this.appendToTextProp("featuresText", `Feat: ${feat.displayName} (${Parser.sourceJsonToAbv(feat.source)})`));
 	}
 
 	/** Apply a picked class at a given level: display text, tag, structured entry, and mechanical fields. */
@@ -228,6 +258,7 @@ export class CharacterModel extends BaseComponent {
 			// Re-picking the same class (e.g. to refresh level) keeps its subclass/feature choices
 			subclass: isSameClass ? existing.subclass : null,
 			optionalFeatures: isSameClass ? (existing.optionalFeatures || []) : [],
+			asiFeatChoices: isSameClass ? (existing.asiFeatChoices || []) : [],
 		}];
 	}
 
@@ -243,6 +274,7 @@ export class CharacterModel extends BaseComponent {
 				hdFaces: cls.hd?.faces ?? null,
 				subclass: null,
 				optionalFeatures: [],
+				asiFeatChoices: [],
 			},
 		];
 		this._syncDisplayFromClasses();
@@ -281,6 +313,30 @@ export class CharacterModel extends BaseComponent {
 		const entry = this._state.classes.find(it => it.id === id);
 		if (!entry?.optionalFeatures) return;
 		entry.optionalFeatures = entry.optionalFeatures.filter(it => !(it.name === name && it.source === source));
+		this._triggerCollectionUpdate("classes");
+	}
+
+	/**
+	 * Record an Ability Score Improvement-slot choice for a class: either an ASI
+	 * (`{type: "asi", bonuses}`) or a feat (`{type: "feat", name, source, bonuses}`).
+	 * Ability bonuses are applied now and reverted if the choice is removed.
+	 */
+	addAsiFeatChoice (classId, choice) {
+		const entry = this._state.classes.find(it => it.id === classId);
+		if (!entry) return;
+		entry.asiFeatChoices = entry.asiFeatChoices || [];
+		entry.asiFeatChoices.push({id: CryptUtil.uid(), ...choice});
+		if (choice.bonuses) this.applyAbilityBonuses(choice.bonuses);
+		this._triggerCollectionUpdate("classes");
+	}
+
+	removeAsiFeatChoice (classId, choiceId) {
+		const entry = this._state.classes.find(it => it.id === classId);
+		if (!entry?.asiFeatChoices) return;
+		const choice = entry.asiFeatChoices.find(it => it.id === choiceId);
+		if (!choice) return;
+		if (choice.bonuses) this.applyAbilityBonuses(choice.bonuses, {isRevert: true});
+		entry.asiFeatChoices = entry.asiFeatChoices.filter(it => it.id !== choiceId);
 		this._triggerCollectionUpdate("classes");
 	}
 

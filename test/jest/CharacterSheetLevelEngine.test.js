@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import "../../js/parser.js";
 import {
+	getAsiCount,
 	getCantripsKnown,
 	getCasterLevelContribution,
 	getMulticlassRequirementsDisplay,
@@ -137,6 +138,25 @@ describe("Leveling engine: optional feature progression", () => {
 		expect(getOptionalFeatureCounts(bm, 3)[0].count).toBe(3);
 		expect(getOptionalFeatureCounts(bm, 10)[0].count).toBe(7);
 		expect(getOptionalFeatureCounts(bm, 2)).toEqual([]);
+	});
+});
+
+describe("Leveling engine: ASI slots", () => {
+	it("Should count Ability Score Improvement features by level (dereferenced shape)", () => {
+		// Fighter-style: ASIs at 4 and 6
+		const cls = {
+			classFeatures: [
+				[{name: "Second Wind"}],
+				[{name: "Action Surge"}],
+				[{name: "Martial Archetype"}],
+				[{name: "Ability Score Improvement"}],
+				[{name: "Extra Attack"}],
+				[{name: "Ability Score Improvement"}],
+			],
+		};
+		expect(getAsiCount(cls, 3)).toBe(0);
+		expect(getAsiCount(cls, 4)).toBe(1);
+		expect(getAsiCount(cls, 6)).toBe(2);
 	});
 });
 

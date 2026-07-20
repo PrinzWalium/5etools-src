@@ -1,9 +1,12 @@
 import {CHAR_SHEET_ABILITIES} from "./charactersheet-consts.js";
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {
+	CHOICE_TYPE_ABILITY,
 	CHOICE_TYPE_LANGUAGE,
 	CHOICE_TYPE_SKILL,
 	CHOICE_TYPE_TOOL,
+	getAbilityPackageDisplay,
+	getFixedAbilityBonuses,
 	getPendingChoices,
 } from "./charactersheet-choices.js";
 import {
@@ -48,6 +51,7 @@ export class CharacterWizard {
 			abilityScores: Object.fromEntries(CHAR_SHEET_ABILITIES.map(([abv]) => [abv, null])),
 			choices: [], // recomputed on entering the Choices step
 			choiceSelections: new Map(), // choice signature → Set of selected option names
+			abilitySelections: new Map(), // choice signature → {ixPackage, slots: [abv|null, ...]}
 			isAddEquipment: true,
 			isSetSuggestedHp: true,
 		};
@@ -257,7 +261,7 @@ export class CharacterWizard {
 
 	_render_abilities (wrp) {
 		wrp.innerHTML = `
-			<p>Choose how to determine ability scores. Species ability bonuses are not yet applied automatically&mdash;enter final scores, or adjust on the sheet afterwards.</p>
+			<p>Choose how to determine ability scores. Fixed species/background ability bonuses, and any you resolve in the Choices step, are added on top when you finish.</p>
 			<div class="ve-flex-v-center ve-mb-2">
 				<label class="ve-flex-v-center"><span class="ve-mr-2">Method</span><select class="ve-form-control ve-input-xs" id="cs-wiz-sel-abil-method" style="max-width: 220px;">
 					<option value="">Keep current scores</option>
@@ -359,6 +363,8 @@ export class CharacterWizard {
 		wrp.innerHTML = `<p>Resolve the choices granted by your selections.</p>`;
 
 		this._draft.choices.forEach(choice => {
+			if (choice.type === CHOICE_TYPE_ABILITY) return this._renderAbilityChoice(wrp, choice);
+
 			const sig = CharacterWizard._getChoiceSig(choice);
 			if (!this._draft.choiceSelections.has(sig)) this._draft.choiceSelections.set(sig, new Set());
 			const selections = this._draft.choiceSelections.get(sig);
@@ -403,6 +409,128 @@ export class CharacterWizard {
 			renderStatus();
 			wrp.appendChild(wrpChoice);
 		});
+	}
+
+	/* -------------------------------------------- Ability score choices -------------------------------------------- */
+
+	static _getPackageSlots (pkg) {
+		if (pkg.choose) return [...new Array(pkg.choose.count)].map(() => ({amount: pkg.choose.amount, from: pkg.choose.from}));
+		if (pkg.weighted) return pkg.weighted.weights.map(weight => ({amount: weight, from: pkg.weighted.from}));
+		return [];
+	}
+
+	_renderAbilityChoice (wrp, choice) {
+		const sig = CharacterWizard._getChoiceSig(choice);
+		if (!this._draft.abilitySelections.has(sig)) this._draft.abilitySelections.set(sig, {ixPackage: 0, slots: []});
+		const sel = this._draft.abilitySelections.get(sig);
+
+		const wrpChoice = document.createElement("div");
+		wrpChoice.className = "ve-mb-3";
+		wrpChoice.innerHTML = `
+			<div class="bold">Ability scores <span class="ve-muted ve-small">(${choice.sourceName.qq()})</span></div>
+			<div class="cs-wiz-abil-packages"></div>
+			<div class="cs-wiz-abil-slots ve-flex ve-flex-wrap"></div>
+			<div class="ve-muted ve-small cs-wiz-abil-status"></div>
+		`;
+		const wrpPackages = wrpChoice.querySelector(".cs-wiz-abil-packages");
+		const wrpSlots = wrpChoice.querySelector(".cs-wiz-abil-slots");
+		const dispStatus = wrpChoice.querySelector(".cs-wiz-abil-status");
+
+		const renderStatus = () => {
+			const pkg = choice.packages[sel.ixPackage];
+			const slots = CharacterWizard._getPackageSlots(pkg);
+			const set = sel.slots.filter(Boolean);
+			const isDupe = new Set(set).size !== set.length;
+			if (isDupe) dispStatus.textContent = "Each increase must go to a different ability.";
+			else if (set.length < slots.length) dispStatus.textContent = `${set.length} / ${slots.length} assigned (incomplete choices are not applied)`;
+			else dispStatus.textContent = `${set.length} / ${slots.length} assigned`;
+		};
+
+		const renderSlots = () => {
+			const pkg = choice.packages[sel.ixPackage];
+			const slots = CharacterWizard._getPackageSlots(pkg);
+			if (sel.slots.length !== slots.length) sel.slots = slots.map(() => null);
+			wrpSlots.innerHTML = "";
+
+			const ptFixed = Object.keys(pkg.fixed).length
+				? `<div class="ve-small ve-muted ve-mr-3 ve-self-center">Fixed: ${Object.entries(pkg.fixed).map(([abv, n]) => `+${n} ${abv.toUpperCase()}`).join(", ").qq()}</div>`
+				: "";
+			if (ptFixed) wrpSlots.insertAdjacentHTML("beforeend", ptFixed);
+
+			slots.forEach((slot, ix) => {
+				const lbl = document.createElement("label");
+				lbl.className = "ve-flex-v-center ve-mr-3 ve-mb-1";
+				lbl.innerHTML = `<span class="ve-small ve-mr-1">+${slot.amount} to</span>`;
+				const selEle = document.createElement("select");
+				selEle.className = "ve-form-control ve-input-xs";
+				selEle.style.width = "130px";
+				selEle.innerHTML = [`<option value="">&mdash;</option>`, ...slot.from.map(abv => `<option value="${abv}">${Parser.attAbvToFull(abv)}</option>`)].join("");
+				selEle.value = sel.slots[ix] || "";
+				selEle.addEventListener("change", () => {
+					sel.slots[ix] = selEle.value || null;
+					renderStatus();
+				});
+				lbl.appendChild(selEle);
+				wrpSlots.appendChild(lbl);
+			});
+			renderStatus();
+		};
+
+		if (choice.packages.length > 1) {
+			choice.packages.forEach((pkg, ix) => {
+				const lbl = document.createElement("label");
+				lbl.className = "ve-flex-v-center ve-small";
+				const radio = document.createElement("input");
+				radio.type = "radio";
+				radio.name = `cs-wiz-abil-pkg-${sig.replace(/\W/g, "")}`;
+				radio.className = "ve-mr-1";
+				radio.checked = sel.ixPackage === ix;
+				radio.addEventListener("change", () => {
+					sel.ixPackage = ix;
+					sel.slots = [];
+					renderSlots();
+				});
+				const spn = document.createElement("span");
+				spn.textContent = getAbilityPackageDisplay(pkg);
+				lbl.append(radio, spn);
+				wrpPackages.appendChild(lbl);
+			});
+		}
+
+		renderSlots();
+		wrp.appendChild(wrpChoice);
+	}
+
+	/** Resolved bonuses for one ability choice, or null while incomplete/invalid. */
+	_getResolvedAbilityBonuses (choice) {
+		const sel = this._draft.abilitySelections.get(CharacterWizard._getChoiceSig(choice));
+		if (!sel) return null;
+		const pkg = choice.packages[sel.ixPackage];
+		if (!pkg) return null;
+		const slots = CharacterWizard._getPackageSlots(pkg);
+		const set = sel.slots.filter(Boolean);
+		if (set.length !== slots.length || new Set(set).size !== set.length) return null;
+
+		const bonuses = {};
+		// Single-package fixed bonuses are applied separately via getFixedAbilityBonuses
+		if (choice.packages.length > 1) Object.entries(pkg.fixed).forEach(([abv, n]) => bonuses[abv] = (bonuses[abv] || 0) + n);
+		slots.forEach((slot, ix) => {
+			const abv = sel.slots[ix];
+			bonuses[abv] = (bonuses[abv] || 0) + slot.amount;
+		});
+		return bonuses;
+	}
+
+	/** All ability bonuses the wizard will apply on finish: fixed species/background + resolved choices. */
+	_getCombinedAbilityBonuses () {
+		const bonuses = {};
+		const add = map => Object.entries(map || {}).forEach(([abv, n]) => bonuses[abv] = (bonuses[abv] || 0) + n);
+		if (this._draft.race?.ent) add(getFixedAbilityBonuses(this._draft.race.ent.ability));
+		if (this._draft.background?.ent) add(getFixedAbilityBonuses(this._draft.background.ent.ability));
+		this._draft.choices
+			.filter(it => it.type === CHOICE_TYPE_ABILITY)
+			.forEach(choice => add(this._getResolvedAbilityBonuses(choice)));
+		return bonuses;
 	}
 
 	/* -------------------------------------------- Step: equipment -------------------------------------------- */
@@ -474,9 +602,10 @@ export class CharacterWizard {
 	_getSuggestedHpMax () {
 		const faces = this._draft.cls?.hd?.faces;
 		if (!faces) return null;
-		const conScore = this._draft.abilityMethod != null && this._draft.abilityScores.con != null
+		const conBase = this._draft.abilityMethod != null && this._draft.abilityScores.con != null
 			? this._draft.abilityScores.con
 			: (Number(this._comp._state.abil_con) || 10);
+		const conScore = conBase + (this._getCombinedAbilityBonuses().con || 0);
 		const conMod = Parser.getAbilityModNumber(conScore);
 		const level = this._draft.level;
 		return (faces + conMod) + (level - 1) * (Math.floor(faces / 2) + 1 + conMod);
@@ -493,6 +622,11 @@ export class CharacterWizard {
 		if (this._draft.abilityMethod != null) {
 			addRow("Ability Scores", CHAR_SHEET_ABILITIES.map(([abv]) => `${abv.toUpperCase()} ${this._draft.abilityScores[abv] ?? "?"}`).join(", "));
 		} else addRow("Ability Scores", "<i class='ve-muted'>unchanged</i>");
+
+		const bonuses = this._getCombinedAbilityBonuses();
+		if (Object.keys(bonuses).length) {
+			addRow("Ability Bonuses", Object.entries(bonuses).map(([abv, n]) => `${n >= 0 ? "+" : ""}${n} ${abv.toUpperCase()}`).join(", "));
+		}
 
 		const selectionSummaries = this._draft.choices
 			.map(choice => {
@@ -539,6 +673,9 @@ export class CharacterWizard {
 				if (score != null) comp._state[`abil_${abv}`] = score;
 			});
 		}
+
+		const abilityBonuses = this._getCombinedAbilityBonuses();
+		if (Object.keys(abilityBonuses).length) comp.applyAbilityBonuses(abilityBonuses);
 
 		// Resolve queued choices
 		const langs = [];
