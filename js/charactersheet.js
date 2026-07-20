@@ -1,54 +1,136 @@
+import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS} from "./charactersheet/charactersheet-consts.js";
+import {CharacterModel} from "./charactersheet/charactersheet-model.js";
+import {deriveCharacterSheet, getAbilityModifier, getProfBonus} from "./charactersheet/charactersheet-derive.js";
+import {CharacterSheetClassData} from "./charactersheet/charactersheet-classdata.js";
+
+/** Renders the attacks table from the model's `attacks` collection. */
+class _AttacksRenderableCollection extends RenderableCollectionBase {
+	constructor (comp, wrpRows) {
+		super(comp, "attacks");
+		this._wrpRows = wrpRows;
+	}
+
+	getNewRender (entity) {
+		const tr = document.createElement("tr");
+		tr.className = "cs__atk-row";
+		tr.innerHTML = `
+			<td><input type="text" class="ve-form-control ve-input-xs cs__atk-name" placeholder="e.g. Longsword"></td>
+			<td class="ve-text-center">
+				<div class="cs__atk-cell">
+					<input type="number" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs cs__atk-bonus">
+					<span class="cs__roll cs__atk-hit"></span>
+				</div>
+			</td>
+			<td class="ve-text-center">
+				<div class="cs__atk-cell">
+					<input type="text" class="ve-form-control ve-input-xs cs__atk-dmg" placeholder="e.g. 1d8+3 slashing">
+					<span class="cs__roll cs__atk-dmgroll"></span>
+				</div>
+			</td>
+			<td class="ve-text-center no-print">
+				<button type="button" class="ve-btn ve-btn-xs ve-btn-danger cs__atk-rm" title="Remove"><span class="glyphicon glyphicon-trash"></span></button>
+			</td>
+		`;
+
+		const meta = {
+			wrpRow: tr,
+			iptName: tr.querySelector(".cs__atk-name"),
+			iptBonus: tr.querySelector(".cs__atk-bonus"),
+			iptDmg: tr.querySelector(".cs__atk-dmg"),
+			dispHit: tr.querySelector(".cs__atk-hit"),
+			dispDmg: tr.querySelector(".cs__atk-dmgroll"),
+		};
+
+		meta.iptName.addEventListener("input", () => this._comp.updateAttack(entity.id, {name: meta.iptName.value}));
+		meta.iptBonus.addEventListener("input", () => this._comp.updateAttack(entity.id, {atkBonus: Number(meta.iptBonus.value) || 0}));
+		meta.iptDmg.addEventListener("input", () => this._comp.updateAttack(entity.id, {damage: meta.iptDmg.value}));
+		tr.querySelector(".cs__atk-rm").addEventListener("click", () => this._comp.removeAttack(entity.id));
+
+		this._wrpRows.appendChild(tr);
+		this.doUpdateExistingRender(meta, entity);
+
+		return meta;
+	}
+
+	doUpdateExistingRender (meta, entity) {
+		this.constructor._setIptValue(meta.iptName, entity.name);
+		this.constructor._setIptValue(meta.iptBonus, `${entity.atkBonus ?? 0}`);
+		this.constructor._setIptValue(meta.iptDmg, entity.damage);
+		this.constructor._renderRolls(meta, entity);
+	}
+
+	doDeleteExistingRender (meta) {
+		meta.wrpRow.remove();
+	}
+
+	/** Avoid clobbering the input the user is currently typing in. */
+	static _setIptValue (ipt, val) {
+		if (document.activeElement === ipt) return;
+		if (ipt.value !== val) ipt.value = val;
+	}
+
+	static _renderRolls (meta, entity) {
+		const name = (entity.name || "").trim();
+		const bonus = Number(entity.atkBonus) || 0;
+		const dmg = (entity.damage || "").trim();
+
+		meta.dispHit.innerHTML = Renderer.get().render(`{@hit ${bonus}|${CharacterSheetPage.fmtBonus(bonus)}|${name || "Attack"}}`);
+
+		if (dmg && /\d\s*d\s*\d/i.test(dmg)) {
+			meta.dispDmg.innerHTML = Renderer.get().render(`{@dice ${dmg}|${dmg}|${name || "Damage"}}`);
+			meta.dispDmg.classList.remove("ve-hidden");
+		} else {
+			meta.dispDmg.innerHTML = "";
+			meta.dispDmg.classList.add("ve-hidden");
+		}
+	}
+}
+
 class CharacterSheetPage {
 	static _STORAGE_KEY = "charactersheet-state";
 	static _FILE_TYPE = "charactersheet";
 	static _SKILL_KEY_BY_NAME = null;
 
-	static _ABILITIES = [
-		["str", "Strength"],
-		["dex", "Dexterity"],
-		["con", "Constitution"],
-		["int", "Intelligence"],
-		["wis", "Wisdom"],
-		["cha", "Charisma"],
+	// Simple string-valued inputs/selects/textareas, bound verbatim to model props
+	static _IPT_STR_BINDINGS = [
+		["cs-name", "name"],
+		["cs-classlevel", "classText"],
+		["cs-background", "backgroundText"],
+		["cs-playername", "playerName"],
+		["cs-species", "speciesText"],
+		["cs-alignment", "alignment"],
+		["cs-speed", "speed"],
+		["cs-hd-total", "hdTotal"],
+		["cs-hd-cur", "hdCur"],
+		["cs-spell-ability", "spellAbility"],
+		["cs-spells", "spellsText"],
+		["cs-features", "featuresText"],
+		["cs-equipment", "equipmentText"],
+		["cs-proficiencies", "proficienciesText"],
+		["cs-personality", "personalityText"],
 	];
 
-	static _SKILLS = [
-		{key: "acrobatics", name: "Acrobatics", ability: "dex"},
-		{key: "animalHandling", name: "Animal Handling", ability: "wis"},
-		{key: "arcana", name: "Arcana", ability: "int"},
-		{key: "athletics", name: "Athletics", ability: "str"},
-		{key: "deception", name: "Deception", ability: "cha"},
-		{key: "history", name: "History", ability: "int"},
-		{key: "insight", name: "Insight", ability: "wis"},
-		{key: "intimidation", name: "Intimidation", ability: "cha"},
-		{key: "investigation", name: "Investigation", ability: "int"},
-		{key: "medicine", name: "Medicine", ability: "wis"},
-		{key: "nature", name: "Nature", ability: "int"},
-		{key: "perception", name: "Perception", ability: "wis"},
-		{key: "performance", name: "Performance", ability: "cha"},
-		{key: "persuasion", name: "Persuasion", ability: "cha"},
-		{key: "religion", name: "Religion", ability: "int"},
-		{key: "sleightOfHand", name: "Sleight of Hand", ability: "dex"},
-		{key: "stealth", name: "Stealth", ability: "dex"},
-		{key: "survival", name: "Survival", ability: "wis"},
-	];
-
-	// Plain inputs whose value is persisted verbatim
-	static _FIELD_IDS = [
-		"cs-name", "cs-classlevel", "cs-background", "cs-playername", "cs-species", "cs-alignment", "cs-xp",
-		"cs-level", "cs-ac", "cs-init-misc", "cs-speed",
-		"cs-hp-max", "cs-hp-cur", "cs-hp-temp", "cs-hd-total", "cs-hd-cur",
-		"cs-spell-ability", "cs-spells",
-		"cs-features", "cs-equipment", "cs-proficiencies", "cs-personality",
-		"cs-cp", "cs-sp", "cs-ep", "cs-gp", "cs-pp",
+	// Numeric inputs, bound as `number | null` (null = blank)
+	static _IPT_NUM_BINDINGS = [
+		["cs-xp", "xp"],
+		["cs-level", "level"],
+		["cs-ac", "ac"],
+		["cs-init-misc", "initMisc"],
+		["cs-hp-max", "hpMax"],
+		["cs-hp-cur", "hpCur"],
+		["cs-hp-temp", "hpTemp"],
+		["cs-cp", "cp"],
+		["cs-sp", "sp"],
+		["cs-ep", "ep"],
+		["cs-gp", "gp"],
+		["cs-pp", "pp"],
 	];
 
 	constructor () {
-		this._deathSuccess = 0;
-		this._deathFail = 0;
+		this._comp = new CharacterModel();
+		this._attacksCollection = null;
 		this._isLoading = false;
-		this._pickTags = {};
-		this._classCache = null;
+		this._saveTimer = null;
 	}
 
 	init () {
@@ -57,44 +139,70 @@ class CharacterSheetPage {
 		this._buildSkills();
 		this._buildDeathSaves();
 
+		this._bindInputs();
 		this._bindStaticControls();
 		this._bindDataPickers();
 
-		const stored = StorageUtil.syncGetForPage(CharacterSheetPage._STORAGE_KEY);
-		if (stored) this._setStateFrom(stored);
-		else this._addAttackRow();
+		this._attacksCollection = new _AttacksRenderableCollection(this._comp, document.getElementById("cs-attacks-body"));
+		this._comp._addHookBase("attacks", () => this._attacksCollection.render());
+		this._comp._addHookBase("pickTags", () => this._renderPickLinks());
+		this._comp._addHookBase("deathSuccess", () => this._renderDeathSaves());
+		this._comp._addHookBase("deathFail", () => this._renderDeathSaves());
+		this._comp._addHookAllBase(() => this._onStateChange());
 
-		this._renderPickLinks();
-		this._recomputeAll();
+		const stored = StorageUtil.syncGetForPage(CharacterSheetPage._STORAGE_KEY);
+		if (stored) this._doLoadState(stored);
+		if (!this._comp._state.attacks.length) this._comp.addAttack();
+
+		this._doRenderAll();
 
 		window.dispatchEvent(new Event("toolsLoaded"));
 	}
 
-	/* -------------------------------------------- Builders -------------------------------------------- */
+	_onStateChange () {
+		if (this._isLoading) return;
+		this._renderDerived();
+		this._saveStateDebounced();
+	}
+
+	_doLoadState (saved) {
+		this._isLoading = true;
+		try {
+			const isApplied = this._comp.setStateFrom(saved);
+			if (!isApplied) JqueryUtil.doToast({type: "danger", content: "Could not load character&mdash;unknown save format."});
+		} finally {
+			this._isLoading = false;
+		}
+		this._doRenderAll();
+	}
+
+	_doRenderAll () {
+		this._attacksCollection.render();
+		this._renderPickLinks();
+		this._renderDeathSaves();
+		this._renderDerived();
+	}
+
+	/* -------------------------------------------- DOM scaffolding -------------------------------------------- */
 
 	_buildAbilities () {
 		const wrp = document.getElementById("cs-abilities");
-		wrp.innerHTML = CharacterSheetPage._ABILITIES
+		wrp.innerHTML = CHAR_SHEET_ABILITIES
 			.map(([abv, name]) => `
 				<div class="cs__ability" data-cs-ability="${abv}">
 					<span class="cs__lbl cs__ability-name">${name}</span>
-					<input type="number" id="cs-abil-${abv}" value="10" min="1" max="30" class="ve-form-control ve-input-xs cs__ability-score">
+					<input type="number" id="cs-abil-${abv}" min="1" max="30" class="ve-form-control ve-input-xs cs__ability-score">
 					<span class="cs__ability-mod cs__roll" id="cs-mod-${abv}">+0</span>
 				</div>
 			`)
 			.join("");
 
-		CharacterSheetPage._ABILITIES.forEach(([abv]) => {
-			document.getElementById(`cs-abil-${abv}`).addEventListener("input", () => {
-				this._recomputeAll();
-				this._saveStateDebounced();
-			});
-		});
+		CHAR_SHEET_ABILITIES.forEach(([abv]) => this._bindIptNum(`cs-abil-${abv}`, `abil_${abv}`));
 	}
 
 	_buildSaves () {
 		const wrp = document.getElementById("cs-saves");
-		wrp.innerHTML = CharacterSheetPage._ABILITIES
+		wrp.innerHTML = CHAR_SHEET_ABILITIES
 			.map(([abv, name]) => `
 				<label class="cs__list-row" title="Toggle proficiency in ${name} saving throws">
 					<input type="checkbox" id="cs-save-${abv}" class="cs__list-cb">
@@ -104,45 +212,31 @@ class CharacterSheetPage {
 			`)
 			.join("");
 
-		CharacterSheetPage._ABILITIES.forEach(([abv]) => {
-			document.getElementById(`cs-save-${abv}`).addEventListener("change", () => {
-				this._recomputeAll();
-				this._saveStateDebounced();
-			});
-		});
+		CHAR_SHEET_ABILITIES.forEach(([abv]) => this._bindCb(`cs-save-${abv}`, `save_${abv}`));
 	}
 
 	_buildSkills () {
 		const wrp = document.getElementById("cs-skills");
-		wrp.innerHTML = CharacterSheetPage._SKILLS
+		wrp.innerHTML = CHAR_SHEET_SKILLS
 			.map(skill => `
 				<div class="cs__list-row" data-cs-skill="${skill.key}">
-					<button type="button" class="cs__prof" id="cs-skillprof-${skill.key}" data-cs-prof="0" title="Click to cycle: not proficient \u2192 proficient \u2192 expertise"></button>
+					<button type="button" class="cs__prof" id="cs-skillprof-${skill.key}" title="Click to cycle: not proficient → proficient → expertise"></button>
 					<span class="cs__roll cs__list-mod" id="cs-skillroll-${skill.key}">+0</span>
 					<span class="cs__list-name">${skill.name} <span class="cs__list-abil ve-muted">(${Parser.attAbvToFull(skill.ability).slice(0, 3)})</span></span>
 				</div>
 			`)
 			.join("");
 
-		CharacterSheetPage._SKILLS.forEach(skill => {
-			document.getElementById(`cs-skillprof-${skill.key}`).addEventListener("click", (evt) => {
-				const btn = evt.currentTarget;
-				const next = (Number(btn.getAttribute("data-cs-prof")) + 1) % 3;
-				this._setProfState(btn, next);
-				this._recomputeAll();
-				this._saveStateDebounced();
+		CHAR_SHEET_SKILLS.forEach(skill => {
+			document.getElementById(`cs-skillprof-${skill.key}`).addEventListener("click", () => {
+				const prop = `skill_${skill.key}`;
+				this._comp._state[prop] = ((Number(this._comp._state[prop]) || 0) + 1) % 3;
 			});
 		});
 	}
 
-	_setProfState (btn, val) {
-		btn.setAttribute("data-cs-prof", `${val}`);
-		btn.classList.toggle("cs__prof--1", val === 1);
-		btn.classList.toggle("cs__prof--2", val === 2);
-	}
-
 	_buildDeathSaves () {
-		[["cs-death-success", "_deathSuccess"], ["cs-death-fail", "_deathFail"]]
+		[["cs-death-success", "deathSuccess"], ["cs-death-fail", "deathFail"]]
 			.forEach(([id, prop]) => {
 				const wrp = document.getElementById(id);
 				const max = Number(wrp.getAttribute("data-cs-max"));
@@ -150,106 +244,78 @@ class CharacterSheetPage {
 					const dot = document.createElement("button");
 					dot.type = "button";
 					dot.className = "cs__death-dot";
-					dot.setAttribute("data-cs-ix", `${i}`);
 					dot.addEventListener("click", () => {
-						const cur = this[prop];
-						this[prop] = (i + 1 === cur) ? i : i + 1;
-						this._renderDeathSaves();
-						this._saveStateDebounced();
+						const cur = this._comp._state[prop];
+						this._comp._state[prop] = (i + 1 === cur) ? i : i + 1;
 					});
 					wrp.appendChild(dot);
 				}
 			});
-		this._renderDeathSaves();
 	}
 
 	_renderDeathSaves () {
-		[["cs-death-success", this._deathSuccess], ["cs-death-fail", this._deathFail]]
+		[["cs-death-success", this._comp._state.deathSuccess], ["cs-death-fail", this._comp._state.deathFail]]
 			.forEach(([id, cnt]) => {
 				const dots = document.getElementById(id).querySelectorAll(".cs__death-dot");
 				dots.forEach((dot, ix) => dot.classList.toggle("cs__death-dot--active", ix < cnt));
 			});
 	}
 
-	_addAttackRow (data = {}) {
-		const tbody = document.getElementById("cs-attacks-body");
-		const tr = document.createElement("tr");
-		tr.className = "cs__atk-row";
-		tr.innerHTML = `
-			<td><input type="text" class="ve-form-control ve-input-xs cs__atk-name" placeholder="e.g. Longsword" value="${(data.name || "").qq()}"></td>
-			<td class="ve-text-center">
-				<div class="cs__atk-cell">
-					<input type="number" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs cs__atk-bonus" value="${data.atkBonus != null ? Number(data.atkBonus) : 0}">
-					<span class="cs__roll cs__atk-hit"></span>
-				</div>
-			</td>
-			<td class="ve-text-center">
-				<div class="cs__atk-cell">
-					<input type="text" class="ve-form-control ve-input-xs cs__atk-dmg" placeholder="e.g. 1d8+3 slashing" value="${(data.damage || "").qq()}">
-					<span class="cs__roll cs__atk-dmgroll"></span>
-				</div>
-			</td>
-			<td class="ve-text-center no-print">
-				<button type="button" class="ve-btn ve-btn-xs ve-btn-danger cs__atk-rm" title="Remove"><span class="glyphicon glyphicon-trash"></span></button>
-			</td>
-		`;
+	/* -------------------------------------------- Input binding -------------------------------------------- */
 
-		tbody.appendChild(tr);
-
-		const iptBonus = tr.querySelector(".cs__atk-bonus");
-		const iptDmg = tr.querySelector(".cs__atk-dmg");
-		const iptName = tr.querySelector(".cs__atk-name");
-
-		iptBonus.addEventListener("input", () => { this._renderAttackRow(tr); this._saveStateDebounced(); });
-		iptDmg.addEventListener("input", () => { this._renderAttackRow(tr); this._saveStateDebounced(); });
-		iptName.addEventListener("input", () => this._saveStateDebounced());
-		tr.querySelector(".cs__atk-rm").addEventListener("click", () => {
-			tr.remove();
-			this._saveStateDebounced();
-		});
-
-		this._renderAttackRow(tr);
+	_bindInputs () {
+		CharacterSheetPage._IPT_STR_BINDINGS.forEach(([id, prop]) => this._bindIptStr(id, prop));
+		CharacterSheetPage._IPT_NUM_BINDINGS.forEach(([id, prop]) => this._bindIptNum(id, prop));
+		this._bindCb("cs-inspiration", "inspiration");
 	}
 
-	_renderAttackRow (tr) {
-		const name = tr.querySelector(".cs__atk-name").value.trim();
-		const bonus = Number(tr.querySelector(".cs__atk-bonus").value) || 0;
-		const dmg = tr.querySelector(".cs__atk-dmg").value.trim();
+	_bindIptStr (id, prop) {
+		const ele = document.getElementById(id);
+		const setState = () => this._comp._state[prop] = ele.value;
+		ele.addEventListener("input", setState);
+		ele.addEventListener("change", setState);
 
-		tr.querySelector(".cs__atk-hit").innerHTML = Renderer.get().render(`{@hit ${bonus}|${CharacterSheetPage._fmtBonus(bonus)}|${name || "Attack"}}`);
+		const hook = () => {
+			const val = this._comp._state[prop] ?? "";
+			if (ele.value !== `${val}`) ele.value = val;
+		};
+		this._comp._addHookBase(prop, hook);
+		hook();
+	}
 
-		const eleDmg = tr.querySelector(".cs__atk-dmgroll");
-		if (dmg && /\d\s*d\s*\d/i.test(dmg)) {
-			eleDmg.innerHTML = Renderer.get().render(`{@dice ${dmg}|${dmg}|${name || "Damage"}}`);
-			eleDmg.classList.remove("ve-hidden");
-		} else {
-			eleDmg.innerHTML = "";
-			eleDmg.classList.add("ve-hidden");
-		}
+	_bindIptNum (id, prop) {
+		const ele = document.getElementById(id);
+		const setState = () => {
+			const raw = ele.value.trim();
+			const num = Number(raw);
+			this._comp._state[prop] = raw === "" || isNaN(num) ? null : num;
+		};
+		ele.addEventListener("input", setState);
+		ele.addEventListener("change", setState);
+
+		const hook = () => {
+			const val = this._comp._state[prop];
+			const asStr = val == null ? "" : `${val}`;
+			if (document.activeElement === ele) return;
+			if (ele.value !== asStr) ele.value = asStr;
+		};
+		this._comp._addHookBase(prop, hook);
+		hook();
+	}
+
+	_bindCb (id, prop) {
+		const ele = document.getElementById(id);
+		ele.addEventListener("change", () => this._comp._state[prop] = ele.checked);
+
+		const hook = () => ele.checked = !!this._comp._state[prop];
+		this._comp._addHookBase(prop, hook);
+		hook();
 	}
 
 	/* -------------------------------------------- Controls -------------------------------------------- */
 
 	_bindStaticControls () {
-		CharacterSheetPage._FIELD_IDS.forEach(id => {
-			const ele = document.getElementById(id);
-			if (!ele) return;
-			ele.addEventListener("input", () => {
-				this._recomputeAll();
-				this._saveStateDebounced();
-			});
-			ele.addEventListener("change", () => {
-				this._recomputeAll();
-				this._saveStateDebounced();
-			});
-		});
-
-		document.getElementById("cs-inspiration").addEventListener("change", () => this._saveStateDebounced());
-
-		document.getElementById("cs-attack-add").addEventListener("click", () => {
-			this._addAttackRow();
-			this._saveStateDebounced();
-		});
+		document.getElementById("cs-attack-add").addEventListener("click", () => this._comp.addAttack());
 
 		document.getElementById("cs-hp-damage").addEventListener("click", () => this._adjustHp(-1));
 		document.getElementById("cs-hp-heal").addEventListener("click", () => this._adjustHp(1));
@@ -261,13 +327,12 @@ class CharacterSheetPage {
 	}
 
 	_adjustHp (sign) {
+		// The delta input is transient UI, not character state, so it is not model-bound
 		const eleDelta = document.getElementById("cs-hp-delta");
 		const delta = Math.abs(Number(eleDelta.value) || 0);
 		if (!delta) return;
-		const eleCur = document.getElementById("cs-hp-cur");
-		eleCur.value = `${(Number(eleCur.value) || 0) + sign * delta}`;
+		this._comp._state.hpCur = (Number(this._comp._state.hpCur) || 0) + (sign * delta);
 		eleDelta.value = "0";
-		this._saveStateDebounced();
 	}
 
 	/* -------------------------------------------- Data pickers -------------------------------------------- */
@@ -283,7 +348,7 @@ class CharacterSheetPage {
 	static _getSkillKeyByName (name) {
 		if (!CharacterSheetPage._SKILL_KEY_BY_NAME) {
 			CharacterSheetPage._SKILL_KEY_BY_NAME = {};
-			CharacterSheetPage._SKILLS.forEach(s => { CharacterSheetPage._SKILL_KEY_BY_NAME[s.key.toLowerCase()] = s.key; });
+			CHAR_SHEET_SKILLS.forEach(s => { CharacterSheetPage._SKILL_KEY_BY_NAME[s.key.toLowerCase()] = s.key; });
 		}
 		const norm = String(name).replace(/[^a-z]/gi, "").toLowerCase();
 		return CharacterSheetPage._SKILL_KEY_BY_NAME[norm] || null;
@@ -292,7 +357,8 @@ class CharacterSheetPage {
 	_setSkillProfByName (name, val) {
 		const key = CharacterSheetPage._getSkillKeyByName(name);
 		if (!key) return;
-		this._setProfState(document.getElementById(`cs-skillprof-${key}`), val);
+		const prop = `skill_${key}`;
+		this._comp._state[prop] = Math.max(Number(this._comp._state[prop]) || 0, val);
 	}
 
 	static _fmtProfList (arr) {
@@ -302,25 +368,17 @@ class CharacterSheetPage {
 			Object.entries(grp).forEach(([k, v]) => {
 				if (v === true) out.push(k.toTitleCase());
 				else if (k === "choose" && v && v.from) out.push(`${v.count || 1} of your choice`);
-				else if (typeof v === "number") out.push(/^any/i.test(k) ? `${v} of your choice` : `${v}\u00d7 ${k.toTitleCase()}`);
+				else if (typeof v === "number") out.push(/^any/i.test(k) ? `${v} of your choice` : `${v}× ${k.toTitleCase()}`);
 				else if (/^any/i.test(k)) out.push("one of your choice");
 			});
 		});
 		return out.join(", ");
 	}
 
-	_appendToTextarea (id, text) {
-		if (!text) return;
-		const ele = document.getElementById(id);
-		const cur = (ele.value || "").trim();
-		if (cur.includes(text)) return;
-		ele.value = cur ? `${cur}\n${text}` : text;
-	}
-
 	_renderPickLink (which) {
 		const ele = document.getElementById(`cs-link-${which}`);
 		if (!ele) return;
-		const tag = this._pickTags[which];
+		const tag = this._comp._state.pickTags[which];
 		ele.innerHTML = tag ? Renderer.get().render(tag) : "";
 	}
 
@@ -332,12 +390,10 @@ class CharacterSheetPage {
 		const doc = await SearchWidget.pGetUserRaceSearch();
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
-		document.getElementById("cs-species").value = doc.n;
-		this._pickTags.species = doc.tag;
-		this._renderPickLink("species");
+		this._comp._state.speciesText = doc.n;
+		this._comp._state.refSpecies = {name: doc.n, source: doc.source, tag: doc.tag};
+		this._comp.setPickTag("species", doc.tag);
 		if (ent) this._applyRace(ent);
-		this._recomputeAll();
-		this._saveStateDebounced();
 	}
 
 	_applyRace (race) {
@@ -345,7 +401,7 @@ class CharacterSheetPage {
 		let spd = null;
 		if (typeof speed === "number") spd = speed;
 		else if (speed && typeof speed === "object" && typeof speed.walk === "number") spd = speed.walk;
-		if (spd != null) document.getElementById("cs-speed").value = `${spd} ft.`;
+		if (spd != null) this._comp._state.speed = `${spd} ft.`;
 
 		(race.skillProficiencies || []).forEach(grp => {
 			Object.entries(grp).forEach(([k, v]) => { if (v === true) this._setSkillProfByName(k, 1); });
@@ -356,12 +412,10 @@ class CharacterSheetPage {
 		const doc = await SearchWidget.pGetUserBackgroundSearch();
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
-		document.getElementById("cs-background").value = doc.n;
-		this._pickTags.background = doc.tag;
-		this._renderPickLink("background");
+		this._comp._state.backgroundText = doc.n;
+		this._comp._state.refBackground = {name: doc.n, source: doc.source, tag: doc.tag};
+		this._comp.setPickTag("background", doc.tag);
 		if (ent) this._applyBackground(ent);
-		this._recomputeAll();
-		this._saveStateDebounced();
 	}
 
 	_applyBackground (bg) {
@@ -373,27 +427,11 @@ class CharacterSheetPage {
 		const parts = [];
 		if (tools) parts.push(`Tools: ${tools}`);
 		if (langs) parts.push(`Languages: ${langs}`);
-		if (parts.length) this._appendToTextarea("cs-proficiencies", parts.join("\n"));
-	}
-
-	async _pGetClasses () {
-		if (this._classCache) return this._classCache;
-		const page = UrlUtil.PG_CLASSES;
-		const all = [
-			...(await DataLoader.pCacheAndGetAllSite(page)),
-			...(await DataLoader.pCacheAndGetAllPrerelease(page)),
-			...(await DataLoader.pCacheAndGetAllBrew(page)),
-		].filter(it => {
-			if (!it.hd || it.className) return false; // base classes only (subclasses lack `hd`)
-			const hash = UrlUtil.URL_TO_HASH_BUILDER[page](it);
-			return !ExcludeUtil.isExcluded(hash, "class", it.source);
-		});
-		all.sort((a, b) => SortUtil.ascSortLower(a.name, b.name) || SortUtil.ascSortLower(a.source, b.source));
-		return this._classCache = all;
+		if (parts.length) this._comp.appendToTextProp("proficienciesText", parts.join("\n"));
 	}
 
 	async _onPickClass () {
-		const classes = await this._pGetClasses();
+		const classes = await CharacterSheetClassData.pGetAllClasses();
 		if (!classes.length) return;
 		const cls = await InputUiUtil.pGetUserEnum({
 			values: classes,
@@ -404,36 +442,29 @@ class CharacterSheetPage {
 		});
 		if (cls == null) return;
 
-		const level = this._getLevel();
-		document.getElementById("cs-classlevel").value = `${cls.name} ${level}`;
-		this._pickTags.class = `{@class ${cls.name}${cls.source !== Parser.SRC_PHB ? `|${cls.source}` : ""}}`;
-		this._renderPickLink("class");
+		const level = this._comp.getLevelNumber();
+		this._comp._state.classText = `${cls.name} ${level}`;
+		this._comp.setPickTag("class", `{@class ${cls.name}${cls.source !== Parser.SRC_PHB ? `|${cls.source}` : ""}}`);
+		this._comp.setSingleClass(cls);
 		this._applyClass(cls, level);
-		this._recomputeAll();
-		this._saveStateDebounced();
 	}
 
 	_applyClass (cls, level) {
-		if (cls.hd && cls.hd.faces) document.getElementById("cs-hd-total").value = `${level}d${cls.hd.faces}`;
-
-		(cls.proficiency || []).forEach(abv => {
-			const ele = document.getElementById(`cs-save-${abv}`);
-			if (ele) ele.checked = true;
-		});
-
-		if (cls.spellcastingAbility) document.getElementById("cs-spell-ability").value = cls.spellcastingAbility;
+		if (cls.hd && cls.hd.faces) this._comp._state.hdTotal = `${level}d${cls.hd.faces}`;
+		(cls.proficiency || []).forEach(abv => this._comp._state[`save_${abv}`] = true);
+		if (cls.spellcastingAbility) this._comp._state.spellAbility = cls.spellcastingAbility;
 	}
 
 	async _onPickWeapon () {
 		const doc = await SearchWidget.pGetUserItemSearch();
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
-		this._addAttackRow(this._weaponToAttack(ent || {}, doc.n));
-		this._saveStateDebounced();
+		this._comp.addAttack(this._weaponToAttack(ent || {}, doc.n));
 	}
 
 	_weaponToAttack (item, name) {
-		const pb = this._getProfBonus();
+		const state = this._comp._getState();
+		const pb = getProfBonus(state);
 		const typeAbv = String(item.type || "").split("|")[0];
 		const props = (item.property || []).map(p => String(p).split("|")[0]);
 		const isFinesse = props.includes("F");
@@ -441,8 +472,8 @@ class CharacterSheetPage {
 
 		let abv = "str";
 		if (isRanged) abv = "dex";
-		else if (isFinesse) abv = this._getAbilMod("dex") > this._getAbilMod("str") ? "dex" : "str";
-		const abilMod = this._getAbilMod(abv);
+		else if (isFinesse) abv = getAbilityModifier(state, "dex") > getAbilityModifier(state, "str") ? "dex" : "str";
+		const abilMod = getAbilityModifier(state, abv);
 
 		let damage = "";
 		if (item.dmg1) {
@@ -459,166 +490,74 @@ class CharacterSheetPage {
 		SearchWidget.pDoGlobalInit();
 		const doc = await SearchWidget.pGetUserSpellSearch();
 		if (!doc) return;
-		this._appendToTextarea("cs-spells", doc.tag);
-		this._saveStateDebounced();
+		this._comp.appendToTextProp("spellsText", doc.tag);
 	}
 
-	/* -------------------------------------------- Calculations -------------------------------------------- */
+	/* -------------------------------------------- Derived rendering -------------------------------------------- */
 
-	_getLevel () { return Math.min(20, Math.max(1, Number(document.getElementById("cs-level").value) || 1)); }
-	_getProfBonus () { return 2 + Math.floor((this._getLevel() - 1) / 4); }
-	_getAbilMod (abv) { return Parser.getAbilityModNumber(Number(document.getElementById(`cs-abil-${abv}`).value) || 10); }
-
-	static _fmtBonus (n) { return `${n >= 0 ? "+" : "\u2212"}${Math.abs(n)}`; }
+	static fmtBonus (n) { return `${n >= 0 ? "+" : "−"}${Math.abs(n)}`; }
 
 	_renderRoll (id, mod, name) {
 		const ele = document.getElementById(id);
 		if (!ele) return;
-		ele.innerHTML = Renderer.get().render(`{@d20 ${mod}|${CharacterSheetPage._fmtBonus(mod)}|${name}}`);
+		ele.innerHTML = Renderer.get().render(`{@d20 ${mod}|${CharacterSheetPage.fmtBonus(mod)}|${name}}`);
 	}
 
-	_recomputeAll () {
-		const pb = this._getProfBonus();
-		document.getElementById("cs-pb").textContent = CharacterSheetPage._fmtBonus(pb);
+	_renderDerived () {
+		const derived = deriveCharacterSheet(this._comp._getState());
 
-		// Ability modifiers
-		CharacterSheetPage._ABILITIES.forEach(([abv, name]) => {
-			this._renderRoll(`cs-mod-${abv}`, this._getAbilMod(abv), `${name} check`);
+		document.getElementById("cs-pb").textContent = CharacterSheetPage.fmtBonus(derived.pb);
+
+		CHAR_SHEET_ABILITIES.forEach(([abv, name]) => {
+			this._renderRoll(`cs-mod-${abv}`, derived.abilities[abv].mod, `${name} check`);
+			this._renderRoll(`cs-saveroll-${abv}`, derived.saves[abv].mod, `${name} save`);
 		});
 
-		// Saving throws
-		CharacterSheetPage._ABILITIES.forEach(([abv, name]) => {
-			const isProf = document.getElementById(`cs-save-${abv}`).checked;
-			const mod = this._getAbilMod(abv) + (isProf ? pb : 0);
-			this._renderRoll(`cs-saveroll-${abv}`, mod, `${name} save`);
-		});
-
-		// Skills
-		CharacterSheetPage._SKILLS.forEach(skill => {
-			const profState = Number(document.getElementById(`cs-skillprof-${skill.key}`).getAttribute("data-cs-prof")) || 0;
-			const mod = this._getAbilMod(skill.ability) + (profState === 1 ? pb : profState === 2 ? pb * 2 : 0);
+		CHAR_SHEET_SKILLS.forEach(skill => {
+			const {mod, profState} = derived.skills[skill.key];
 			this._renderRoll(`cs-skillroll-${skill.key}`, mod, skill.name);
-			if (skill.key === "perception") {
-				document.getElementById("cs-passive-perception").textContent = `${10 + mod}`;
-			}
+
+			const btn = document.getElementById(`cs-skillprof-${skill.key}`);
+			btn.classList.toggle("cs__prof--1", profState === 1);
+			btn.classList.toggle("cs__prof--2", profState === 2);
 		});
 
-		// Initiative
-		const initMod = this._getAbilMod("dex") + (Number(document.getElementById("cs-init-misc").value) || 0);
-		const eleInit = document.getElementById("cs-initiative-roll");
-		eleInit.innerHTML = Renderer.get().render(`{@initiative ${initMod}|${CharacterSheetPage._fmtBonus(initMod)}}`);
+		document.getElementById("cs-passive-perception").textContent = `${derived.passivePerception}`;
 
-		// Spellcasting
-		const spellAbil = document.getElementById("cs-spell-ability").value;
+		document.getElementById("cs-initiative-roll").innerHTML = Renderer.get().render(`{@initiative ${derived.initiative}|${CharacterSheetPage.fmtBonus(derived.initiative)}}`);
+
 		const eleDc = document.getElementById("cs-spell-dc");
 		const eleAtk = document.getElementById("cs-spell-atk");
-		if (spellAbil) {
-			const abilMod = this._getAbilMod(spellAbil);
-			eleDc.textContent = `${8 + pb + abilMod}`;
-			eleAtk.innerHTML = Renderer.get().render(`{@d20 ${pb + abilMod}|${CharacterSheetPage._fmtBonus(pb + abilMod)}|Spell attack}`);
+		if (derived.spell) {
+			eleDc.textContent = `${derived.spell.dc}`;
+			eleAtk.innerHTML = Renderer.get().render(`{@d20 ${derived.spell.atkMod}|${CharacterSheetPage.fmtBonus(derived.spell.atkMod)}|Spell attack}`);
 		} else {
-			eleDc.textContent = "\u2014";
-			eleAtk.textContent = "\u2014";
+			eleDc.textContent = "—";
+			eleAtk.textContent = "—";
 		}
-
-		// Attacks (re-render clickable rolls)
-		document.querySelectorAll("#cs-attacks-body .cs__atk-row").forEach(tr => this._renderAttackRow(tr));
 	}
 
-	/* -------------------------------------------- State -------------------------------------------- */
-
-	_getSaveableState () {
-		const state = {fields: {}, saves: {}, skills: {}, attacks: []};
-
-		CharacterSheetPage._FIELD_IDS.forEach(id => {
-			const ele = document.getElementById(id);
-			if (ele) state.fields[id] = ele.value;
-		});
-
-		state.inspiration = document.getElementById("cs-inspiration").checked;
-
-		CharacterSheetPage._ABILITIES.forEach(([abv]) => {
-			state.fields[`cs-abil-${abv}`] = document.getElementById(`cs-abil-${abv}`).value;
-			state.saves[abv] = document.getElementById(`cs-save-${abv}`).checked;
-		});
-
-		CharacterSheetPage._SKILLS.forEach(skill => {
-			state.skills[skill.key] = Number(document.getElementById(`cs-skillprof-${skill.key}`).getAttribute("data-cs-prof")) || 0;
-		});
-
-		state.deathSuccess = this._deathSuccess;
-		state.deathFail = this._deathFail;
-		state.pickTags = {...this._pickTags};
-
-		document.querySelectorAll("#cs-attacks-body .cs__atk-row").forEach(tr => {
-			state.attacks.push({
-				name: tr.querySelector(".cs__atk-name").value,
-				atkBonus: Number(tr.querySelector(".cs__atk-bonus").value) || 0,
-				damage: tr.querySelector(".cs__atk-dmg").value,
-			});
-		});
-
-		return state;
-	}
-
-	_setStateFrom (state) {
-		if (!state || typeof state !== "object") return;
-		this._isLoading = true;
-
-		const fields = state.fields || {};
-		Object.entries(fields).forEach(([id, val]) => {
-			const ele = document.getElementById(id);
-			if (ele) ele.value = val;
-		});
-
-		document.getElementById("cs-inspiration").checked = !!state.inspiration;
-
-		CharacterSheetPage._ABILITIES.forEach(([abv]) => {
-			const eleSave = document.getElementById(`cs-save-${abv}`);
-			if (eleSave) eleSave.checked = !!(state.saves && state.saves[abv]);
-		});
-
-		CharacterSheetPage._SKILLS.forEach(skill => {
-			const btn = document.getElementById(`cs-skillprof-${skill.key}`);
-			const val = (state.skills && state.skills[skill.key]) || 0;
-			this._setProfState(btn, val);
-		});
-
-		this._deathSuccess = Math.min(3, Math.max(0, Number(state.deathSuccess) || 0));
-		this._deathFail = Math.min(3, Math.max(0, Number(state.deathFail) || 0));
-		this._renderDeathSaves();
-
-		this._pickTags = state.pickTags && typeof state.pickTags === "object" ? {...state.pickTags} : {};
-		this._renderPickLinks();
-
-		document.getElementById("cs-attacks-body").innerHTML = "";
-		const attacks = Array.isArray(state.attacks) && state.attacks.length ? state.attacks : [{}];
-		attacks.forEach(atk => this._addAttackRow(atk));
-
-		this._isLoading = false;
-		this._recomputeAll();
-	}
+	/* -------------------------------------------- Persistence -------------------------------------------- */
 
 	_saveStateDebounced () {
-		if (this._isLoading) return;
 		if (this._saveTimer) clearTimeout(this._saveTimer);
 		this._saveTimer = setTimeout(() => {
-			StorageUtil.syncSetForPage(CharacterSheetPage._STORAGE_KEY, this._getSaveableState());
+			StorageUtil.syncSetForPage(CharacterSheetPage._STORAGE_KEY, this._comp.getSaveableState());
 		}, 150);
 	}
 
 	/* -------------------------------------------- Toolbar actions -------------------------------------------- */
 
 	_onSaveToFile () {
-		const name = (document.getElementById("cs-name").value || "character").trim() || "character";
-		DataUtil.userDownload(Parser.stringToSlug(name) || "character", this._getSaveableState(), {fileType: CharacterSheetPage._FILE_TYPE});
+		const name = (this._comp._state.name || "character").trim() || "character";
+		DataUtil.userDownload(Parser.stringToSlug(name) || "character", this._comp.getSaveableState(), {fileType: CharacterSheetPage._FILE_TYPE});
 	}
 
 	async _onLoadFromFile () {
 		const {jsons, errors} = await InputUiUtil.pGetUserUploadJson({expectedFileTypes: [CharacterSheetPage._FILE_TYPE]});
 		DataUtil.doHandleFileLoadErrorsGeneric(errors);
 		if (!jsons?.length) return;
-		this._setStateFrom(jsons[0]);
+		this._doLoadState(jsons[0]);
 		this._saveStateDebounced();
 	}
 
