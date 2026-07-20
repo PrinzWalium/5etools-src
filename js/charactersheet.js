@@ -2,6 +2,7 @@ import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS} from "./charactersheet/characte
 import {CharacterModel} from "./charactersheet/charactersheet-model.js";
 import {deriveCharacterSheet, getAbilityModifier, getProfBonus} from "./charactersheet/charactersheet-derive.js";
 import {CharacterSheetClassData} from "./charactersheet/charactersheet-classdata.js";
+import {CharacterWizard} from "./charactersheet/charactersheet-wizard.js";
 
 /** Renders the attacks table from the model's `attacks` collection. */
 class _AttacksRenderableCollection extends RenderableCollectionBase {
@@ -89,7 +90,6 @@ class _AttacksRenderableCollection extends RenderableCollectionBase {
 class CharacterSheetPage {
 	static _STORAGE_KEY = "charactersheet-state";
 	static _FILE_TYPE = "charactersheet";
-	static _SKILL_KEY_BY_NAME = null;
 
 	// Simple string-valued inputs/selects/textareas, bound verbatim to model props
 	static _IPT_STR_BINDINGS = [
@@ -315,6 +315,8 @@ class CharacterSheetPage {
 	/* -------------------------------------------- Controls -------------------------------------------- */
 
 	_bindStaticControls () {
+		document.getElementById("cs-btn-wizard").addEventListener("click", () => CharacterWizard.pShow({comp: this._comp}));
+
 		document.getElementById("cs-attack-add").addEventListener("click", () => this._comp.addAttack());
 
 		document.getElementById("cs-hp-damage").addEventListener("click", () => this._adjustHp(-1));
@@ -345,36 +347,6 @@ class CharacterSheetPage {
 		document.getElementById("cs-spell-add").addEventListener("click", () => this._onPickSpell());
 	}
 
-	static _getSkillKeyByName (name) {
-		if (!CharacterSheetPage._SKILL_KEY_BY_NAME) {
-			CharacterSheetPage._SKILL_KEY_BY_NAME = {};
-			CHAR_SHEET_SKILLS.forEach(s => { CharacterSheetPage._SKILL_KEY_BY_NAME[s.key.toLowerCase()] = s.key; });
-		}
-		const norm = String(name).replace(/[^a-z]/gi, "").toLowerCase();
-		return CharacterSheetPage._SKILL_KEY_BY_NAME[norm] || null;
-	}
-
-	_setSkillProfByName (name, val) {
-		const key = CharacterSheetPage._getSkillKeyByName(name);
-		if (!key) return;
-		const prop = `skill_${key}`;
-		this._comp._state[prop] = Math.max(Number(this._comp._state[prop]) || 0, val);
-	}
-
-	static _fmtProfList (arr) {
-		if (!arr || !arr.length) return "";
-		const out = [];
-		arr.forEach(grp => {
-			Object.entries(grp).forEach(([k, v]) => {
-				if (v === true) out.push(k.toTitleCase());
-				else if (k === "choose" && v && v.from) out.push(`${v.count || 1} of your choice`);
-				else if (typeof v === "number") out.push(/^any/i.test(k) ? `${v} of your choice` : `${v}× ${k.toTitleCase()}`);
-				else if (/^any/i.test(k)) out.push("one of your choice");
-			});
-		});
-		return out.join(", ");
-	}
-
 	_renderPickLink (which) {
 		const ele = document.getElementById(`cs-link-${which}`);
 		if (!ele) return;
@@ -390,44 +362,14 @@ class CharacterSheetPage {
 		const doc = await SearchWidget.pGetUserRaceSearch();
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
-		this._comp._state.speciesText = doc.n;
-		this._comp._state.refSpecies = {name: doc.n, source: doc.source, tag: doc.tag};
-		this._comp.setPickTag("species", doc.tag);
-		if (ent) this._applyRace(ent);
-	}
-
-	_applyRace (race) {
-		const speed = race.speed;
-		let spd = null;
-		if (typeof speed === "number") spd = speed;
-		else if (speed && typeof speed === "object" && typeof speed.walk === "number") spd = speed.walk;
-		if (spd != null) this._comp._state.speed = `${spd} ft.`;
-
-		(race.skillProficiencies || []).forEach(grp => {
-			Object.entries(grp).forEach(([k, v]) => { if (v === true) this._setSkillProfByName(k, 1); });
-		});
+		this._comp.applyPickedRace({doc, ent});
 	}
 
 	async _onPickBackground () {
 		const doc = await SearchWidget.pGetUserBackgroundSearch();
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
-		this._comp._state.backgroundText = doc.n;
-		this._comp._state.refBackground = {name: doc.n, source: doc.source, tag: doc.tag};
-		this._comp.setPickTag("background", doc.tag);
-		if (ent) this._applyBackground(ent);
-	}
-
-	_applyBackground (bg) {
-		(bg.skillProficiencies || []).forEach(grp => {
-			Object.entries(grp).forEach(([k, v]) => { if (v === true) this._setSkillProfByName(k, 1); });
-		});
-		const tools = CharacterSheetPage._fmtProfList(bg.toolProficiencies);
-		const langs = CharacterSheetPage._fmtProfList(bg.languageProficiencies);
-		const parts = [];
-		if (tools) parts.push(`Tools: ${tools}`);
-		if (langs) parts.push(`Languages: ${langs}`);
-		if (parts.length) this._comp.appendToTextProp("proficienciesText", parts.join("\n"));
+		this._comp.applyPickedBackground({doc, ent});
 	}
 
 	async _onPickClass () {
@@ -442,17 +384,7 @@ class CharacterSheetPage {
 		});
 		if (cls == null) return;
 
-		const level = this._comp.getLevelNumber();
-		this._comp._state.classText = `${cls.name} ${level}`;
-		this._comp.setPickTag("class", `{@class ${cls.name}${cls.source !== Parser.SRC_PHB ? `|${cls.source}` : ""}}`);
-		this._comp.setSingleClass(cls);
-		this._applyClass(cls, level);
-	}
-
-	_applyClass (cls, level) {
-		if (cls.hd && cls.hd.faces) this._comp._state.hdTotal = `${level}d${cls.hd.faces}`;
-		(cls.proficiency || []).forEach(abv => this._comp._state[`save_${abv}`] = true);
-		if (cls.spellcastingAbility) this._comp._state.spellAbility = cls.spellcastingAbility;
+		this._comp.applyPickedClass(cls, this._comp.getLevelNumber());
 	}
 
 	async _onPickWeapon () {

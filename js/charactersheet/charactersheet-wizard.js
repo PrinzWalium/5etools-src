@@ -1,0 +1,569 @@
+import {CHAR_SHEET_ABILITIES} from "./charactersheet-consts.js";
+import {CharacterSheetClassData} from "./charactersheet-classdata.js";
+import {
+	CHOICE_TYPE_LANGUAGE,
+	CHOICE_TYPE_SKILL,
+	CHOICE_TYPE_TOOL,
+	getPendingChoices,
+} from "./charactersheet-choices.js";
+import {
+	ABILITY_METHOD_MANUAL,
+	ABILITY_METHOD_POINT_BUY,
+	ABILITY_METHOD_STANDARD_ARRAY,
+	POINT_BUY_BUDGET,
+	POINT_BUY_MAX_SCORE,
+	POINT_BUY_MIN_SCORE,
+	STANDARD_ARRAY,
+	getPointBuyTotalCost,
+	isValidStandardArrayAssignment,
+} from "./charactersheet-abilityscores.js";
+
+/**
+ * Guided character creation: a step-sequence wizard
+ * (Species → Class → Background → Ability Scores → Choices → Equipment → Review)
+ * which accumulates a draft and applies it to the `CharacterModel` on finish.
+ */
+export class CharacterWizard {
+	static _STEPS = [
+		{id: "species", name: "Species"},
+		{id: "class", name: "Class"},
+		{id: "background", name: "Background"},
+		{id: "abilities", name: "Ability Scores"},
+		{id: "choices", name: "Choices"},
+		{id: "equipment", name: "Equipment"},
+		{id: "review", name: "Review"},
+	];
+
+	constructor ({comp}) {
+		this._comp = comp;
+		this._ixStep = 0;
+
+		this._draft = {
+			name: "",
+			race: null, // {doc, ent}
+			cls: null, // class entity
+			level: 1,
+			background: null, // {doc, ent}
+			abilityMethod: null,
+			abilityScores: Object.fromEntries(CHAR_SHEET_ABILITIES.map(([abv]) => [abv, null])),
+			choices: [], // recomputed on entering the Choices step
+			choiceSelections: new Map(), // choice signature → Set of selected option names
+			isAddEquipment: true,
+			isSetSuggestedHp: true,
+		};
+
+		this._eleBody = null;
+		this._eleFooter = null;
+		this._doClose = null;
+	}
+
+	static async pShow ({comp}) {
+		const wizard = new CharacterWizard({comp});
+		return wizard._pShow();
+	}
+
+	async _pShow () {
+		const {eleModalInner, eleModalFooter, doClose, pGetResolved} = UiUtil.getShowModal({
+			title: "Guided Character Creation",
+			isHeaderBorder: true,
+			hasFooter: true,
+			isUncappedHeight: true,
+			isMinHeight0: true,
+		});
+
+		this._eleBody = eleModalInner;
+		this._eleFooter = eleModalFooter;
+		this._doClose = doClose;
+
+		this._renderStep();
+
+		const [isDataEntered] = await pGetResolved();
+		return !!isDataEntered;
+	}
+
+	/* -------------------------------------------- Navigation -------------------------------------------- */
+
+	_renderStep () {
+		const step = CharacterWizard._STEPS[this._ixStep];
+		this._eleBody.innerHTML = "";
+		this._eleBody.classList.add("ve-flex-col", "ve-px-1");
+
+		const dispSteps = document.createElement("div");
+		dispSteps.className = "ve-muted ve-small ve-mb-2 ve-no-shrink";
+		dispSteps.textContent = `Step ${this._ixStep + 1} of ${CharacterWizard._STEPS.length}: ${step.name}`;
+		this._eleBody.appendChild(dispSteps);
+
+		const wrpStep = document.createElement("div");
+		wrpStep.className = "ve-flex-col ve-min-h-0";
+		this._eleBody.appendChild(wrpStep);
+
+		this[`_render_${step.id}`](wrpStep);
+		this._renderFooter();
+	}
+
+	_renderFooter () {
+		this._eleFooter.innerHTML = "";
+		const wrp = document.createElement("div");
+		wrp.className = "ve-flex-v-center ve-w-100 ve-py-2 ve-px-1";
+
+		const btnBack = document.createElement("button");
+		btnBack.type = "button";
+		btnBack.className = "ve-btn ve-btn-default";
+		btnBack.textContent = "Back";
+		btnBack.disabled = this._ixStep === 0;
+		btnBack.addEventListener("click", () => {
+			this._ixStep -= 1;
+			this._renderStep();
+		});
+
+		const btnCancel = document.createElement("button");
+		btnCancel.type = "button";
+		btnCancel.className = "ve-btn ve-btn-default ve-ml-2";
+		btnCancel.textContent = "Cancel";
+		btnCancel.addEventListener("click", () => this._doClose(false));
+
+		const dispValidation = document.createElement("div");
+		dispValidation.className = "ve-muted ve-small ve-ml-auto ve-mr-2";
+		dispValidation.id = "cs-wiz-validation";
+
+		const isLast = this._ixStep === CharacterWizard._STEPS.length - 1;
+		const btnNext = document.createElement("button");
+		btnNext.type = "button";
+		btnNext.className = `ve-btn ${isLast ? "ve-btn-primary" : "ve-btn-default"}`;
+		btnNext.textContent = isLast ? "Finish" : "Next";
+		btnNext.addEventListener("click", () => {
+			const msgInvalid = this._getStepValidationError();
+			if (msgInvalid) {
+				dispValidation.textContent = msgInvalid;
+				return;
+			}
+			if (isLast) {
+				this._applyDraft();
+				this._doClose(true);
+				return;
+			}
+			this._ixStep += 1;
+			this._renderStep();
+		});
+
+		wrp.append(btnBack, btnCancel, dispValidation, btnNext);
+		this._eleFooter.appendChild(wrp);
+	}
+
+	_getStepValidationError () {
+		const step = CharacterWizard._STEPS[this._ixStep];
+		if (step.id !== "abilities" || this._draft.abilityMethod == null) return null;
+
+		if (this._draft.abilityMethod === ABILITY_METHOD_STANDARD_ARRAY) {
+			if (!isValidStandardArrayAssignment(this._draft.abilityScores)) return "Assign each standard array value exactly once.";
+			return null;
+		}
+
+		if (this._draft.abilityMethod === ABILITY_METHOD_POINT_BUY) {
+			const cost = getPointBuyTotalCost(this._draft.abilityScores);
+			if (cost == null) return `Scores must be between ${POINT_BUY_MIN_SCORE} and ${POINT_BUY_MAX_SCORE}.`;
+			if (cost > POINT_BUY_BUDGET) return `Point buy total (${cost}) exceeds the ${POINT_BUY_BUDGET}-point budget.`;
+			return null;
+		}
+
+		return null;
+	}
+
+	/* -------------------------------------------- Step: pickers -------------------------------------------- */
+
+	_getPickedDisplay (picked, placeholder) {
+		if (!picked) return `<i class="ve-muted">${placeholder}</i>`;
+		return Renderer.get().render(picked.doc.tag);
+	}
+
+	_render_species (wrp) {
+		wrp.innerHTML = `
+			<p>Choose your character's species. This sets speed and fixed proficiencies; choices (skills, languages) are resolved in the Choices step.</p>
+			<div class="ve-flex-v-center">
+				<button type="button" class="ve-btn ve-btn-default" id="cs-wiz-pick-species">Choose Species...</button>
+				<div class="ve-ml-2" id="cs-wiz-disp-species">${this._getPickedDisplay(this._draft.race, "Nothing selected (optional)")}</div>
+			</div>
+		`;
+		wrp.querySelector("#cs-wiz-pick-species").addEventListener("click", async () => {
+			const doc = await SearchWidget.pGetUserRaceSearch();
+			if (!doc) return;
+			const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
+			this._draft.race = {doc, ent};
+			wrp.querySelector("#cs-wiz-disp-species").innerHTML = this._getPickedDisplay(this._draft.race, "");
+		});
+	}
+
+	async _render_class (wrp) {
+		wrp.innerHTML = `
+			<p>Choose your class and level. This sets hit dice, saving throw proficiencies, and spellcasting ability.</p>
+			<div class="ve-flex-v-center ve-mb-2">
+				<label class="ve-flex-v-center"><span class="ve-mr-2">Class</span><select class="ve-form-control ve-input-xs" id="cs-wiz-sel-class" style="max-width: 300px;"><option value="-1">Loading...</option></select></label>
+				<label class="ve-flex-v-center ve-ml-3"><span class="ve-mr-2">Level</span><input type="number" min="1" max="20" class="ve-form-control ve-input-xs cs__ipt-num" id="cs-wiz-ipt-level" value="${this._draft.level}"></label>
+			</div>
+			<div class="ve-muted ve-small" id="cs-wiz-disp-class"></div>
+		`;
+
+		const sel = wrp.querySelector("#cs-wiz-sel-class");
+		const iptLevel = wrp.querySelector("#cs-wiz-ipt-level");
+		const disp = wrp.querySelector("#cs-wiz-disp-class");
+
+		const renderClassInfo = () => {
+			const cls = this._draft.cls;
+			if (!cls) return disp.textContent = "";
+			const parts = [`Hit die: d${cls.hd?.faces ?? "?"}`];
+			if (cls.proficiency?.length) parts.push(`Saves: ${cls.proficiency.map(abv => Parser.attAbvToFull(abv)).join(", ")}`);
+			if (cls.spellcastingAbility) parts.push(`Spellcasting: ${Parser.attAbvToFull(cls.spellcastingAbility)}`);
+			disp.textContent = parts.join(" • ");
+		};
+
+		const classes = await CharacterSheetClassData.pGetAllClasses();
+		sel.innerHTML = [
+			`<option value="-1">Select a class...</option>`,
+			...classes.map((cls, i) => `<option value="${i}">${`${cls.name} (${Parser.sourceJsonToAbv(cls.source)})`.qq()}</option>`),
+		].join("");
+		const ixCur = this._draft.cls ? classes.findIndex(it => it.name === this._draft.cls.name && it.source === this._draft.cls.source) : -1;
+		sel.value = `${ixCur}`;
+		renderClassInfo();
+
+		sel.addEventListener("change", () => {
+			const ix = Number(sel.value);
+			this._draft.cls = ix >= 0 ? classes[ix] : null;
+			renderClassInfo();
+		});
+		iptLevel.addEventListener("change", () => {
+			this._draft.level = Math.min(20, Math.max(1, Number(iptLevel.value) || 1));
+			iptLevel.value = `${this._draft.level}`;
+		});
+	}
+
+	_render_background (wrp) {
+		wrp.innerHTML = `
+			<p>Choose your background. Fixed skill/tool/language proficiencies are applied directly; anything with a choice is resolved in the Choices step.</p>
+			<div class="ve-flex-v-center">
+				<button type="button" class="ve-btn ve-btn-default" id="cs-wiz-pick-background">Choose Background...</button>
+				<div class="ve-ml-2" id="cs-wiz-disp-background">${this._getPickedDisplay(this._draft.background, "Nothing selected (optional)")}</div>
+			</div>
+		`;
+		wrp.querySelector("#cs-wiz-pick-background").addEventListener("click", async () => {
+			const doc = await SearchWidget.pGetUserBackgroundSearch();
+			if (!doc) return;
+			const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
+			this._draft.background = {doc, ent};
+			wrp.querySelector("#cs-wiz-disp-background").innerHTML = this._getPickedDisplay(this._draft.background, "");
+		});
+	}
+
+	/* -------------------------------------------- Step: ability scores -------------------------------------------- */
+
+	_render_abilities (wrp) {
+		wrp.innerHTML = `
+			<p>Choose how to determine ability scores. Species ability bonuses are not yet applied automatically&mdash;enter final scores, or adjust on the sheet afterwards.</p>
+			<div class="ve-flex-v-center ve-mb-2">
+				<label class="ve-flex-v-center"><span class="ve-mr-2">Method</span><select class="ve-form-control ve-input-xs" id="cs-wiz-sel-abil-method" style="max-width: 220px;">
+					<option value="">Keep current scores</option>
+					<option value="${ABILITY_METHOD_STANDARD_ARRAY}">Standard Array (15, 14, 13, 12, 10, 8)</option>
+					<option value="${ABILITY_METHOD_POINT_BUY}">Point Buy (${POINT_BUY_BUDGET} points)</option>
+					<option value="${ABILITY_METHOD_MANUAL}">Manual / Rolled</option>
+				</select></label>
+				<div class="ve-muted ve-small ve-ml-3" id="cs-wiz-disp-abil-status"></div>
+			</div>
+			<div id="cs-wiz-wrp-abil-inputs"></div>
+		`;
+
+		const sel = wrp.querySelector("#cs-wiz-sel-abil-method");
+		const wrpInputs = wrp.querySelector("#cs-wiz-wrp-abil-inputs");
+		const dispStatus = wrp.querySelector("#cs-wiz-disp-abil-status");
+		sel.value = this._draft.abilityMethod ?? "";
+
+		const renderStatus = () => {
+			if (this._draft.abilityMethod === ABILITY_METHOD_POINT_BUY) {
+				const cost = getPointBuyTotalCost(this._draft.abilityScores);
+				dispStatus.textContent = cost == null ? `Scores must be ${POINT_BUY_MIN_SCORE}–${POINT_BUY_MAX_SCORE}` : `${cost} / ${POINT_BUY_BUDGET} points spent`;
+				return;
+			}
+			if (this._draft.abilityMethod === ABILITY_METHOD_STANDARD_ARRAY) {
+				const assigned = Object.values(this._draft.abilityScores).filter(v => v != null);
+				dispStatus.textContent = `${assigned.length} / ${CHAR_SHEET_ABILITIES.length} assigned`;
+				return;
+			}
+			dispStatus.textContent = "";
+		};
+
+		const renderInputs = () => {
+			const method = this._draft.abilityMethod;
+			wrpInputs.innerHTML = "";
+			if (method == null) return renderStatus();
+
+			const isStandardArray = method === ABILITY_METHOD_STANDARD_ARRAY;
+			const min = method === ABILITY_METHOD_POINT_BUY ? POINT_BUY_MIN_SCORE : 1;
+			const max = method === ABILITY_METHOD_POINT_BUY ? POINT_BUY_MAX_SCORE : 30;
+
+			wrpInputs.innerHTML = `<div class="ve-flex ve-flex-wrap">${CHAR_SHEET_ABILITIES
+				.map(([abv, name]) => `
+					<label class="ve-flex-col ve-mr-3 ve-mb-2" style="width: 90px;">
+						<span class="ve-small ve-muted">${name}</span>
+						${isStandardArray
+		? `<select class="ve-form-control ve-input-xs" data-cs-wiz-abv="${abv}"><option value="">&mdash;</option>${STANDARD_ARRAY.map(v => `<option value="${v}">${v}</option>`).join("")}</select>`
+		: `<input type="number" min="${min}" max="${max}" class="ve-form-control ve-input-xs" data-cs-wiz-abv="${abv}">`}
+					</label>
+				`)
+				.join("")}</div>`;
+
+			wrpInputs.querySelectorAll("[data-cs-wiz-abv]").forEach(ele => {
+				const abv = ele.getAttribute("data-cs-wiz-abv");
+				const cur = this._draft.abilityScores[abv];
+				if (cur != null) ele.value = `${cur}`;
+				ele.addEventListener("change", () => {
+					const raw = ele.value.trim();
+					this._draft.abilityScores[abv] = raw === "" ? null : Number(raw);
+					renderStatus();
+				});
+			});
+			renderStatus();
+		};
+
+		sel.addEventListener("change", () => {
+			this._draft.abilityMethod = sel.value || null;
+			const method = this._draft.abilityMethod;
+			// Seed sensible defaults per method
+			CHAR_SHEET_ABILITIES.forEach(([abv]) => {
+				this._draft.abilityScores[abv] = method === ABILITY_METHOD_POINT_BUY
+					? POINT_BUY_MIN_SCORE
+					: method === ABILITY_METHOD_MANUAL ? 10 : null;
+			});
+			renderInputs();
+		});
+		renderInputs();
+	}
+
+	/* -------------------------------------------- Step: choice queue -------------------------------------------- */
+
+	static _getChoiceSig (choice) { return `${choice.sourceName}|${choice.label}`; }
+
+	_render_choices (wrp) {
+		this._draft.choices = getPendingChoices({
+			race: this._draft.race?.ent,
+			background: this._draft.background?.ent,
+			cls: this._draft.cls,
+		});
+
+		// Drop stale selections (e.g. after going back and changing class)
+		const sigs = new Set(this._draft.choices.map(it => CharacterWizard._getChoiceSig(it)));
+		[...this._draft.choiceSelections.keys()].filter(sig => !sigs.has(sig)).forEach(sig => this._draft.choiceSelections.delete(sig));
+
+		if (!this._draft.choices.length) {
+			wrp.innerHTML = `<p class="ve-muted">No choices to resolve${this._draft.race || this._draft.cls || this._draft.background ? "" : "&mdash;pick a species, class, or background first"}.</p>`;
+			return;
+		}
+
+		wrp.innerHTML = `<p>Resolve the choices granted by your selections.</p>`;
+
+		this._draft.choices.forEach(choice => {
+			const sig = CharacterWizard._getChoiceSig(choice);
+			if (!this._draft.choiceSelections.has(sig)) this._draft.choiceSelections.set(sig, new Set());
+			const selections = this._draft.choiceSelections.get(sig);
+			selections.forEach(v => { if (!choice.from.includes(v)) selections.delete(v); });
+
+			const wrpChoice = document.createElement("div");
+			wrpChoice.className = "ve-mb-3";
+			wrpChoice.innerHTML = `
+				<div class="bold">${choice.label.qq()} <span class="ve-muted ve-small">(${choice.sourceName.qq()})</span></div>
+				<div class="ve-muted ve-small cs-wiz-choice-status"></div>
+				<div class="ve-flex ve-flex-wrap cs-wiz-choice-opts"></div>
+			`;
+			const dispStatus = wrpChoice.querySelector(".cs-wiz-choice-status");
+			const wrpOpts = wrpChoice.querySelector(".cs-wiz-choice-opts");
+
+			const renderStatus = () => dispStatus.textContent = `${selections.size} / ${choice.count} selected`;
+
+			choice.from.forEach(opt => {
+				const lbl = document.createElement("label");
+				lbl.className = "ve-flex-v-center ve-mr-3";
+				lbl.style.minWidth = "170px";
+				const cb = document.createElement("input");
+				cb.type = "checkbox";
+				cb.className = "ve-mr-1";
+				cb.checked = selections.has(opt);
+				cb.addEventListener("change", () => {
+					if (cb.checked) {
+						if (selections.size >= choice.count) {
+							cb.checked = false;
+							return;
+						}
+						selections.add(opt);
+					} else selections.delete(opt);
+					renderStatus();
+				});
+				const spn = document.createElement("span");
+				spn.textContent = opt;
+				lbl.append(cb, spn);
+				wrpOpts.appendChild(lbl);
+			});
+
+			renderStatus();
+			wrp.appendChild(wrpChoice);
+		});
+	}
+
+	/* -------------------------------------------- Step: equipment -------------------------------------------- */
+
+	static _getBackgroundEquipmentLines (startingEquipment) {
+		if (!startingEquipment?.length) return [];
+		const out = [];
+		startingEquipment.forEach(grp => {
+			Object.entries(grp).forEach(([k, items]) => {
+				if (!Array.isArray(items)) return;
+				const pts = items.map(item => {
+					if (typeof item === "string") return `{@item ${item}}`;
+					if (item.special) return `${item.quantity ? `${item.quantity}× ` : ""}${item.special}`;
+					if (item.item) return `${item.quantity ? `${item.quantity}× ` : ""}{@item ${item.item}${item.displayName ? `|${item.displayName}` : ""}}`;
+					return null;
+				}).filter(Boolean);
+				if (!pts.length) return;
+				out.push(`${k === "_" ? "" : `(${k}) `}${pts.join(", ")}`);
+			});
+		});
+		return out;
+	}
+
+	_getEquipmentLines () {
+		const out = [];
+		if (this._draft.cls?.startingEquipment?.default?.length) {
+			out.push(...this._draft.cls.startingEquipment.default.map(line => ({source: `Class: ${this._draft.cls.name}`, line})));
+		}
+		if (this._draft.background?.ent?.startingEquipment) {
+			out.push(...CharacterWizard._getBackgroundEquipmentLines(this._draft.background.ent.startingEquipment)
+				.map(line => ({source: `Background: ${this._draft.background.ent.name}`, line})));
+		}
+		return out;
+	}
+
+	_render_equipment (wrp) {
+		const lines = this._getEquipmentLines();
+
+		if (!lines.length) {
+			wrp.innerHTML = `<p class="ve-muted">No starting equipment data&mdash;pick a class or background first, or fill in equipment on the sheet.</p>`;
+			return;
+		}
+
+		wrp.innerHTML = `
+			<p>Starting equipment from your class and background. A structured "choose A or B" flow arrives with the inventory system; for now, this text is added to the Equipment notes.</p>
+			<label class="ve-flex-v-center ve-mb-2"><input type="checkbox" id="cs-wiz-cb-equipment" class="ve-mr-1" ${this._draft.isAddEquipment ? "checked" : ""}> Add this to the sheet's equipment notes on finish</label>
+			<div id="cs-wiz-wrp-equipment"></div>
+		`;
+		wrp.querySelector("#cs-wiz-cb-equipment").addEventListener("change", evt => this._draft.isAddEquipment = evt.currentTarget.checked);
+
+		const wrpLines = wrp.querySelector("#cs-wiz-wrp-equipment");
+		let lastSource = null;
+		lines.forEach(({source, line}) => {
+			if (source !== lastSource) {
+				const hdr = document.createElement("div");
+				hdr.className = "bold ve-mt-2";
+				hdr.textContent = source;
+				wrpLines.appendChild(hdr);
+				lastSource = source;
+			}
+			const div = document.createElement("div");
+			div.innerHTML = `• ${Renderer.get().render(line)}`;
+			wrpLines.appendChild(div);
+		});
+	}
+
+	/* -------------------------------------------- Step: review -------------------------------------------- */
+
+	_getSuggestedHpMax () {
+		const faces = this._draft.cls?.hd?.faces;
+		if (!faces) return null;
+		const conScore = this._draft.abilityMethod != null && this._draft.abilityScores.con != null
+			? this._draft.abilityScores.con
+			: (Number(this._comp._state.abil_con) || 10);
+		const conMod = Parser.getAbilityModNumber(conScore);
+		const level = this._draft.level;
+		return (faces + conMod) + (level - 1) * (Math.floor(faces / 2) + 1 + conMod);
+	}
+
+	_render_review (wrp) {
+		const rows = [];
+		const addRow = (lbl, val) => rows.push(`<tr><td class="bold ve-text-right pr-2" style="width: 160px;">${lbl}</td><td>${val}</td></tr>`);
+
+		addRow("Species", this._draft.race ? this._draft.race.doc.n.qq() : "<i class='ve-muted'>not set</i>");
+		addRow("Class", this._draft.cls ? `${this._draft.cls.name.qq()} ${this._draft.level}` : "<i class='ve-muted'>not set</i>");
+		addRow("Background", this._draft.background ? this._draft.background.doc.n.qq() : "<i class='ve-muted'>not set</i>");
+
+		if (this._draft.abilityMethod != null) {
+			addRow("Ability Scores", CHAR_SHEET_ABILITIES.map(([abv]) => `${abv.toUpperCase()} ${this._draft.abilityScores[abv] ?? "?"}`).join(", "));
+		} else addRow("Ability Scores", "<i class='ve-muted'>unchanged</i>");
+
+		const selectionSummaries = this._draft.choices
+			.map(choice => {
+				const selections = this._draft.choiceSelections.get(CharacterWizard._getChoiceSig(choice));
+				if (!selections?.size) return null;
+				return `${choice.sourceName.qq()}: ${[...selections].join(", ").qq()}`;
+			})
+			.filter(Boolean);
+		if (selectionSummaries.length) addRow("Choices", selectionSummaries.join("<br>"));
+
+		const suggestedHp = this._getSuggestedHpMax();
+
+		wrp.innerHTML = `
+			<p>Review your character. Finishing applies everything below to the sheet.</p>
+			<label class="ve-flex-v-center ve-mb-2"><span class="ve-mr-2">Character Name</span><input type="text" class="ve-form-control ve-input-xs" id="cs-wiz-ipt-name" style="max-width: 260px;" value="${(this._draft.name || this._comp._state.name || "").qq()}"></label>
+			<table class="w-100"><tbody>${rows.join("")}</tbody></table>
+			${suggestedHp != null ? `<label class="ve-flex-v-center ve-mt-2"><input type="checkbox" id="cs-wiz-cb-hp" class="ve-mr-1" ${this._draft.isSetSuggestedHp ? "checked" : ""}> Set max HP to <b class="ve-mx-1">${suggestedHp}</b> (average per level, Constitution included)</label>` : ""}
+		`;
+
+		wrp.querySelector("#cs-wiz-ipt-name").addEventListener("change", evt => this._draft.name = evt.currentTarget.value);
+		const cbHp = wrp.querySelector("#cs-wiz-cb-hp");
+		if (cbHp) cbHp.addEventListener("change", () => this._draft.isSetSuggestedHp = cbHp.checked);
+	}
+
+	/* -------------------------------------------- Apply -------------------------------------------- */
+
+	_applyDraft () {
+		const comp = this._comp;
+
+		if (this._draft.name.trim()) comp._state.name = this._draft.name.trim();
+
+		if (this._draft.race) comp.applyPickedRace(this._draft.race);
+
+		if (this._draft.cls) {
+			comp._state.level = this._draft.level;
+			comp.applyPickedClass(this._draft.cls, this._draft.level);
+		}
+
+		if (this._draft.background) comp.applyPickedBackground({...this._draft.background, isFixedOnly: true});
+
+		if (this._draft.abilityMethod != null) {
+			CHAR_SHEET_ABILITIES.forEach(([abv]) => {
+				const score = this._draft.abilityScores[abv];
+				if (score != null) comp._state[`abil_${abv}`] = score;
+			});
+		}
+
+		// Resolve queued choices
+		const langs = [];
+		const tools = [];
+		this._draft.choices.forEach(choice => {
+			const selections = this._draft.choiceSelections.get(CharacterWizard._getChoiceSig(choice));
+			if (!selections?.size) return;
+			if (choice.type === CHOICE_TYPE_SKILL) selections.forEach(name => comp.setSkillProfByName(name, 1));
+			else if (choice.type === CHOICE_TYPE_LANGUAGE) langs.push(...selections);
+			else if (choice.type === CHOICE_TYPE_TOOL) tools.push(...selections);
+		});
+		if (tools.length) comp.appendToTextProp("proficienciesText", `Tools: ${tools.join(", ")}`);
+		if (langs.length) comp.appendToTextProp("proficienciesText", `Languages: ${langs.join(", ")}`);
+
+		if (this._draft.isAddEquipment) {
+			const lines = this._getEquipmentLines();
+			if (lines.length) comp.appendToTextProp("equipmentText", lines.map(({line}) => `• ${Renderer.stripTags(line)}`).join("\n"));
+		}
+
+		if (this._draft.isSetSuggestedHp) {
+			const hp = this._getSuggestedHpMax();
+			if (hp != null) {
+				comp._state.hpMax = hp;
+				comp._state.hpCur = hp;
+			}
+		}
+	}
+}

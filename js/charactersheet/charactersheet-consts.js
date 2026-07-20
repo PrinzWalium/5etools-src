@@ -38,3 +38,20 @@ export const CHAR_SHEET_SKILLS = [
 export const PROF_STATE_NONE = 0;
 export const PROF_STATE_PROFICIENT = 1;
 export const PROF_STATE_EXPERTISE = 2;
+
+let _SKILL_KEY_BY_NAME = null;
+
+/** Map a skill name as found in data (e.g. "animal handling") to its state key (e.g. "animalHandling"). */
+export function getSkillKeyByName (name) {
+	if (!_SKILL_KEY_BY_NAME) {
+		_SKILL_KEY_BY_NAME = {};
+		CHAR_SHEET_SKILLS.forEach(({key}) => _SKILL_KEY_BY_NAME[key.toLowerCase()] = key);
+	}
+	const norm = String(name).replace(/[^a-z]/gi, "").toLowerCase();
+	return _SKILL_KEY_BY_NAME[norm] || null;
+}
+
+/** Display name for a skill state key (e.g. "animalHandling" → "Animal Handling"). */
+export function getSkillNameByKey (key) {
+	return CHAR_SHEET_SKILLS.find(it => it.key === key)?.name || key;
+}

@@ -1,4 +1,5 @@
-import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SCHEMA_VERSION, CHAR_SHEET_SKILLS} from "./charactersheet-consts.js";
+import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SCHEMA_VERSION, CHAR_SHEET_SKILLS, getSkillKeyByName} from "./charactersheet-consts.js";
+import {getProfListDisplay} from "./charactersheet-choices.js";
 
 /**
  * The character data model: single source of truth for the sheet.
@@ -145,6 +146,73 @@ export class CharacterModel extends BaseComponent {
 		const cur = (this._state[prop] || "").trim();
 		if (cur.includes(text)) return;
 		this._state[prop] = cur ? `${cur}\n${text}` : text;
+	}
+
+	/** Set a skill's proficiency state by data name (e.g. "animal handling"), never downgrading. */
+	setSkillProfByName (name, val) {
+		const key = getSkillKeyByName(name);
+		if (!key) return;
+		const prop = `skill_${key}`;
+		this._state[prop] = Math.max(Number(this._state[prop]) || 0, val);
+	}
+
+	/* -------------------------------------------- Entity application -------------------------------------------- */
+
+	/** Apply a picked species/race: search doc bookkeeping + mechanical fields from the entity. */
+	applyPickedRace ({doc, ent}) {
+		this._state.speciesText = doc.n;
+		this._state.refSpecies = {name: doc.n, source: doc.source, tag: doc.tag};
+		this.setPickTag("species", doc.tag);
+		if (ent) this.applyRaceData(ent);
+	}
+
+	applyRaceData (race) {
+		const speed = race.speed;
+		let spd = null;
+		if (typeof speed === "number") spd = speed;
+		else if (speed && typeof speed === "object" && typeof speed.walk === "number") spd = speed.walk;
+		if (spd != null) this._state.speed = `${spd} ft.`;
+
+		(race.skillProficiencies || []).forEach(grp => {
+			Object.entries(grp).forEach(([k, v]) => { if (v === true) this.setSkillProfByName(k, 1); });
+		});
+
+		const fixedLangs = (race.languageProficiencies || [])
+			.map(grp => Object.entries(grp).filter(([, v]) => v === true).map(([k]) => k))
+			.flat();
+		if (fixedLangs.length) this.appendToTextProp("proficienciesText", `Languages: ${getProfListDisplay([Object.fromEntries(fixedLangs.map(k => [k, true]))])}`);
+	}
+
+	/** Apply a picked background: search doc bookkeeping + mechanical fields from the entity. */
+	applyPickedBackground ({doc, ent, isFixedOnly = false}) {
+		this._state.backgroundText = doc.n;
+		this._state.refBackground = {name: doc.n, source: doc.source, tag: doc.tag};
+		this.setPickTag("background", doc.tag);
+		if (ent) this.applyBackgroundData(ent, {isFixedOnly});
+	}
+
+	/** @param [opts.isFixedOnly] Skip "N of your choice" display entries (when a choice queue resolves them separately). */
+	applyBackgroundData (bg, {isFixedOnly = false} = {}) {
+		(bg.skillProficiencies || []).forEach(grp => {
+			Object.entries(grp).forEach(([k, v]) => { if (v === true) this.setSkillProfByName(k, 1); });
+		});
+		const tools = getProfListDisplay(bg.toolProficiencies, {isFixedOnly});
+		const langs = getProfListDisplay(bg.languageProficiencies, {isFixedOnly});
+		const parts = [];
+		if (tools) parts.push(`Tools: ${tools}`);
+		if (langs) parts.push(`Languages: ${langs}`);
+		if (parts.length) this.appendToTextProp("proficienciesText", parts.join("\n"));
+	}
+
+	/** Apply a picked class at a given level: display text, tag, structured entry, and mechanical fields. */
+	applyPickedClass (cls, level) {
+		this._state.classText = `${cls.name} ${level}`;
+		this.setPickTag("class", `{@class ${cls.name}${cls.source !== Parser.SRC_PHB ? `|${cls.source}` : ""}}`);
+		this.setSingleClass(cls);
+
+		if (cls.hd && cls.hd.faces) this._state.hdTotal = `${level}d${cls.hd.faces}`;
+		(cls.proficiency || []).forEach(abv => this._state[`save_${abv}`] = true);
+		if (cls.spellcastingAbility) this._state.spellAbility = cls.spellcastingAbility;
 	}
 
 	/** Set the (single) class from picked class data. Multiclass support arrives with the leveling engine. */
