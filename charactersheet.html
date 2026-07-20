@@ -246,7 +246,7 @@
 				<div class="cs__panel">
 					<div class="cs__panel-title-row ve-flex-v-center ve-flex-h-between no-print">
 						<span class="cs__lbl ve-mb-0">Spells</span>
-						<button type="button" id="cs-spell-add" class="ve-btn ve-btn-xs ve-btn-default" title="Search and add a spell reference to the notes below"><span class="glyphicon glyphicon-search"></span> Add Spell</button>
+						<button type="button" id="cs-spell-add" class="ve-btn ve-btn-xs ve-btn-default" title="Search and add a spell to the known/prepared list"><span class="glyphicon glyphicon-search"></span> Add Spell</button>
 					</div>
 					<div class="cs__spellhdr">
 						<label class="cs__field cs__field--inline">
@@ -267,7 +267,9 @@
 							<span class="cs__lbl">Spell Attack Bonus</span>
 						</div>
 					</div>
-					<textarea id="cs-spells" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Spells known / prepared, spell slots, etc."></textarea>
+					<div id="cs-spell-slots" class="ve-mt-1"><!-- populated by JS --></div>
+					<div id="cs-spells-known" class="ve-mt-1"><!-- populated by JS --></div>
+					<textarea id="cs-spells" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Spell notes: rituals, foci, prepared lists..."></textarea>
 				</div>
 			</div>
 
@@ -282,7 +284,8 @@
 				</div>
 				<div class="cs__panel">
 					<h5 class="cs__panel-title">Equipment</h5>
-					<textarea id="cs-equipment" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Weapons, armor, gear..."></textarea>
+					<div id="cs-inventory"><!-- populated by JS --></div>
+					<textarea id="cs-equipment" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Equipment notes..."></textarea>
 					<div class="cs__currency">
 						<label class="cs__coin"><span class="cs__lbl">CP</span><input type="number" id="cs-cp" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
 						<label class="cs__coin"><span class="cs__lbl">SP</span><input type="number" id="cs-sp" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>

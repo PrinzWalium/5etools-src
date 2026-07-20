@@ -5,6 +5,8 @@ import {CharacterSheetClassData} from "./charactersheet/charactersheet-classdata
 import {CharacterWizard} from "./charactersheet/charactersheet-wizard.js";
 import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js";
 import {getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses} from "./charactersheet/charactersheet-choices.js";
+import {CharacterInventoryPanel} from "./charactersheet/charactersheet-inventorypanel.js";
+import {CharacterSpellsPanel} from "./charactersheet/charactersheet-spellspanel.js";
 
 /** Renders the attacks table from the model's `attacks` collection. */
 class _AttacksRenderableCollection extends RenderableCollectionBase {
@@ -149,6 +151,14 @@ class CharacterSheetPage {
 		this._comp._addHookBase("attacks", () => this._attacksCollection.render());
 		this._classPanel = new CharacterClassPanel({comp: this._comp, wrp: document.getElementById("cs-class-panel")});
 		this._classPanel.init();
+		this._inventoryPanel = new CharacterInventoryPanel({comp: this._comp, wrp: document.getElementById("cs-inventory")});
+		this._inventoryPanel.init();
+		this._spellsPanel = new CharacterSpellsPanel({
+			comp: this._comp,
+			wrpSlots: document.getElementById("cs-spell-slots"),
+			wrpKnown: document.getElementById("cs-spells-known"),
+		});
+		this._spellsPanel.init();
 		this._comp._addHookBase("pickTags", () => this._renderPickLinks());
 		this._comp._addHookBase("deathSuccess", () => this._renderDeathSaves());
 		this._comp._addHookBase("deathFail", () => this._renderDeathSaves());
@@ -348,7 +358,7 @@ class CharacterSheetPage {
 		document.getElementById("cs-pick-background").addEventListener("click", () => this._onPickBackground());
 		document.getElementById("cs-pick-class").addEventListener("click", () => this._onPickClass());
 		document.getElementById("cs-attack-add-weapon").addEventListener("click", () => this._onPickWeapon());
-		document.getElementById("cs-spell-add").addEventListener("click", () => this._onPickSpell());
+		// The spell picker is bound by the spells panel
 	}
 
 	_renderPickLink (which) {
@@ -450,14 +460,6 @@ class CharacterSheetPage {
 		}
 
 		return {name: name || item.name || "", atkBonus: abilMod + pb, damage};
-	}
-
-	async _onPickSpell () {
-		await SearchUiUtil.pDoGlobalInit();
-		SearchWidget.pDoGlobalInit();
-		const doc = await SearchWidget.pGetUserSpellSearch();
-		if (!doc) return;
-		this._comp.appendToTextProp("spellsText", doc.tag);
 	}
 
 	/* -------------------------------------------- Derived rendering -------------------------------------------- */

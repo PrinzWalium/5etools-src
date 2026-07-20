@@ -83,9 +83,12 @@ export class CharacterModel extends BaseComponent {
 			inspiration: false,
 
 			attacks: [], // [{id, name, atkBonus, damage}]
+			inventory: [], // [{id, name, source, quantity, weightLb}]
 
 			spellAbility: "",
 			spellsText: "",
+			spellsKnown: [], // [{id, name, source, level}]
+			slotsUsed: {}, // {"1": n, ..., "9": n, pact: n}
 
 			featuresText: "",
 			equipmentText: "",
@@ -139,6 +142,54 @@ export class CharacterModel extends BaseComponent {
 
 	setPickTag (which, tag) {
 		this._state.pickTags = {...this._state.pickTags, [which]: tag};
+	}
+
+	/* -------------------------------------------- Inventory -------------------------------------------- */
+
+	/** Add an item; stacking onto an existing row when name/source match. */
+	addInventoryItem ({name, source, quantity = 1, weightLb = null}) {
+		const existing = this._state.inventory.find(it => it.name === name && it.source === source);
+		if (existing) {
+			existing.quantity = (Number(existing.quantity) || 0) + quantity;
+			this._triggerCollectionUpdate("inventory");
+			return;
+		}
+		this._state.inventory = [
+			...this._state.inventory,
+			{id: CryptUtil.uid(), name, source, quantity, weightLb},
+		];
+	}
+
+	updateInventoryItem (id, data) {
+		const item = this._state.inventory.find(it => it.id === id);
+		if (!item) return;
+		Object.assign(item, data);
+		this._triggerCollectionUpdate("inventory");
+	}
+
+	removeInventoryItem (id) {
+		this._state.inventory = this._state.inventory.filter(it => it.id !== id);
+	}
+
+	/* -------------------------------------------- Spells -------------------------------------------- */
+
+	/** @return `false` if the spell was already known */
+	addKnownSpell ({name, source, level}) {
+		if (this._state.spellsKnown.some(it => it.name === name && it.source === source)) return false;
+		this._state.spellsKnown = [
+			...this._state.spellsKnown,
+			{id: CryptUtil.uid(), name, source, level: Number(level) || 0},
+		];
+		return true;
+	}
+
+	removeKnownSpell (id) {
+		this._state.spellsKnown = this._state.spellsKnown.filter(it => it.id !== id);
+	}
+
+	/** Set the number of expended slots for a spell level (1-9) or "pact". */
+	setSlotsUsed (level, count) {
+		this._state.slotsUsed = {...this._state.slotsUsed, [level]: Math.max(0, Number(count) || 0)};
 	}
 
 	appendToTextProp (prop, text) {

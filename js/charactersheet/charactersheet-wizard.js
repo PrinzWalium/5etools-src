@@ -20,6 +20,7 @@ import {
 	getPointBuyTotalCost,
 	isValidStandardArrayAssignment,
 } from "./charactersheet-abilityscores.js";
+import {EQUIPMENT_ALWAYS_KEY, getEquipmentChoiceGroups, getEquipmentOptionDisplay} from "./charactersheet-equipment.js";
 
 /**
  * Guided character creation: a step-sequence wizard
@@ -54,6 +55,7 @@ export class CharacterWizard {
 			abilitySelections: new Map(), // choice signature → {ixPackage, slots: [abv|null, ...]}
 			isAddEquipment: true,
 			isSetSuggestedHp: true,
+			equipmentSelections: new Map(), // "sourceLabel|groupIx" → option key
 		};
 
 		this._eleBody = null;
@@ -135,14 +137,19 @@ export class CharacterWizard {
 		btnNext.type = "button";
 		btnNext.className = `ve-btn ${isLast ? "ve-btn-primary" : "ve-btn-default"}`;
 		btnNext.textContent = isLast ? "Finish" : "Next";
-		btnNext.addEventListener("click", () => {
+		btnNext.addEventListener("click", async () => {
 			const msgInvalid = this._getStepValidationError();
 			if (msgInvalid) {
 				dispValidation.textContent = msgInvalid;
 				return;
 			}
 			if (isLast) {
-				this._applyDraft();
+				btnNext.disabled = true;
+				try {
+					await this._pApplyDraft();
+				} finally {
+					btnNext.disabled = false;
+				}
 				this._doClose(true);
 				return;
 			}
@@ -535,66 +542,123 @@ export class CharacterWizard {
 
 	/* -------------------------------------------- Step: equipment -------------------------------------------- */
 
-	static _getBackgroundEquipmentLines (startingEquipment) {
-		if (!startingEquipment?.length) return [];
+	/** Class + background starting equipment as parsed choice groups. */
+	_getEquipmentSources () {
 		const out = [];
-		startingEquipment.forEach(grp => {
-			Object.entries(grp).forEach(([k, items]) => {
-				if (!Array.isArray(items)) return;
-				const pts = items.map(item => {
-					if (typeof item === "string") return `{@item ${item}}`;
-					if (item.special) return `${item.quantity ? `${item.quantity}× ` : ""}${item.special}`;
-					if (item.item) return `${item.quantity ? `${item.quantity}× ` : ""}{@item ${item.item}${item.displayName ? `|${item.displayName}` : ""}}`;
-					return null;
-				}).filter(Boolean);
-				if (!pts.length) return;
-				out.push(`${k === "_" ? "" : `(${k}) `}${pts.join(", ")}`);
+		if (this._draft.cls?.startingEquipment?.defaultData?.length) {
+			out.push({
+				srcLabel: `Class: ${this._draft.cls.name}`,
+				groups: getEquipmentChoiceGroups(this._draft.cls.startingEquipment.defaultData),
+				goldAlternative: this._draft.cls.startingEquipment.goldAlternative || null,
 			});
-		});
+		}
+		if (this._draft.background?.ent?.startingEquipment?.length) {
+			out.push({
+				srcLabel: `Background: ${this._draft.background.ent.name}`,
+				groups: getEquipmentChoiceGroups(this._draft.background.ent.startingEquipment),
+				goldAlternative: null,
+			});
+		}
 		return out;
 	}
 
-	_getEquipmentLines () {
-		const out = [];
-		if (this._draft.cls?.startingEquipment?.default?.length) {
-			out.push(...this._draft.cls.startingEquipment.default.map(line => ({source: `Class: ${this._draft.cls.name}`, line})));
-		}
-		if (this._draft.background?.ent?.startingEquipment) {
-			out.push(...CharacterWizard._getBackgroundEquipmentLines(this._draft.background.ent.startingEquipment)
-				.map(line => ({source: `Background: ${this._draft.background.ent.name}`, line})));
-		}
-		return out;
+	_getSelectedEquipmentOption ({srcLabel, ixGroup, group}) {
+		const key = this._draft.equipmentSelections.get(`${srcLabel}|${ixGroup}`);
+		return group.options.find(opt => opt.key === key) || group.options[0];
 	}
 
 	_render_equipment (wrp) {
-		const lines = this._getEquipmentLines();
+		const sources = this._getEquipmentSources();
 
-		if (!lines.length) {
-			wrp.innerHTML = `<p class="ve-muted">No starting equipment data&mdash;pick a class or background first, or fill in equipment on the sheet.</p>`;
+		if (!sources.length) {
+			wrp.innerHTML = `<p class="ve-muted">No starting equipment data&mdash;pick a class or background first, or use the Add Item search on the sheet.</p>`;
 			return;
 		}
 
 		wrp.innerHTML = `
-			<p>Starting equipment from your class and background. A structured "choose A or B" flow arrives with the inventory system; for now, this text is added to the Equipment notes.</p>
-			<label class="ve-flex-v-center ve-mb-2"><input type="checkbox" id="cs-wiz-cb-equipment" class="ve-mr-1" ${this._draft.isAddEquipment ? "checked" : ""}> Add this to the sheet's equipment notes on finish</label>
+			<p>Choose your starting equipment. Concrete items go into the sheet's inventory on finish; category picks (e.g. "a martial weapon") and special items become equipment notes.</p>
+			<label class="ve-flex-v-center ve-mb-2"><input type="checkbox" id="cs-wiz-cb-equipment" class="ve-mr-1" ${this._draft.isAddEquipment ? "checked" : ""}> Add starting equipment on finish</label>
 			<div id="cs-wiz-wrp-equipment"></div>
 		`;
 		wrp.querySelector("#cs-wiz-cb-equipment").addEventListener("change", evt => this._draft.isAddEquipment = evt.currentTarget.checked);
+		const wrpGroups = wrp.querySelector("#cs-wiz-wrp-equipment");
 
-		const wrpLines = wrp.querySelector("#cs-wiz-wrp-equipment");
-		let lastSource = null;
-		lines.forEach(({source, line}) => {
-			if (source !== lastSource) {
-				const hdr = document.createElement("div");
-				hdr.className = "bold ve-mt-2";
-				hdr.textContent = source;
-				wrpLines.appendChild(hdr);
-				lastSource = source;
+		sources.forEach(({srcLabel, groups, goldAlternative}) => {
+			const hdr = document.createElement("div");
+			hdr.className = "bold ve-mt-2";
+			hdr.textContent = srcLabel;
+			wrpGroups.appendChild(hdr);
+
+			groups.forEach((group, ixGroup) => {
+				const selKey = `${srcLabel}|${ixGroup}`;
+				const div = document.createElement("div");
+				div.className = "ve-mb-1";
+
+				if (!group.isChoice) {
+					div.innerHTML = `<span class="ve-small">• ${getEquipmentOptionDisplay(group.options[0]).qq()}</span>`;
+					wrpGroups.appendChild(div);
+					return;
+				}
+
+				const selected = this._getSelectedEquipmentOption({srcLabel, ixGroup, group});
+				group.options.forEach(opt => {
+					const lbl = document.createElement("label");
+					lbl.className = "ve-flex-v-center ve-small";
+					const radio = document.createElement("input");
+					radio.type = "radio";
+					radio.name = `cs-wiz-equip-${srcLabel.replace(/\W/g, "")}-${ixGroup}`;
+					radio.className = "ve-mr-1";
+					radio.checked = opt.key === selected.key;
+					radio.addEventListener("change", () => this._draft.equipmentSelections.set(selKey, opt.key));
+					const spn = document.createElement("span");
+					spn.textContent = `(${opt.key.toLowerCase()}) ${getEquipmentOptionDisplay(opt)}`;
+					lbl.append(radio, spn);
+					div.appendChild(lbl);
+				});
+				wrpGroups.appendChild(div);
+			});
+
+			if (goldAlternative) {
+				const div = document.createElement("div");
+				div.className = "ve-muted ve-small";
+				div.innerHTML = `Alternatively: ${Renderer.get().render(goldAlternative)} starting gold (roll and enter manually)`;
+				wrpGroups.appendChild(div);
 			}
-			const div = document.createElement("div");
-			div.innerHTML = `• ${Renderer.get().render(line)}`;
-			wrpLines.appendChild(div);
 		});
+	}
+
+	async _pApplyEquipment () {
+		const notes = [];
+		let cpGained = 0;
+
+		for (const {srcLabel, groups} of this._getEquipmentSources()) {
+			for (let ixGroup = 0; ixGroup < groups.length; ++ixGroup) {
+				const group = groups[ixGroup];
+				const opt = group.isChoice
+					? this._getSelectedEquipmentOption({srcLabel, ixGroup, group})
+					: group.options.find(it => it.key === EQUIPMENT_ALWAYS_KEY) || group.options[0];
+
+				for (const entry of opt.entries) {
+					if (entry.kind === "item") {
+						const hash = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_ITEMS]({name: entry.name, source: entry.source});
+						const ent = await DataLoader.pCacheAndGet(UrlUtil.PG_ITEMS, entry.source, hash, {isCopy: true}).catch(() => null);
+						this._comp.addInventoryItem({
+							name: ent?.name ?? entry.name,
+							source: ent?.source ?? entry.source,
+							quantity: entry.quantity,
+							weightLb: ent?.weight ?? null,
+						});
+					} else if (entry.kind === "coins") {
+						cpGained += entry.value;
+					} else {
+						notes.push(`• ${entry.quantity > 1 ? `${entry.quantity}× ` : ""}${entry.display}${entry.kind === "placeholder" ? " (choose)" : ""}`);
+					}
+				}
+			}
+		}
+
+		if (notes.length) this._comp.appendToTextProp("equipmentText", notes.join("\n"));
+		if (cpGained) this._comp._state.gp = (Number(this._comp._state.gp) || 0) + Math.floor(cpGained / 100);
 	}
 
 	/* -------------------------------------------- Step: review -------------------------------------------- */
@@ -653,7 +717,7 @@ export class CharacterWizard {
 
 	/* -------------------------------------------- Apply -------------------------------------------- */
 
-	_applyDraft () {
+	async _pApplyDraft () {
 		const comp = this._comp;
 
 		if (this._draft.name.trim()) comp._state.name = this._draft.name.trim();
@@ -690,10 +754,7 @@ export class CharacterWizard {
 		if (tools.length) comp.appendToTextProp("proficienciesText", `Tools: ${tools.join(", ")}`);
 		if (langs.length) comp.appendToTextProp("proficienciesText", `Languages: ${langs.join(", ")}`);
 
-		if (this._draft.isAddEquipment) {
-			const lines = this._getEquipmentLines();
-			if (lines.length) comp.appendToTextProp("equipmentText", lines.map(({line}) => `• ${Renderer.stripTags(line)}`).join("\n"));
-		}
+		if (this._draft.isAddEquipment) await this._pApplyEquipment();
 
 		if (this._draft.isSetSuggestedHp) {
 			const hp = this._getSuggestedHpMax();
