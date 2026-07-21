@@ -1,6 +1,10 @@
+import {CHAR_SHEET_ABILITIES} from "./charactersheet-consts.js";
 import {CharacterModel} from "./charactersheet-model.js";
 import {getCharacterLabel, getMigratedStore, getNewStore} from "./charactersheet-charstore.js";
 import {getLevelUpHp} from "./charactersheet-levelengine.js";
+import {CharacterSheetClassData} from "./charactersheet-classdata.js";
+import {CharacterWizard} from "./charactersheet-wizard.js";
+import {getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses} from "./charactersheet-choices.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -159,6 +163,118 @@ export class CharacterPageBase {
 
 	/** Sync every bound input from state, bypassing focus guards (for bulk loads). */
 	_syncAllInputs () { this._fnsSyncInput.forEach(fn => fn()); }
+
+	/* -------------------------------------------- Shared build helpers (data pickers, wizard) -------------------------------------------- */
+
+	/** Build the six ability-score boxes (score input + derived modifier), shared by both pages. */
+	_buildAbilities () {
+		const wrp = document.getElementById("cs-abilities");
+		if (!wrp) return;
+		wrp.innerHTML = CHAR_SHEET_ABILITIES
+			.map(([abv, name]) => `
+				<div class="cs__ability" data-cs-ability="${abv}">
+					<span class="cs__lbl cs__ability-name">${name}</span>
+					<input type="number" id="cs-abil-${abv}" min="1" max="30" class="ve-form-control ve-input-xs cs__ability-score">
+					<span class="cs__ability-mod cs__roll" id="cs-mod-${abv}">+0</span>
+				</div>
+			`)
+			.join("");
+
+		CHAR_SHEET_ABILITIES.forEach(([abv]) => this._bindIptNum(`cs-abil-${abv}`, `abil_${abv}`));
+	}
+
+	/** Bind the species/background/class search buttons shared by both pages. */
+	_bindBuildPickers () {
+		this._bindClick("cs-pick-species", () => this._onPickSpecies());
+		this._bindClick("cs-pick-background", () => this._onPickBackground());
+		this._bindClick("cs-pick-class", () => this._onPickClass());
+	}
+
+	_renderPickLink (which) {
+		const ele = document.getElementById(`cs-link-${which}`);
+		if (!ele) return;
+		const tag = this._comp._state.pickTags[which];
+		ele.innerHTML = tag ? Renderer.get().render(tag) : "";
+	}
+
+	_renderPickLinks () {
+		["species", "background", "class"].forEach(w => this._renderPickLink(w));
+	}
+
+	async _onPickSpecies () {
+		const doc = await SearchWidget.pGetUserRaceSearch();
+		if (!doc) return;
+		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
+		this._comp.applyPickedRace({doc, ent});
+		if (ent) await this._pOfferAbilityBonuses(ent, doc.n);
+	}
+
+	async _onPickBackground () {
+		const doc = await SearchWidget.pGetUserBackgroundSearch();
+		if (!doc) return;
+		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
+		this._comp.applyPickedBackground({doc, ent});
+		if (ent) await this._pOfferAbilityBonuses(ent, doc.n);
+	}
+
+	/**
+	 * After a standalone pick: offer to apply fixed ability bonuses (opt-in, since the sheet's
+	 * scores are final values), and note choose-based increases for manual resolution.
+	 * The wizard flow applies both automatically instead.
+	 */
+	async _pOfferAbilityBonuses (ent, name) {
+		const fixed = getFixedAbilityBonuses(ent.ability);
+		if (Object.keys(fixed).length) {
+			const ptBonuses = Object.entries(fixed).map(([abv, n]) => `${n >= 0 ? "+" : ""}${n} ${Parser.attAbvToFull(abv)}`).join(", ");
+			const isApply = await InputUiUtil.pGetUserBoolean({
+				title: "Apply Ability Score Increases?",
+				htmlDescription: `<div>${name.qq()} grants: <b>${ptBonuses.qq()}</b>.<br>Add this to the current ability scores?</div>`,
+				textYes: "Apply",
+				textNo: "Skip",
+			});
+			if (isApply) this._comp.applyAbilityBonuses(fixed);
+		}
+
+		getAbilityChoices({ability: ent.ability, sourceName: name}).forEach(choice => {
+			const ptChoose = choice.packages.length === 1
+				? getAbilityPackageDisplay({...choice.packages[0], fixed: {}})
+				: choice.label.replace(/^Ability scores: choose /, "");
+			if (!ptChoose) return;
+			this._comp.appendToTextProp("proficienciesText", `Ability Scores (${name}): ${ptChoose} — assign manually`);
+		});
+	}
+
+	async _onPickClass () {
+		const classes = await CharacterSheetClassData.pGetAllClasses();
+		if (!classes.length) return;
+		const cls = await InputUiUtil.pGetUserEnum({
+			values: classes,
+			isResolveItem: true,
+			fnDisplay: c => `${c.name} (${Parser.sourceJsonToAbv(c.source)})`,
+			title: "Select Class",
+			placeholder: "Select a class...",
+		});
+		if (cls == null) return;
+
+		this._comp.applyPickedClass(cls, this._comp.getLevelNumber());
+	}
+
+	/** The wizard applies its own suggested HP, so suppress the per-level prompt while it runs. */
+	async _pOnWizard () {
+		this._suppressLevelPrompt += 1;
+		try {
+			await CharacterWizard.pShow({comp: this._comp});
+		} finally {
+			this._suppressLevelPrompt -= 1;
+			this._lastLevel = this._comp.getLevelNumber();
+		}
+	}
+
+	_renderRoll (id, mod, name) {
+		const ele = document.getElementById(id);
+		if (!ele) return;
+		ele.innerHTML = Renderer.get().render(`{@d20 ${mod}|${CharacterPageBase.fmtBonus(mod)}|${name}}`);
+	}
 
 	/* -------------------------------------------- Store controls (toolbar) -------------------------------------------- */
 

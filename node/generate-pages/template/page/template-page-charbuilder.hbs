@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+
+{{> "head" }}
+
+<body>
+
+{{> "overlayNoise" }}
+
+{{> "adLeaderboard" }}
+
+{{> "navbar" }}
+
+{{> "adLhsScrollingPage" }}
+{{> "adRhsScrollingPage" }}
+
+<main class="container" data-cancer-id="cancer-wrapper">
+	<div class="cs__toolbar ve-flex-v-center ve-flex-wrap ve-mb-2 no-print">
+		<select id="cs-char-select" class="ve-form-control ve-input-xs cs__char-select no-print" title="Switch character" style="max-width: 200px; display: inline-block; width: auto;"></select>
+		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-char-new" type="button" title="New character"><span class="glyphicon glyphicon-plus"></span></button>
+		<button class="ve-btn ve-btn-sm ve-btn-danger" id="cs-char-delete" type="button" title="Delete the current character"><span class="glyphicon glyphicon-trash"></span></button>
+		<button class="ve-btn ve-btn-sm ve-btn-primary" id="cs-btn-wizard" type="button" title="Create a character step-by-step"><span class="glyphicon glyphicon-list-alt"></span> Guided Setup</button>
+		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-save" type="button" title="Save the current character to a file"><span class="glyphicon glyphicon-download"></span> Save to File</button>
+		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-load" type="button" title="Load a character from a file"><span class="glyphicon glyphicon-upload"></span> Load from File</button>
+		<button class="ve-btn ve-btn-sm ve-btn-danger" id="cs-btn-reset" type="button" title="Clear this character"><span class="glyphicon glyphicon-refresh"></span> Reset</button>
+		<a href="charactersheet.html" class="ve-btn ve-btn-sm ve-btn-default ve-ml-auto" title="Open the play-focused character sheet"><span class="glyphicon glyphicon-th-list"></span> Open Sheet</a>
+	</div>
+
+	<div class="cs__toolbar-note ve-muted ve-small ve-mb-2 no-print">Plan and level your character here. Switch to the <a href="charactersheet.html">Sheet</a> to play. Everything is saved automatically in this browser.</div>
+
+	<form id="charsheet" autocomplete="off">
+		<div class="cs__hdr row ve-flex">
+			<div class="ve-col-4 cs__hdr-name">
+				<label class="cs__lbl" for="cs-name">Character Name</label>
+				<input type="text" id="cs-name" class="ve-form-control cs__ipt-name" placeholder="Character Name">
+			</div>
+			<div class="ve-col-8">
+				<div class="cs__hdr-grid">
+					<div class="cs__field">
+						<span class="cs__lbl">Species <span class="cs__pick-link" id="cs-link-species"></span></span>
+						<div class="cs__pick-group">
+							<input type="text" id="cs-species" class="ve-form-control ve-input-xs" placeholder="e.g. Human">
+							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn" id="cs-pick-species" title="Choose a species from the data"><span class="glyphicon glyphicon-search"></span></button>
+						</div>
+					</div>
+					<div class="cs__field">
+						<span class="cs__lbl">Class &amp; Level <span class="cs__pick-link" id="cs-link-class"></span></span>
+						<div class="cs__pick-group">
+							<input type="text" id="cs-classlevel" class="ve-form-control ve-input-xs" placeholder="e.g. Fighter 5">
+							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn" id="cs-pick-class" title="Choose a class from the data"><span class="glyphicon glyphicon-search"></span></button>
+						</div>
+					</div>
+					<div class="cs__field">
+						<span class="cs__lbl">Background <span class="cs__pick-link" id="cs-link-background"></span></span>
+						<div class="cs__pick-group">
+							<input type="text" id="cs-background" class="ve-form-control ve-input-xs" placeholder="e.g. Soldier">
+							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn" id="cs-pick-background" title="Choose a background from the data"><span class="glyphicon glyphicon-search"></span></button>
+						</div>
+					</div>
+					<label class="cs__field"><span class="cs__lbl">Player Name</span><input type="text" id="cs-playername" class="ve-form-control ve-input-xs"></label>
+					<label class="cs__field"><span class="cs__lbl">Alignment</span>
+						<select id="cs-alignment" class="ve-form-control ve-input-xs">
+							<option value="">&mdash;</option>
+							<option value="Lawful Good">Lawful Good</option>
+							<option value="Neutral Good">Neutral Good</option>
+							<option value="Chaotic Good">Chaotic Good</option>
+							<option value="Lawful Neutral">Lawful Neutral</option>
+							<option value="True Neutral">True Neutral</option>
+							<option value="Chaotic Neutral">Chaotic Neutral</option>
+							<option value="Lawful Evil">Lawful Evil</option>
+							<option value="Neutral Evil">Neutral Evil</option>
+							<option value="Chaotic Evil">Chaotic Evil</option>
+							<option value="Unaligned">Unaligned</option>
+						</select>
+					</label>
+					<label class="cs__field"><span class="cs__lbl">Experience Points</span><input type="number" id="cs-xp" min="0" class="ve-form-control ve-input-xs"></label>
+				</div>
+			</div>
+		</div>
+
+		<hr>
+
+		<div class="row ve-flex cs__body">
+			<div class="ve-col-3 cs__col">
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Ability Scores</h5>
+					<div class="cs__abilities" id="cs-abilities"><!-- populated by JS --></div>
+				</div>
+
+				<div class="cs__panel cs__panel--inline">
+					<label class="cs__field cs__field--inline" title="Proficiency bonus is derived from your total level">
+						<span class="cs__lbl">Level</span>
+						<input type="number" id="cs-level" min="1" max="20" value="1" class="ve-form-control ve-input-xs cs__ipt-num">
+					</label>
+					<div class="cs__stat-badge" title="Proficiency Bonus (derived from level)">
+						<span class="cs__stat-badge-val" id="cs-pb">+2</span>
+						<span class="cs__lbl">Proficiency Bonus</span>
+					</div>
+				</div>
+
+				<div class="cs__panel cs__panel--inline">
+					<label class="cs__field cs__field--inline"><span class="cs__lbl">Max HP</span><input type="number" id="cs-hp-max" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
+					<label class="cs__field cs__field--inline"><span class="cs__lbl">Hit Dice</span><input type="text" id="cs-hd-total" placeholder="e.g. 5d10" class="ve-form-control ve-input-xs"></label>
+				</div>
+
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Other Proficiencies &amp; Languages</h5>
+					<textarea id="cs-proficiencies" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Armor, weapons, tools, languages..."></textarea>
+				</div>
+
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Personality, Ideals, Bonds &amp; Flaws</h5>
+					<textarea id="cs-personality" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Roleplay notes, backstory, appearance..."></textarea>
+				</div>
+			</div>
+
+			<div class="ve-col-5 cs__col">
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Class &amp; Leveling</h5>
+					<div id="cs-class-panel"><!-- populated by JS --></div>
+				</div>
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Features &amp; Traits</h5>
+					<textarea id="cs-features" class="ve-form-control cs__textarea cs__textarea--lg" placeholder="Class features, species traits, feats..."></textarea>
+				</div>
+			</div>
+
+			<div class="ve-col-4 cs__col">
+				<div class="cs__panel">
+					<div class="cs__panel-title-row ve-flex-v-center ve-flex-h-between no-print">
+						<h5 class="cs__panel-title ve-mb-0">Spells</h5>
+						<button type="button" id="cs-spell-add" class="ve-btn ve-btn-xs ve-btn-default" title="Search and add a spell to the known/prepared list"><span class="glyphicon glyphicon-search"></span> Add Spell</button>
+					</div>
+					<div class="cs__spellhdr">
+						<label class="cs__field cs__field--inline">
+							<span class="cs__lbl">Spellcasting Ability</span>
+							<select id="cs-spell-ability" class="ve-form-control ve-input-xs">
+								<option value="">&mdash;</option>
+								<option value="int">Intelligence</option>
+								<option value="wis">Wisdom</option>
+								<option value="cha">Charisma</option>
+							</select>
+						</label>
+						<div class="cs__stat-badge" title="8 + proficiency bonus + spellcasting ability modifier">
+							<span class="cs__stat-badge-val" id="cs-spell-dc">&mdash;</span>
+							<span class="cs__lbl">Spell Save DC</span>
+						</div>
+						<div class="cs__stat-badge" title="proficiency bonus + spellcasting ability modifier">
+							<span class="cs__stat-badge-val cs__roll" id="cs-spell-atk">&mdash;</span>
+							<span class="cs__lbl">Spell Attack Bonus</span>
+						</div>
+					</div>
+					<div id="cs-spell-slots" class="ve-mt-1"><!-- populated by JS --></div>
+					<div id="cs-spells-known" class="ve-mt-1"><!-- populated by JS --></div>
+					<textarea id="cs-spells" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Spell notes: rituals, foci, prepared lists..."></textarea>
+				</div>
+
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Equipment</h5>
+					<div id="cs-inventory"><!-- populated by JS --></div>
+					<textarea id="cs-equipment" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Equipment notes..."></textarea>
+					<div class="cs__currency">
+						<label class="cs__coin"><span class="cs__lbl">CP</span><input type="number" id="cs-cp" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
+						<label class="cs__coin"><span class="cs__lbl">SP</span><input type="number" id="cs-sp" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
+						<label class="cs__coin"><span class="cs__lbl">EP</span><input type="number" id="cs-ep" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
+						<label class="cs__coin"><span class="cs__lbl">GP</span><input type="number" id="cs-gp" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
+						<label class="cs__coin"><span class="cs__lbl">PP</span><input type="number" id="cs-pp" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
+					</div>
+				</div>
+			</div>
+		</div>
+	</form>
+</main>
+
+{{> "adFooter" }}
+
+{{> "scripts" }}
+
+</body>
+</html>

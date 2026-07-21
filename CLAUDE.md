@@ -9,32 +9,41 @@ the fork easy to update from upstream.
 
 ## Character Sheet: file map
 
+The feature is **two pages** that share one character store: a play-focused
+**sheet** (`charactersheet.html`) and a build-focused **builder**
+(`charbuilder.html`). Both subclass `CharacterPageBase`
+(`charactersheet-pagebase.js`), which owns the model, the multi-character
+store/switcher, autosave, file save/load, the null-safe input binding, and the
+shared build helpers (data pickers, wizard). Each page's controller keeps only
+its own DOM assembly + rendering.
+
 **Fork-owned (upstream has no version → these never conflict on an upstream merge):**
-- `charactersheet.html` — **generated**, do not hand-edit (see below)
-- `js/charactersheet.js` — page entry point
-- `js/charactersheet/*.js` — the builder modules (model, derive, classdata,
+- `charactersheet.html`, `charbuilder.html` — **generated**, do not hand-edit (see below)
+- `js/charactersheet.js`, `js/charbuilder.js` — the two page entry points
+- `js/charactersheet/*.js` — the shared modules (pagebase, model, derive, classdata,
   levelengine, choices, abilityscores, equipment, wizard, and the panel
   renderers, charstore)
-- `css/charactersheet.css`, `scss/charactersheet.scss`
-- `node/generate-pages/template/page/template-page-charactersheet.hbs`
+- `css/charactersheet.css`, `scss/charactersheet.scss` (shared by both pages)
+- `node/generate-pages/template/page/template-page-charactersheet.hbs`,
+  `.../template-page-charbuilder.hbs`
 - `test/jest/CharacterSheet*.test.js`
 
 **Shared upstream files the fork edits (the ONLY upstream-merge conflict points):**
-1. `js/navigation.js` — one `_addElement_li({... page: "charactersheet.html" ...})` line
+1. `js/navigation.js` — two `_addElement_li({... page: "char....html" ...})` lines
 2. `index.html` — two `<a href="charactersheet.html">` home-page buttons
-3. `node/generate-pages/generate-pages-page-generator-config.js` — a
-   `_PageGeneratorCharactersheet` class + one `new _PageGeneratorCharactersheet(),`
-   registration line
+3. `node/generate-pages/generate-pages-page-generator-config.js` — the
+   `_PageGeneratorCharactersheet` / `_PageGeneratorCharbuilder` classes + their two
+   `new _PageGenerator...(),` registration lines
 
 Exact snippets and resolution steps: `docs/CHARACTER_SHEET_MAINTENANCE.md`.
 
-## Critical gotcha: charactersheet.html is generated
+## Critical gotcha: the page HTML is generated
 
-`charactersheet.html` is built from
-`node/generate-pages/template/page/template-page-charactersheet.hbs` by
-`node node/generate-pages.js` (run in the Docker/Pages builds). **Editing
-`charactersheet.html` directly is silently overwritten by the build.** To change
-the page markup, edit the **template** and regenerate. After editing the
+`charactersheet.html` and `charbuilder.html` are built from their
+`node/generate-pages/template/page/template-page-*.hbs` templates by
+`node node/generate-pages.js` (run in the Docker/Pages builds). **Editing the
+generated `.html` directly is silently overwritten by the build.** To change
+the page markup, edit the **template** and regenerate. After editing a
 template, run `node node/generate-pages.js` and commit both.
 
 ## Architecture notes

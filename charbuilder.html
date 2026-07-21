@@ -11,7 +11,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 	<meta name="mobile-web-app-capable" content="yes">
 
-	<title>Character Sheet - 5etools</title>
+	<title>Character Builder - 5etools</title>
 
 	<link rel="stylesheet" href="css/bootstrap.css">
 	<link rel="stylesheet" href="css/main.css">
@@ -66,8 +66,8 @@
 <div class="ve-flex-col" data-cancer-id="cancer-header">
 	<header class="ve-mobile-sm__hidden page__header">
 		<div class="container ve-flex-v-baseline">
-			<h1 class="page__title ve-no-wrap ve-my-0" id="page__title">Character Sheet</h1>
-			<p class="page__subtitle ve-no-wrap ve-my-0" id="page__subtitle">Build and manage a character. Autosaves to your browser.</p>
+			<h1 class="page__title ve-no-wrap ve-my-0" id="page__title">Character Builder</h1>
+			<p class="page__subtitle ve-no-wrap ve-my-0" id="page__subtitle">Plan and level a character. Autosaves to your browser.</p>
 		</div>
 	</header>
 
@@ -87,12 +87,11 @@
 		<button class="ve-btn ve-btn-sm ve-btn-primary" id="cs-btn-wizard" type="button" title="Create a character step-by-step"><span class="glyphicon glyphicon-list-alt"></span> Guided Setup</button>
 		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-save" type="button" title="Save the current character to a file"><span class="glyphicon glyphicon-download"></span> Save to File</button>
 		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-load" type="button" title="Load a character from a file"><span class="glyphicon glyphicon-upload"></span> Load from File</button>
-		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-print" type="button" title="Print, or save as PDF"><span class="glyphicon glyphicon-print"></span> Print</button>
-		<button class="ve-btn ve-btn-sm ve-btn-danger" id="cs-btn-reset" type="button" title="Clear the sheet"><span class="glyphicon glyphicon-refresh"></span> Reset</button>
-		<a href="charbuilder.html" class="ve-btn ve-btn-sm ve-btn-default ve-ml-auto" title="Open the build-focused character builder"><span class="glyphicon glyphicon-list-alt"></span> Open Builder</a>
+		<button class="ve-btn ve-btn-sm ve-btn-danger" id="cs-btn-reset" type="button" title="Clear this character"><span class="glyphicon glyphicon-refresh"></span> Reset</button>
+		<a href="charactersheet.html" class="ve-btn ve-btn-sm ve-btn-default ve-ml-auto" title="Open the play-focused character sheet"><span class="glyphicon glyphicon-th-list"></span> Open Sheet</a>
 	</div>
 
-	<div class="cs__toolbar-note ve-muted ve-small ve-mb-2 no-print">Play your character here. Switch to the <a href="charbuilder.html">Builder</a> to level up or make changes. Everything is saved automatically in this browser.</div>
+	<div class="cs__toolbar-note ve-muted ve-small ve-mb-2 no-print">Plan and level your character here. Switch to the <a href="charactersheet.html">Sheet</a> to play. Everything is saved automatically in this browser.</div>
 
 	<form id="charsheet" autocomplete="off">
 		<div class="cs__hdr row ve-flex">
@@ -103,27 +102,27 @@
 			<div class="ve-col-8">
 				<div class="cs__hdr-grid">
 					<div class="cs__field">
+						<span class="cs__lbl">Species <span class="cs__pick-link" id="cs-link-species"></span></span>
+						<div class="cs__pick-group">
+							<input type="text" id="cs-species" class="ve-form-control ve-input-xs" placeholder="e.g. Human">
+							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn" id="cs-pick-species" title="Choose a species from the data"><span class="glyphicon glyphicon-search"></span></button>
+						</div>
+					</div>
+					<div class="cs__field">
 						<span class="cs__lbl">Class &amp; Level <span class="cs__pick-link" id="cs-link-class"></span></span>
 						<div class="cs__pick-group">
 							<input type="text" id="cs-classlevel" class="ve-form-control ve-input-xs" placeholder="e.g. Fighter 5">
-							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn no-print" id="cs-pick-class" title="Choose a class from the data"><span class="glyphicon glyphicon-search"></span></button>
+							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn" id="cs-pick-class" title="Choose a class from the data"><span class="glyphicon glyphicon-search"></span></button>
 						</div>
 					</div>
 					<div class="cs__field">
 						<span class="cs__lbl">Background <span class="cs__pick-link" id="cs-link-background"></span></span>
 						<div class="cs__pick-group">
 							<input type="text" id="cs-background" class="ve-form-control ve-input-xs" placeholder="e.g. Soldier">
-							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn no-print" id="cs-pick-background" title="Choose a background from the data"><span class="glyphicon glyphicon-search"></span></button>
+							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn" id="cs-pick-background" title="Choose a background from the data"><span class="glyphicon glyphicon-search"></span></button>
 						</div>
 					</div>
 					<label class="cs__field"><span class="cs__lbl">Player Name</span><input type="text" id="cs-playername" class="ve-form-control ve-input-xs"></label>
-					<div class="cs__field">
-						<span class="cs__lbl">Species <span class="cs__pick-link" id="cs-link-species"></span></span>
-						<div class="cs__pick-group">
-							<input type="text" id="cs-species" class="ve-form-control ve-input-xs" placeholder="e.g. Human">
-							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn no-print" id="cs-pick-species" title="Choose a species from the data"><span class="glyphicon glyphicon-search"></span></button>
-						</div>
-					</div>
 					<label class="cs__field"><span class="cs__lbl">Alignment</span>
 						<select id="cs-alignment" class="ve-form-control ve-input-xs">
 							<option value="">&mdash;</option>
@@ -149,14 +148,8 @@
 		<div class="row ve-flex cs__body">
 			<div class="ve-col-3 cs__col">
 				<div class="cs__panel">
+					<h5 class="cs__panel-title">Ability Scores</h5>
 					<div class="cs__abilities" id="cs-abilities"><!-- populated by JS --></div>
-				</div>
-
-				<div class="cs__panel cs__panel--inline">
-					<label class="cs__toggle ve-flex-v-center" title="Toggle inspiration">
-						<input type="checkbox" id="cs-inspiration">
-						<span class="cs__lbl cs__lbl--inline">Inspiration</span>
-					</label>
 				</div>
 
 				<div class="cs__panel cs__panel--inline">
@@ -170,87 +163,37 @@
 					</div>
 				</div>
 
-				<div class="cs__panel">
-					<h5 class="cs__panel-title">Saving Throws</h5>
-					<div class="cs__list" id="cs-saves"><!-- populated by JS --></div>
-				</div>
-
-				<div class="cs__panel">
-					<h5 class="cs__panel-title">Skills</h5>
-					<div class="cs__list" id="cs-skills"><!-- populated by JS --></div>
-				</div>
-
 				<div class="cs__panel cs__panel--inline">
-					<div class="cs__stat-badge" title="10 + Wisdom (Perception) modifier">
-						<span class="cs__stat-badge-val" id="cs-passive-perception">10</span>
-						<span class="cs__lbl">Passive Wisdom (Perception)</span>
-					</div>
+					<label class="cs__field cs__field--inline"><span class="cs__lbl">Max HP</span><input type="number" id="cs-hp-max" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
+					<label class="cs__field cs__field--inline"><span class="cs__lbl">Hit Dice</span><input type="text" id="cs-hd-total" placeholder="e.g. 5d10" class="ve-form-control ve-input-xs"></label>
+				</div>
+
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Other Proficiencies &amp; Languages</h5>
+					<textarea id="cs-proficiencies" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Armor, weapons, tools, languages..."></textarea>
+				</div>
+
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Personality, Ideals, Bonds &amp; Flaws</h5>
+					<textarea id="cs-personality" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Roleplay notes, backstory, appearance..."></textarea>
 				</div>
 			</div>
 
 			<div class="ve-col-5 cs__col">
 				<div class="cs__panel">
-					<div class="cs__combat-top">
-						<label class="cs__field cs__field--boxed"><span class="cs__lbl">Armor Class</span><input type="number" id="cs-ac" min="0" value="10" class="ve-form-control ve-input-xs cs__ipt-num"></label>
-						<div class="cs__field cs__field--boxed" title="1d20 + Dexterity modifier + misc">
-							<span class="cs__lbl">Initiative</span>
-							<div class="cs__combat-init">
-								<span id="cs-initiative-roll" class="cs__roll">+0</span>
-								<label class="cs__init-misc" title="Miscellaneous initiative bonus">+<input type="number" id="cs-init-misc" value="0" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs"></label>
-							</div>
-						</div>
-						<label class="cs__field cs__field--boxed"><span class="cs__lbl">Speed</span><input type="text" id="cs-speed" value="30 ft." class="ve-form-control ve-input-xs"></label>
-					</div>
-
-					<div class="cs__hp">
-						<div class="cs__hp-main">
-							<div class="cs__hp-row">
-								<label class="cs__field cs__field--inline"><span class="cs__lbl">Max HP</span><input type="number" id="cs-hp-max" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
-								<label class="cs__field cs__field--inline"><span class="cs__lbl">Current HP</span><input type="number" id="cs-hp-cur" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
-								<label class="cs__field cs__field--inline"><span class="cs__lbl">Temp HP</span><input type="number" id="cs-hp-temp" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
-							</div>
-							<div class="cs__hp-quick ve-flex-v-center no-print">
-								<label class="cs__field cs__field--inline"><span class="cs__lbl">Adjust</span><input type="number" id="cs-hp-delta" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
-								<button type="button" id="cs-hp-damage" class="ve-btn ve-btn-xs ve-btn-danger" title="Subtract from current HP">Damage</button>
-								<button type="button" id="cs-hp-heal" class="ve-btn ve-btn-xs ve-btn-success" title="Add to current HP">Heal</button>
-							</div>
-						</div>
-						<div class="cs__hp-side">
-							<label class="cs__field cs__field--inline"><span class="cs__lbl">Hit Dice (total)</span><input type="text" id="cs-hd-total" placeholder="e.g. 5d10" class="ve-form-control ve-input-xs"></label>
-							<label class="cs__field cs__field--inline"><span class="cs__lbl">Hit Dice (remaining)</span><input type="text" id="cs-hd-cur" placeholder="e.g. 5d10" class="ve-form-control ve-input-xs"></label>
-							<div class="cs__death">
-								<span class="cs__lbl">Death Saves</span>
-								<div class="cs__death-row"><span class="cs__death-lbl">Successes</span><span class="cs__death-dots" id="cs-death-success" data-cs-max="3"></span></div>
-								<div class="cs__death-row"><span class="cs__death-lbl">Failures</span><span class="cs__death-dots" id="cs-death-fail" data-cs-max="3"></span></div>
-							</div>
-						</div>
-					</div>
+					<h5 class="cs__panel-title">Class &amp; Leveling</h5>
+					<div id="cs-class-panel"><!-- populated by JS --></div>
 				</div>
-
 				<div class="cs__panel">
-					<div class="cs__panel-title-row ve-flex-v-center ve-flex-h-between">
-						<h5 class="cs__panel-title ve-mb-0">Attacks &amp; Spellcasting</h5>
-						<div class="ve-flex-v-center no-print">
-							<button type="button" id="cs-attack-add-weapon" class="ve-btn ve-btn-xs ve-btn-default ve-mr-2" title="Add a row from a weapon in the data"><span class="glyphicon glyphicon-search"></span> Add Weapon</button>
-							<button type="button" id="cs-attack-add" class="ve-btn ve-btn-xs ve-btn-default" title="Add a blank row"><span class="glyphicon glyphicon-plus"></span> Add</button>
-						</div>
-					</div>
-					<table class="cs__attacks w-100">
-						<thead>
-							<tr>
-								<th>Name</th>
-								<th class="ve-text-center">Atk Bonus</th>
-								<th class="ve-text-center">Damage/Type</th>
-								<th class="ve-text-center no-print"></th>
-							</tr>
-						</thead>
-						<tbody id="cs-attacks-body"><!-- populated by JS --></tbody>
-					</table>
+					<h5 class="cs__panel-title">Features &amp; Traits</h5>
+					<textarea id="cs-features" class="ve-form-control cs__textarea cs__textarea--lg" placeholder="Class features, species traits, feats..."></textarea>
 				</div>
+			</div>
 
+			<div class="ve-col-4 cs__col">
 				<div class="cs__panel">
 					<div class="cs__panel-title-row ve-flex-v-center ve-flex-h-between no-print">
-						<span class="cs__lbl ve-mb-0">Spells</span>
+						<h5 class="cs__panel-title ve-mb-0">Spells</h5>
 						<button type="button" id="cs-spell-add" class="ve-btn ve-btn-xs ve-btn-default" title="Search and add a spell to the known/prepared list"><span class="glyphicon glyphicon-search"></span> Add Spell</button>
 					</div>
 					<div class="cs__spellhdr">
@@ -276,17 +219,7 @@
 					<div id="cs-spells-known" class="ve-mt-1"><!-- populated by JS --></div>
 					<textarea id="cs-spells" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Spell notes: rituals, foci, prepared lists..."></textarea>
 				</div>
-			</div>
 
-			<div class="ve-col-4 cs__col">
-				<div class="cs__panel">
-					<h5 class="cs__panel-title">Class &amp; Leveling</h5>
-					<div id="cs-class-panel"><!-- populated by JS --></div>
-				</div>
-				<div class="cs__panel">
-					<h5 class="cs__panel-title">Features &amp; Traits</h5>
-					<textarea id="cs-features" class="ve-form-control cs__textarea cs__textarea--lg" placeholder="Class features, species traits, feats..."></textarea>
-				</div>
 				<div class="cs__panel">
 					<h5 class="cs__panel-title">Equipment</h5>
 					<div id="cs-inventory"><!-- populated by JS --></div>
@@ -298,14 +231,6 @@
 						<label class="cs__coin"><span class="cs__lbl">GP</span><input type="number" id="cs-gp" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
 						<label class="cs__coin"><span class="cs__lbl">PP</span><input type="number" id="cs-pp" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
 					</div>
-				</div>
-				<div class="cs__panel">
-					<h5 class="cs__panel-title">Other Proficiencies &amp; Languages</h5>
-					<textarea id="cs-proficiencies" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Armor, weapons, tools, languages..."></textarea>
-				</div>
-				<div class="cs__panel">
-					<h5 class="cs__panel-title">Personality, Ideals, Bonds &amp; Flaws</h5>
-					<textarea id="cs-personality" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Roleplay notes, backstory, appearance..."></textarea>
 				</div>
 			</div>
 		</div>
@@ -330,7 +255,7 @@
 <script type="text/javascript" defer src="js/render-dice.js"></script>
 <script type="module" src="js/shim-esmodules.js"></script>
 <script type="text/javascript" defer src="js/hist.js"></script>
-<script type="module" src="js/charactersheet.js"></script>
+<script type="module" src="js/charbuilder.js"></script>
 <script type="module" defer src="js/list2.js"></script>
 <script type="text/javascript" defer src="lib/elasticlunr.js"></script>
 
