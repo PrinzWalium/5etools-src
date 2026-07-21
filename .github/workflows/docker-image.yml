@@ -4,6 +4,9 @@ on:
    push:
       branches:
          - main
+         # `beta` is the integration branch for work-in-progress: pushing to it publishes a
+         # `:beta` image for testing, while `:latest` stays pinned to the default branch (`main`).
+         - beta
    pull_request:
       branches:
          - main
