@@ -14,6 +14,7 @@ export const CHOICE_TYPE_SKILL = "skill";
 export const CHOICE_TYPE_LANGUAGE = "language";
 export const CHOICE_TYPE_TOOL = "tool";
 export const CHOICE_TYPE_ABILITY = "ability";
+export const CHOICE_TYPE_EXPERTISE = "expertise";
 
 let _ID = 0;
 const _nextId = () => `csc-${_ID++}`;
@@ -63,6 +64,40 @@ export function getSkillChoices ({groups, sourceName}) {
 					count: v,
 					from: _ALL_SKILL_NAMES(),
 					label: `Choose ${v} skill${v > 1 ? "s" : ""} (any)`,
+				});
+			}
+		});
+	});
+	return out;
+}
+
+/**
+ * Expertise choices from an `expertise`-style group array (feats such as Prodigy / Skill Expert).
+ * `{choose: {from, count}}` and `{any: n}` list skills directly; `{anyProficientSkill: n}` draws
+ * from the character's currently-proficient skills, passed in as `proficientSkillNames`.
+ * Fixed `{"skill": true}` grants are applied elsewhere and are not queued here.
+ */
+export function getExpertiseChoices ({groups, sourceName, proficientSkillNames = []}) {
+	const out = [];
+	(groups || []).forEach(grp => {
+		Object.entries(grp).forEach(([k, v]) => {
+			if (k === "choose" && v?.from) {
+				out.push({
+					id: _nextId(),
+					type: CHOICE_TYPE_EXPERTISE,
+					sourceName,
+					count: v.count || 1,
+					from: v.from.map(name => getSkillNameByKey(getSkillKeyByName(name)) || _titleCase(name)),
+					label: `Expertise: choose ${v.count || 1} skill${(v.count || 1) > 1 ? "s" : ""}`,
+				});
+			} else if ((k === "any" || k === "anyProficientSkill") && typeof v === "number") {
+				out.push({
+					id: _nextId(),
+					type: CHOICE_TYPE_EXPERTISE,
+					sourceName,
+					count: v,
+					from: k === "anyProficientSkill" ? [...proficientSkillNames] : _ALL_SKILL_NAMES(),
+					label: `Expertise: choose ${v}${k === "anyProficientSkill" ? " proficient" : ""} skill${v > 1 ? "s" : ""}`,
 				});
 			}
 		});

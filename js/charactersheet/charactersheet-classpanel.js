@@ -12,7 +12,7 @@ import {
 	isMulticlassRequirementMet,
 } from "./charactersheet-levelengine.js";
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS, PROF_STATE_EXPERTISE, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
-import {getAbilityPackages, getFixedAbilityBonuses, getProfListDisplay} from "./charactersheet-choices.js";
+import {getAbilityPackages, getExpertiseChoices, getFixedAbilityBonuses, getProfListDisplay, getSkillChoices} from "./charactersheet-choices.js";
 
 /**
  * The "Class & Leveling" sheet panel: renders the derived feature timeline, subclass and
@@ -471,10 +471,51 @@ export class CharacterClassPanel {
 		}
 
 		this._applyFeatSecondaryGrants(feat);
+		await this._pResolveFeatSkillChoices(feat);
 		this._comp.addAsiFeatChoice(entry.id, {type: "feat", name: feat.name, source: feat.source, bonuses});
 	}
 
-	/** Apply a feat's non-ability structured grants: fixed skills, languages/tools/senses as notes. */
+	/**
+	 * Resolve a feat's structured skill and Expertise *choices* interactively (Prodigy, Skill Expert, ...),
+	 * applying the picks to the model. Expertise options are computed after skill picks so a freshly
+	 * granted proficiency is eligible for Expertise.
+	 */
+	async _pResolveFeatSkillChoices (feat) {
+		for (const choice of getSkillChoices({groups: feat.skillProficiencies, sourceName: feat.name})) {
+			const picked = await this._pPickList({count: choice.count, from: choice.from, title: `${feat.name}: choose skill${choice.count > 1 ? "s" : ""}`});
+			(picked || []).forEach(name => this._comp.setSkillProfByName(name, 1));
+		}
+
+		const proficientNames = CHAR_SHEET_SKILLS
+			.filter(({key}) => (Number(this._comp._state[`skill_${key}`]) || 0) >= PROF_STATE_PROFICIENT)
+			.map(({name}) => name);
+		for (const choice of getExpertiseChoices({groups: feat.expertise, sourceName: feat.name, proficientSkillNames: proficientNames})) {
+			const picked = await this._pPickList({count: choice.count, from: choice.from, title: `${feat.name}: choose Expertise skill${choice.count > 1 ? "s" : ""}`});
+			(picked || []).forEach(name => this._comp.setSkillProfByName(name, PROF_STATE_EXPERTISE));
+		}
+	}
+
+	/** Sequentially pick `count` distinct items from `from`; returns picks (or null if none chosen). */
+	async _pPickList ({count, from, title}) {
+		if (!from?.length) return null;
+		const out = [];
+		for (let i = 0; i < count; ++i) {
+			const remaining = from.filter(it => !out.includes(it));
+			if (!remaining.length) break;
+			const picked = await InputUiUtil.pGetUserEnum({
+				values: remaining,
+				isResolveItem: true,
+				fnDisplay: it => it,
+				title: count > 1 ? `${title} (${i + 1} of ${count})` : title,
+				placeholder: "Select...",
+			});
+			if (picked == null) return out.length ? out : null;
+			out.push(picked);
+		}
+		return out;
+	}
+
+	/** Apply a feat's non-ability structured grants: fixed skills/expertise; languages/tools as notes. */
 	_applyFeatSecondaryGrants (feat) {
 		(feat.skillProficiencies || []).forEach(grp => {
 			Object.entries(grp).forEach(([k, v]) => { if (v === true) this._comp.setSkillProfByName(k, 1); });
@@ -484,11 +525,7 @@ export class CharacterClassPanel {
 		});
 
 		const pts = [];
-		// Fixed skill/expertise grants were applied above; anything choice-shaped becomes a note
-		const skillsNote = getProfListDisplay(feat.skillProficiencies).split(", ").filter(pt => /choice/i.test(pt)).join(", ");
-		if (skillsNote) pts.push(`Skills: ${skillsNote}`);
-		const expertiseNote = getProfListDisplay(feat.expertise).split(", ").filter(pt => /choice/i.test(pt)).join(", ");
-		if (expertiseNote) pts.push(`Expertise: ${expertiseNote}`);
+		// Skill/expertise choices are resolved interactively; tools/languages have no structured store, so note them
 		const langs = getProfListDisplay(feat.languageProficiencies);
 		if (langs) pts.push(`Languages: ${langs}`);
 		const tools = getProfListDisplay(feat.toolProficiencies);

@@ -1,10 +1,12 @@
 import "../../js/parser.js";
 import {
 	CHOICE_TYPE_ABILITY,
+	CHOICE_TYPE_EXPERTISE,
 	CHOICE_TYPE_LANGUAGE,
 	CHOICE_TYPE_SKILL,
 	CHOICE_TYPE_TOOL,
 	getAbilityChoices,
+	getExpertiseChoices,
 	getAbilityPackageDisplay,
 	getAbilityPackages,
 	getFixedAbilityBonuses,
@@ -79,6 +81,27 @@ describe("Choice queue extraction", () => {
 		const groups = [{anyGamingSet: 1, "vehicles (land)": true}];
 		expect(getProfListDisplay(groups)).toBe("1 of your choice, Vehicles (Land)");
 		expect(getProfListDisplay(groups, {isFixedOnly: true})).toBe("Vehicles (Land)");
+	});
+});
+
+describe("Expertise choice extraction (feats)", () => {
+	it("Should extract a skill-list Expertise choice (Skill Expert-style)", () => {
+		const choices = getExpertiseChoices({groups: [{choose: {from: ["athletics", "stealth", "arcana"]}}], sourceName: "Skill Expert"});
+		expect(choices).toHaveLength(1);
+		expect(choices[0].type).toBe(CHOICE_TYPE_EXPERTISE);
+		expect(choices[0].count).toBe(1);
+		expect(choices[0].from).toEqual(["Athletics", "Stealth", "Arcana"]);
+	});
+
+	it("Should draw anyProficientSkill Expertise from the character's proficient skills (Prodigy-style)", () => {
+		const choices = getExpertiseChoices({groups: [{anyProficientSkill: 1}], sourceName: "Prodigy", proficientSkillNames: ["Stealth", "Perception"]});
+		expect(choices).toHaveLength(1);
+		expect(choices[0].count).toBe(1);
+		expect(choices[0].from).toEqual(["Stealth", "Perception"]);
+	});
+
+	it("Should ignore fixed expertise grants (applied elsewhere)", () => {
+		expect(getExpertiseChoices({groups: [{perception: true}], sourceName: "Aberrant Anatomy"})).toHaveLength(0);
 	});
 });
 
