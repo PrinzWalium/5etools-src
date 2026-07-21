@@ -173,12 +173,12 @@ export class CharacterModel extends BaseComponent {
 
 	/* -------------------------------------------- Spells -------------------------------------------- */
 
-	/** @return `false` if the spell was already known */
-	addKnownSpell ({name, source, level}) {
-		if (this._state.spellsKnown.some(it => it.name === name && it.source === source)) return false;
+	/** @return `false` if the spell was already known (for that class) */
+	addKnownSpell ({name, source, level, className = null}) {
+		if (this._state.spellsKnown.some(it => it.name === name && it.source === source && (it.className || null) === (className || null))) return false;
 		this._state.spellsKnown = [
 			...this._state.spellsKnown,
-			{id: CryptUtil.uid(), name, source, level: Number(level) || 0},
+			{id: CryptUtil.uid(), name, source, level: Number(level) || 0, className},
 		];
 		return true;
 	}

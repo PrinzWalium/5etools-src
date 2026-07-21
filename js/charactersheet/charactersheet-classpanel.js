@@ -1,5 +1,6 @@
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {
+	checkFeatPrerequisites,
 	getAsiCount,
 	getCantripsKnown,
 	getMulticlassRequirementsDisplay,
@@ -328,6 +329,33 @@ export class CharacterClassPanel {
 		this._comp.addAsiFeatChoice(entry.id, {type: "asi", bonuses});
 	}
 
+	/** Character context for checking feat (and multiclass) prerequisites. */
+	_getFeatPrereqContext () {
+		const state = this._comp._state;
+		const abilityScores = Object.fromEntries(CHAR_SHEET_ABILITIES.map(([abv]) => [abv, Number(state[`abil_${abv}`]) || 10]));
+
+		// Expand species name into matchable words so a base-race prereq ("elf") matches "Wood Elf"
+		const raceNames = [];
+		const speciesName = state.refSpecies?.name || state.speciesText;
+		if (speciesName) {
+			raceNames.push(speciesName);
+			String(speciesName).replace(/\(.*?\)/g, " ").split(/[\s-]+/).forEach(w => { if (w) raceNames.push(w); });
+		}
+
+		const featNames = [];
+		(state.classes || []).forEach(cls => (cls.asiFeatChoices || []).forEach(ch => { if (ch.type === "feat") featNames.push(ch.name); }));
+
+		return {
+			abilityScores,
+			totalLevel: this._comp.getLevelNumber(),
+			classes: (state.classes || []).map(c => ({name: c.name, level: c.level})),
+			raceNames,
+			backgroundName: state.refBackground?.name || state.backgroundText,
+			featNames,
+			isSpellcaster: !!state.spellAbility || (state.spellsKnown || []).length > 0,
+		};
+	}
+
 	async _pOnChooseFeat ({entry}) {
 		const feats = await CharacterSheetClassData.pGetAllFeats();
 		const feat = await InputUiUtil.pGetUserEnum({
@@ -338,6 +366,21 @@ export class CharacterClassPanel {
 			placeholder: "Select a feat...",
 		});
 		if (feat == null) return;
+
+		// Warn (do not block) when the character definitely does not meet the feat's prerequisites
+		if (feat.prerequisite?.length) {
+			const {status} = checkFeatPrerequisites(feat.prerequisite, this._getFeatPrereqContext());
+			if (status === "unmet") {
+				const ptPrereq = Renderer.utils.prerequisite.getHtml(feat.prerequisite, {isTextOnly: true, isSkipPrefix: true});
+				const isContinue = await InputUiUtil.pGetUserBoolean({
+					title: "Feat Prerequisites Not Met",
+					htmlDescription: `<div>${feat.name.qq()} requires: ${(ptPrereq || "(see feat)").qq()}.<br>Take it anyway?</div>`,
+					textYes: "Take Anyway",
+					textNo: "Cancel",
+				});
+				if (!isContinue) return;
+			}
+		}
 
 		// Resolve the feat's ability increases: fixed parts apply directly; choose-based parts prompt
 		const bonuses = {...getFixedAbilityBonuses(feat.ability)};

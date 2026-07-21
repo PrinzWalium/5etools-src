@@ -130,8 +130,29 @@ export class CharacterSpellsPanel {
 		this._wrpKnown.innerHTML = "";
 		if (!known.length) return;
 
+		// Group by class only when the character actually spreads spells across multiple classes
+		const distinctClasses = new Set(known.map(it => it.className).filter(Boolean));
+		if (distinctClasses.size > 1) {
+			[...distinctClasses].sort((a, b) => a.toLowerCase() < b.toLowerCase() ? -1 : 1)
+				.forEach(className => this._renderKnownGroup({className, spells: known.filter(it => it.className === className)}));
+			const unattributed = known.filter(it => !it.className);
+			if (unattributed.length) this._renderKnownGroup({className: null, spells: unattributed});
+			return;
+		}
+
+		this._renderKnownGroup({className: null, spells: known});
+	}
+
+	_renderKnownGroup ({className, spells}) {
+		if (className) {
+			const hdr = document.createElement("div");
+			hdr.className = "bold ve-small ve-mt-1";
+			hdr.textContent = className;
+			this._wrpKnown.appendChild(hdr);
+		}
+
 		const byLevel = {};
-		known.forEach(spell => (byLevel[spell.level] = byLevel[spell.level] || []).push(spell));
+		spells.forEach(spell => (byLevel[spell.level] = byLevel[spell.level] || []).push(spell));
 
 		Object.keys(byLevel)
 			.map(Number)
@@ -164,6 +185,14 @@ export class CharacterSpellsPanel {
 			});
 	}
 
+	/** Names of the character's classes that can cast spells. */
+	async _pGetCasterClassNames () {
+		const loaded = await this._pGetLoadedClasses();
+		return loaded
+			.filter(({cls, sc}) => [cls, sc].some(it => it?.casterProgression || it?.spellcastingAbility || it?.cantripProgression || it?.spellsKnownProgression))
+			.map(({entry}) => entry.name);
+	}
+
 	async _pOnAddSpell () {
 		await SearchUiUtil.pDoGlobalInit();
 		SearchWidget.pDoGlobalInit();
@@ -171,21 +200,35 @@ export class CharacterSpellsPanel {
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
 
-		// Validate against the character's class spell lists (loose name match: 2014/2024 lists
-		// reference each other's classes by name)
-		const classes = this._comp._state.classes;
-		if (ent && classes.length) {
+		// Attribute the spell to a class: automatic for a single caster, prompted for multiclass casters
+		const casterNames = await this._pGetCasterClassNames();
+		let className = null;
+		if (casterNames.length === 1) className = casterNames[0];
+		else if (casterNames.length > 1) {
+			className = await InputUiUtil.pGetUserEnum({
+				values: casterNames,
+				isResolveItem: true,
+				title: "Which class learns this spell?",
+				placeholder: "Select a class...",
+			});
+			if (className == null) return; // cancelled
+		}
+
+		// Validate against the attributed class's spell list (or all classes when unattributed);
+		// loose name match, since 2014/2024 lists reference each other's classes by name
+		if (ent) {
 			const spellClasses = [
 				...Renderer.spell.getCombinedClasses(ent, "fromClassList"),
 				...Renderer.spell.getCombinedClasses(ent, "fromClassListVariant"),
 			].map(it => it.name?.toLowerCase()).filter(Boolean);
-			const isOnList = classes.some(entry => spellClasses.includes(entry.name.toLowerCase()));
-			if (!isOnList && spellClasses.length) {
-				JqueryUtil.doToast({type: "warning", content: `${doc.n} is not on your ${classes.map(it => it.name).join("/")} spell list${classes.length > 1 ? "s" : ""}.`});
+			const namesToCheck = className ? [className] : this._comp._state.classes.map(it => it.name);
+			const isOnList = namesToCheck.some(name => spellClasses.includes(name.toLowerCase()));
+			if (!isOnList && spellClasses.length && namesToCheck.length) {
+				JqueryUtil.doToast({type: "warning", content: `${doc.n} is not on the ${namesToCheck.join("/")} spell list${namesToCheck.length > 1 ? "s" : ""}.`});
 			}
 		}
 
-		const isAdded = this._comp.addKnownSpell({name: doc.n, source: doc.source, level: ent?.level ?? 0});
+		const isAdded = this._comp.addKnownSpell({name: doc.n, source: doc.source, level: ent?.level ?? 0, className});
 		if (!isAdded) JqueryUtil.doToast({type: "info", content: `${doc.n} is already in the list.`});
 	}
 }

@@ -1,9 +1,12 @@
 import * as fs from "fs";
 import "../../js/parser.js";
 import {
+	checkFeatPrerequisites,
 	getAsiCount,
 	getCantripsKnown,
 	getCasterLevelContribution,
+	getHitDieAverage,
+	getLevelUpHp,
 	getMulticlassRequirementsDisplay,
 	getOptionalFeatureCounts,
 	getPactSlots,
@@ -173,5 +176,99 @@ describe("Leveling engine: multiclass requirements", () => {
 		const req = getClass("paladin").multiclassing.requirements;
 		expect(isMulticlassRequirementMet(req, {str: 13, cha: 13})).toBe(true);
 		expect(isMulticlassRequirementMet(req, {str: 13, cha: 8})).toBe(false);
+	});
+});
+
+describe("Leveling engine: feat prerequisites", () => {
+	const ctx = ({abilityScores = {}, totalLevel = 1, classes = [], raceNames = [], backgroundName = null, featNames = [], isSpellcaster = false} = {}) =>
+		({abilityScores, totalLevel, classes, raceNames, backgroundName, featNames, isSpellcaster});
+
+	it("Should pass when there are no prerequisites", () => {
+		expect(checkFeatPrerequisites(undefined, ctx()).status).toBe("met");
+		expect(checkFeatPrerequisites([], ctx()).status).toBe("met");
+	});
+
+	it("Should check ability prerequisites as alternatives across sets (Ritual Caster: Int 13 or Wis 13)", () => {
+		const pre = [{ability: [{int: 13}, {wis: 13}]}];
+		expect(checkFeatPrerequisites(pre, ctx({abilityScores: {int: 14, wis: 8}})).status).toBe("met");
+		expect(checkFeatPrerequisites(pre, ctx({abilityScores: {int: 8, wis: 15}})).status).toBe("met");
+		expect(checkFeatPrerequisites(pre, ctx({abilityScores: {int: 10, wis: 10}})).status).toBe("unmet");
+	});
+
+	it("Should check a fixed ability requirement (Actor: Cha 13)", () => {
+		const pre = [{ability: [{cha: 13}]}];
+		expect(checkFeatPrerequisites(pre, ctx({abilityScores: {cha: 13}})).status).toBe("met");
+		expect(checkFeatPrerequisites(pre, ctx({abilityScores: {cha: 12}})).status).toBe("unmet");
+	});
+
+	it("Should treat top-level prerequisite entries as alternatives", () => {
+		const pre = [{ability: [{str: 13}]}, {ability: [{dex: 13}]}];
+		expect(checkFeatPrerequisites(pre, ctx({abilityScores: {str: 8, dex: 15}})).status).toBe("met");
+		expect(checkFeatPrerequisites(pre, ctx({abilityScores: {str: 8, dex: 8}})).status).toBe("unmet");
+	});
+
+	it("Should require all keys within one entry (level and ability)", () => {
+		const pre = [{level: 4, ability: [{con: 13}]}];
+		expect(checkFeatPrerequisites(pre, ctx({totalLevel: 4, abilityScores: {con: 13}})).status).toBe("met");
+		expect(checkFeatPrerequisites(pre, ctx({totalLevel: 3, abilityScores: {con: 13}})).status).toBe("unmet");
+		expect(checkFeatPrerequisites(pre, ctx({totalLevel: 4, abilityScores: {con: 10}})).status).toBe("unmet");
+	});
+
+	it("Should check class-level requirements against the matching class", () => {
+		const pre = [{level: {level: 1, class: {name: "Wizard"}}}];
+		expect(checkFeatPrerequisites(pre, ctx({classes: [{name: "Wizard", level: 1}]})).status).toBe("met");
+		expect(checkFeatPrerequisites(pre, ctx({classes: [{name: "Fighter", level: 5}]})).status).toBe("unmet");
+	});
+
+	it("Should check race prerequisites (Bountiful Luck: halfling)", () => {
+		const pre = [{race: [{name: "halfling"}]}];
+		expect(checkFeatPrerequisites(pre, ctx({raceNames: ["Lightfoot Halfling", "lightfoot", "halfling"]})).status).toBe("met");
+		expect(checkFeatPrerequisites(pre, ctx({raceNames: ["elf"]})).status).toBe("unmet");
+	});
+
+	it("Should check spellcasting prerequisites", () => {
+		const pre = [{spellcasting: true}];
+		expect(checkFeatPrerequisites(pre, ctx({isSpellcaster: true})).status).toBe("met");
+		expect(checkFeatPrerequisites(pre, ctx({isSpellcaster: false})).status).toBe("unmet");
+	});
+
+	it("Should check taken-feat prerequisites by name segment", () => {
+		const pre = [{feat: ["initiate of high sorcery|dsotdq|initiate of high sorcery (nuitari)"]}];
+		expect(checkFeatPrerequisites(pre, ctx({featNames: ["Initiate of High Sorcery"]})).status).toBe("met");
+		expect(checkFeatPrerequisites(pre, ctx({featNames: ["Alert"]})).status).toBe("unmet");
+	});
+
+	it("Should return unknown when only unverifiable clauses remain", () => {
+		expect(checkFeatPrerequisites([{campaign: ["Ravenloft"]}], ctx()).status).toBe("unknown");
+		expect(checkFeatPrerequisites([{other: "No other dragonmark"}], ctx()).status).toBe("unknown");
+		// A satisfiable checkable clause plus an unknown one → unknown (don't falsely block)
+		expect(checkFeatPrerequisites([{ability: [{str: 13}], proficiency: [{weapon: "martial"}]}], ctx({abilityScores: {str: 15}})).status).toBe("unknown");
+	});
+});
+
+describe("Leveling engine: hit points", () => {
+	it("Should give the 5e fixed average per hit die", () => {
+		expect(getHitDieAverage(6)).toBe(4);
+		expect(getHitDieAverage(8)).toBe(5);
+		expect(getHitDieAverage(10)).toBe(6);
+		expect(getHitDieAverage(12)).toBe(7);
+	});
+
+	it("Should sum average HP across levels with Constitution", () => {
+		expect(getLevelUpHp({faces: 10, conMod: 2, numLevels: 1}).total).toBe(8); // 6 + 2
+		expect(getLevelUpHp({faces: 10, conMod: 2, numLevels: 3}).total).toBe(24); // 3 × 8
+		expect(getLevelUpHp({faces: 8, conMod: 0, numLevels: 2}).total).toBe(10); // 2 × 5
+	});
+
+	it("Should floor each level at 1 HP even with a big negative Con", () => {
+		const {total, perLevel} = getLevelUpHp({faces: 6, conMod: -5, numLevels: 2});
+		expect(perLevel).toEqual([1, 1]);
+		expect(total).toBe(2);
+	});
+
+	it("Should roll per level when given a roll function", () => {
+		const {total, perLevel} = getLevelUpHp({faces: 10, conMod: 1, numLevels: 2, fnRoll: () => 7});
+		expect(perLevel).toEqual([8, 8]);
+		expect(total).toBe(16);
 	});
 });

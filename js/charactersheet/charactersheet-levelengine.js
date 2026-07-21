@@ -215,3 +215,108 @@ export function getMulticlassRequirementsDisplay (requirements) {
 	const basePart = renderGrp(requirements, ", ");
 	return [orPart, basePart].filter(Boolean).join("; ");
 }
+
+/* -------------------------------------------- Feat prerequisites -------------------------------------------- */
+
+// Prerequisite keys the sheet can meaningfully verify from character state; anything else
+// (campaign, alignment, item, free-text "other", ...) is treated as unverifiable and never blocks.
+const _FEAT_PREREQ_CHECKABLE = new Set(["level", "ability", "race", "feat", "background", "spellcasting", "spellcasting2020", "spellcastingFeature", "psionics"]);
+
+const _normName = str => String(str || "").toLowerCase().trim();
+
+/**
+ * Evaluate one prerequisite entry against the character.
+ * @return {"met"|"unmet"|"unknown"} met = all checkable clauses pass; unmet = a checkable clause
+ *   fails; unknown = every checkable clause passes but an unverifiable clause remains.
+ */
+function _evalFeatPrereqEntry (entry, ctx) {
+	let hasUnknown = false;
+
+	for (const [key, val] of Object.entries(entry)) {
+		if (key === "note") continue;
+		if (!_FEAT_PREREQ_CHECKABLE.has(key)) { hasUnknown = true; continue; }
+
+		switch (key) {
+			case "level": {
+				const req = typeof val === "number" ? val : Number(val.level) || 0;
+				const clsReq = typeof val === "object" ? val.class?.name : null;
+				if (clsReq) {
+					const cls = (ctx.classes || []).find(c => _normName(c.name) === _normName(clsReq));
+					if (!cls || cls.level < req) return "unmet";
+				} else if ((ctx.totalLevel || 0) < req) return "unmet";
+				break;
+			}
+			case "ability": {
+				// Array of alternative ability-sets; within a set all abilities are required
+				const isMet = (val || []).some(set => Object.entries(set).every(([abv, min]) => (Number(ctx.abilityScores?.[abv]) || 0) >= min));
+				if (!isMet) return "unmet";
+				break;
+			}
+			case "race": {
+				const names = new Set((ctx.raceNames || []).map(_normName));
+				const isMet = (val || []).some(r => names.has(_normName(r.name)));
+				if (!isMet) return "unmet";
+				break;
+			}
+			case "background": {
+				const isMet = (val || []).some(b => _normName(b.name) === _normName(ctx.backgroundName));
+				if (!isMet) return "unmet";
+				break;
+			}
+			case "feat": {
+				const taken = new Set((ctx.featNames || []).map(_normName));
+				// Uids look like "name|source|display"; match on the name segment
+				const isMet = (val || []).some(uid => taken.has(_normName(String(uid).split("|")[0])));
+				if (!isMet) return "unmet";
+				break;
+			}
+			case "spellcasting":
+			case "spellcasting2020":
+			case "spellcastingFeature": {
+				if (!ctx.isSpellcaster) return "unmet";
+				break;
+			}
+			case "psionics": {
+				if (!ctx.isSpellcaster) { hasUnknown = true; } // no structured psionics tracking
+				break;
+			}
+			default: hasUnknown = true;
+		}
+	}
+
+	return hasUnknown ? "unknown" : "met";
+}
+
+/**
+ * Check a feat's `prerequisite` array against character context. Entries are alternatives (OR).
+ * @return {{status: "met"|"unmet"|"unknown"}} `unmet` only when every alternative has a concrete
+ *   failing requirement, so a warning is raised solely when the character definitely does not qualify.
+ */
+export function checkFeatPrerequisites (prerequisite, ctx) {
+	if (!prerequisite?.length) return {status: "met"};
+	const entryStatuses = prerequisite.map(entry => _evalFeatPrereqEntry(entry, ctx));
+	if (entryStatuses.includes("met")) return {status: "met"};
+	if (entryStatuses.includes("unknown")) return {status: "unknown"};
+	return {status: "unmet"};
+}
+
+/* -------------------------------------------- Hit points -------------------------------------------- */
+
+/** Average HP gained for a level of a given hit die (5e "fixed" value): ⌊faces/2⌋ + 1. */
+export function getHitDieAverage (faces) {
+	return Math.floor((Number(faces) || 0) / 2) + 1;
+}
+
+/**
+ * Suggested HP gained across `numLevels` new levels of a `faces`-sided hit die.
+ * @param [opts.fnRoll] If given, each level rolls `fnRoll(faces)`; otherwise the fixed average is used.
+ * @return {{total: number, perLevel: Array<number>}} Each level contributes at least 1 HP.
+ */
+export function getLevelUpHp ({faces, conMod = 0, numLevels = 1, fnRoll = null}) {
+	const perLevel = [];
+	for (let i = 0; i < numLevels; ++i) {
+		const base = fnRoll ? fnRoll(faces) : getHitDieAverage(faces);
+		perLevel.push(Math.max(1, base + conMod));
+	}
+	return {total: perLevel.reduce((a, b) => a + b, 0), perLevel};
+}

@@ -8,6 +8,7 @@ import {getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses} fro
 import {CharacterInventoryPanel} from "./charactersheet/charactersheet-inventorypanel.js";
 import {CharacterSpellsPanel} from "./charactersheet/charactersheet-spellspanel.js";
 import {getCharacterLabel, getMigratedStore, getNewStore} from "./charactersheet/charactersheet-charstore.js";
+import {getLevelUpHp} from "./charactersheet/charactersheet-levelengine.js";
 
 /** Renders the attacks table from the model's `attacks` collection. */
 class _AttacksRenderableCollection extends RenderableCollectionBase {
@@ -138,6 +139,8 @@ class CharacterSheetPage {
 		this._saveTimer = null;
 		this._store = null; // {storeVersion, currentId, characters: {id: envelope}}
 		this._fnsSyncInput = []; // unconditional input-sync functions, for bulk state loads
+		this._lastLevel = 1; // for detecting interactive level-ups
+		this._suppressLevelPrompt = 0; // >0 while a bulk apply (e.g. the wizard) is in progress
 	}
 
 	init () {
@@ -165,6 +168,7 @@ class CharacterSheetPage {
 		this._comp._addHookBase("pickTags", () => this._renderPickLinks());
 		this._comp._addHookBase("deathSuccess", () => this._renderDeathSaves());
 		this._comp._addHookBase("deathFail", () => this._renderDeathSaves());
+		this._comp._addHookBase("level", () => this._pMaybePromptLevelUp());
 		this._comp._addHookAllBase(() => this._onStateChange());
 
 		this._store = getMigratedStore(StorageUtil.syncGetForPage(CharacterSheetPage._STORAGE_KEY)) || getNewStore();
@@ -204,6 +208,55 @@ class CharacterSheetPage {
 		this._renderPickLinks();
 		this._renderDeathSaves();
 		this._renderDerived();
+		this._lastLevel = this._comp.getLevelNumber();
+	}
+
+	/** On an interactive level increase, offer to add average or rolled HP for the new level(s). */
+	async _pMaybePromptLevelUp () {
+		const newLevel = this._comp.getLevelNumber();
+		const prevLevel = this._lastLevel;
+		this._lastLevel = newLevel;
+
+		if (this._isLoading || this._suppressLevelPrompt > 0 || newLevel <= prevLevel) return;
+
+		const primary = this._comp._state.classes.find(c => c.hdFaces);
+		if (!primary) return; // no hit die to base a suggestion on
+		const faces = primary.hdFaces;
+		const numLevels = newLevel - prevLevel;
+		const conMod = Parser.getAbilityModNumber(Number(this._comp._state.abil_con) || 10);
+
+		const avgTotal = getLevelUpHp({faces, conMod, numLevels}).total;
+		const optAvg = `Add average (+${avgTotal} HP)`;
+		const ptConMod = conMod ? ` ${conMod > 0 ? "+" : "−"} ${Math.abs(conMod)} per level` : "";
+		const optRoll = `Roll ${numLevels}d${faces}${ptConMod}`;
+		const optSkip = "Enter manually / skip";
+
+		const choice = await InputUiUtil.pGetUserEnum({
+			values: [optAvg, optRoll, optSkip],
+			isResolveItem: true,
+			title: `Level up to ${newLevel}${numLevels > 1 ? ` (+${numLevels} levels)` : ""}`,
+			placeholder: "How do you want to gain HP?",
+		});
+		if (choice == null || choice === optSkip) return;
+
+		const gained = choice === optRoll
+			? getLevelUpHp({faces, conMod, numLevels, fnRoll: f => Math.floor(Math.random() * f) + 1}).total
+			: avgTotal;
+
+		this._comp._state.hpMax = (Number(this._comp._state.hpMax) || 0) + gained;
+		this._comp._state.hpCur = (Number(this._comp._state.hpCur) || 0) + gained;
+		JqueryUtil.doToast({type: "success", content: `Gained ${gained} HP (now level ${newLevel}).`});
+	}
+
+	/** The wizard applies its own suggested HP, so suppress the per-level prompt while it runs. */
+	async _pOnWizard () {
+		this._suppressLevelPrompt += 1;
+		try {
+			await CharacterWizard.pShow({comp: this._comp});
+		} finally {
+			this._suppressLevelPrompt -= 1;
+			this._lastLevel = this._comp.getLevelNumber();
+		}
 	}
 
 	/* -------------------------------------------- DOM scaffolding -------------------------------------------- */
@@ -344,7 +397,7 @@ class CharacterSheetPage {
 	/* -------------------------------------------- Controls -------------------------------------------- */
 
 	_bindStaticControls () {
-		document.getElementById("cs-btn-wizard").addEventListener("click", () => CharacterWizard.pShow({comp: this._comp}));
+		document.getElementById("cs-btn-wizard").addEventListener("click", () => this._pOnWizard());
 
 		document.getElementById("cs-attack-add").addEventListener("click", () => this._comp.addAttack());
 
