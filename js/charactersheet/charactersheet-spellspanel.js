@@ -1,5 +1,6 @@
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
-import {getCantripsKnown, getSpellcastingMeta, getSpellsKnown} from "./charactersheet-levelengine.js";
+import {getCantripsKnown, getPreparedSpellCount, getSpellcastingMeta, getSpellsKnown} from "./charactersheet-levelengine.js";
+import {getAbilityModifier} from "./charactersheet-derive.js";
 
 /**
  * Tracked spellcasting: the known/prepared spell list (validated against the character's class
@@ -21,9 +22,83 @@ export class CharacterSpellsPanel {
 			this._pRenderSlots(); // known counts live in the slots block
 		});
 		document.getElementById("cs-spell-add").addEventListener("click", () => this._pOnAddSpell());
+		const btnBrowse = document.getElementById("cs-spell-browse");
+		if (btnBrowse) btnBrowse.addEventListener("click", () => this._pOnBrowseClassSpells());
 
 		this._renderKnown();
 		this._pRenderSlots();
+	}
+
+	/* -------------------------------------------- Class-filtered spell manager -------------------------------------------- */
+
+	/** Highest leveled-spell level the character can cast (from slot tables / pact magic). */
+	static _getMaxSpellLevel (meta) {
+		let maxLevel = meta.pact ? meta.pact.level : 0;
+		if (meta.slots) maxLevel = Math.max(maxLevel, meta.slots.reduce((m, n, i) => (n > 0 ? i + 1 : m), 0));
+		return maxLevel;
+	}
+
+	/**
+	 * Manage a caster class's spells from a list restricted to that class and to the levels the
+	 * character can actually learn (cantrips + leveled spells up to the highest slot level). This is
+	 * the class-scoped alternative to the free-form search, so players never wade through off-list spells.
+	 */
+	async _pOnBrowseClassSpells () {
+		const loaded = await this._pGetLoadedClasses();
+		const casters = loaded.filter(({cls, sc}) => [cls, sc].some(it => it?.casterProgression || it?.spellcastingAbility || it?.cantripProgression || it?.spellsKnownProgression));
+		if (!casters.length) return JqueryUtil.doToast({type: "warning", content: "This character has no spellcasting class yet."});
+
+		let target = casters[0];
+		if (casters.length > 1) {
+			const name = await InputUiUtil.pGetUserEnum({
+				values: casters.map(c => c.entry.name),
+				isResolveItem: true,
+				title: "Manage spells for which class?",
+				placeholder: "Select a class...",
+			});
+			if (name == null) return;
+			target = casters.find(c => c.entry.name === name) || target;
+		}
+
+		const {entry, cls, sc} = target;
+		const className = cls?.name || entry.name;
+
+		const meta = getSpellcastingMeta([{cls, sc, level: entry.level}]);
+		const maxLevel = CharacterSpellsPanel._getMaxSpellLevel(meta);
+		const cantripEnt = [cls, sc].find(it => it?.cantripProgression);
+		const hasCantrips = !!(cantripEnt && getCantripsKnown(cantripEnt, entry.level));
+
+		const spells = (await CharacterSheetClassData.pGetSpellsForClass(className))
+			.filter(sp => (sp.level === 0 ? hasCantrips : sp.level <= Math.max(maxLevel, 1)));
+		if (!spells.length) return JqueryUtil.doToast({type: "warning", content: `No learnable ${className} spells found at this level.`});
+
+		const knownKeys = new Set(this._comp._state.spellsKnown
+			.filter(it => (it.className || null) === (className || null))
+			.map(it => `${it.name}|${it.source}`));
+		const values = spells.map(sp => {
+			const ptSrc = sp.source !== Parser.SRC_PHB ? ` (${Parser.sourceJsonToAbv(sp.source)})` : "";
+			const ptLvl = sp.level === 0 ? "Cantrip" : Parser.spLevelToFull(sp.level);
+			const ptRit = sp.meta?.ritual ? " [ritual]" : "";
+			return `${sp.name}${ptSrc} — ${ptLvl}${ptRit}`;
+		});
+		const defaults = spells.map((sp, ix) => (knownKeys.has(`${sp.name}|${sp.source}`) ? ix : null)).filter(ix => ix != null);
+
+		const ixs = await InputUiUtil.pGetUserMultipleChoice({
+			title: `${className} Spells`,
+			htmlDescription: `<div class="ve-muted ve-small ve-mb-1">Showing cantrips and spells up to ${maxLevel ? Parser.spLevelToFull(maxLevel) : "your castable"} level. Tick the spells this class knows or has prepared.</div>`,
+			values,
+			defaults,
+			max: values.length, // no hard cap; over-selection is surfaced as a warning in the counts row
+			isSearchable: true,
+			fnGetSearchText: v => v,
+		});
+		if (ixs == null || typeof ixs === "symbol") return;
+
+		const chosen = ixs.map(ix => {
+			const sp = spells[ix];
+			return {name: sp.name, source: sp.source, level: sp.level, ritual: !!sp.meta?.ritual};
+		});
+		this._comp.setKnownSpellsForClass(className, chosen);
 	}
 
 	/* -------------------------------------------- Slots -------------------------------------------- */
@@ -95,23 +170,40 @@ export class CharacterSpellsPanel {
 			this._wrpSlots.appendChild(note);
 		}
 
-		// Known/cantrip counts vs the class progressions, where the data defines them
+		// Cantrip / known-or-prepared counts vs the class progressions; over-limit is flagged, not blocked
 		const known = this._comp._state.spellsKnown || [];
-		const cntCantripsKnown = known.filter(it => it.level === 0).length;
-		const cntSpellsKnown = known.filter(it => it.level > 0).length;
-		const counts = [];
+		const state = this._comp._getState();
+		const countItems = [];
 		loaded.forEach(({entry, cls, sc}) => {
-			const casterEnt = [cls, sc].find(it => it?.cantripProgression || it?.spellsKnownProgression);
-			if (!casterEnt) return;
-			const maxCantrips = getCantripsKnown(casterEnt, entry.level);
-			const maxKnown = getSpellsKnown(casterEnt, entry.level);
-			if (maxCantrips != null) counts.push(`Cantrips: ${cntCantripsKnown}/${maxCantrips}`);
-			if (maxKnown != null) counts.push(`Spells known: ${cntSpellsKnown}/${maxKnown}`);
+			const clsName = cls?.name;
+			const mine = known.filter(it => !it.className || it.className === clsName);
+			const cntCantrips = mine.filter(it => it.level === 0).length;
+			const cntLeveled = mine.filter(it => it.level > 0).length;
+
+			const cantripEnt = [cls, sc].find(it => it?.cantripProgression);
+			if (cantripEnt) {
+				const maxCantrips = getCantripsKnown(cantripEnt, entry.level);
+				if (maxCantrips != null) countItems.push({text: `Cantrips: ${cntCantrips}/${maxCantrips}`, isOver: cntCantrips > maxCantrips});
+			}
+
+			const knownEnt = [cls, sc].find(it => it?.spellsKnownProgression);
+			const preparedEnt = [cls, sc].find(it => it?.preparedSpells);
+			if (knownEnt) {
+				const maxKnown = getSpellsKnown(knownEnt, entry.level);
+				if (maxKnown != null) countItems.push({text: `Spells known: ${cntLeveled}/${maxKnown}`, isOver: cntLeveled > maxKnown});
+			} else if (preparedEnt) {
+				const abv = preparedEnt.spellcastingAbility;
+				const mod = abv ? getAbilityModifier(state, abv) : 0;
+				const maxPrep = getPreparedSpellCount(preparedEnt, entry.level, mod);
+				if (maxPrep != null) countItems.push({text: `Spells prepared: ${cntLeveled}/${maxPrep}`, isOver: cntLeveled > maxPrep});
+			}
 		});
-		if (counts.length) {
+		if (countItems.length) {
 			const disp = document.createElement("div");
-			disp.className = "ve-muted ve-small";
-			disp.textContent = counts.join(" · ");
+			disp.className = "ve-small";
+			disp.innerHTML = countItems
+				.map(c => `<span class="${c.isOver ? "ve-text-danger" : "ve-muted"}">${c.text.qq()}</span>`)
+				.join(`<span class="ve-muted"> · </span>`);
 			this._wrpSlots.appendChild(disp);
 		}
 
@@ -170,7 +262,8 @@ export class CharacterSpellsPanel {
 					.forEach(spell => {
 						const spn = document.createElement("span");
 						spn.className = "ve-mr-2";
-						spn.innerHTML = Renderer.get().render(`{@spell ${spell.name}${spell.source?.toLowerCase() !== "phb" ? `|${spell.source}` : ""}}`);
+						const ptRitual = spell.ritual ? ` <span class="ve-muted" title="Ritual">(R)</span>` : "";
+						spn.innerHTML = Renderer.get().render(`{@spell ${spell.name}${spell.source?.toLowerCase() !== "phb" ? `|${spell.source}` : ""}}`) + ptRitual;
 						const btnRm = document.createElement("button");
 						btnRm.type = "button";
 						btnRm.className = "ve-btn ve-btn-xxs ve-btn-default no-print ve-ml-1";
@@ -228,7 +321,7 @@ export class CharacterSpellsPanel {
 			}
 		}
 
-		const isAdded = this._comp.addKnownSpell({name: doc.n, source: doc.source, level: ent?.level ?? 0, className});
+		const isAdded = this._comp.addKnownSpell({name: doc.n, source: doc.source, level: ent?.level ?? 0, className, ritual: !!ent?.meta?.ritual});
 		if (!isAdded) JqueryUtil.doToast({type: "info", content: `${doc.n} is already in the list.`});
 	}
 }

@@ -174,17 +174,39 @@ export class CharacterModel extends BaseComponent {
 	/* -------------------------------------------- Spells -------------------------------------------- */
 
 	/** @return `false` if the spell was already known (for that class) */
-	addKnownSpell ({name, source, level, className = null}) {
+	addKnownSpell ({name, source, level, className = null, ritual = false}) {
 		if (this._state.spellsKnown.some(it => it.name === name && it.source === source && (it.className || null) === (className || null))) return false;
 		this._state.spellsKnown = [
 			...this._state.spellsKnown,
-			{id: CryptUtil.uid(), name, source, level: Number(level) || 0, className},
+			{id: CryptUtil.uid(), name, source, level: Number(level) || 0, className, ritual: !!ritual},
 		];
 		return true;
 	}
 
 	removeKnownSpell (id) {
 		this._state.spellsKnown = this._state.spellsKnown.filter(it => it.id !== id);
+	}
+
+	/**
+	 * Replace the known/prepared spells attributed to `className` with `spells`
+	 * (each `{name, source, level, ritual}`), preserving spells of other classes and
+	 * the ids of any that are retained. Used by the class-filtered spell manager.
+	 */
+	setKnownSpellsForClass (className, spells) {
+		const key = className || null;
+		const others = this._state.spellsKnown.filter(it => (it.className || null) !== key);
+		const existingById = new Map(this._state.spellsKnown
+			.filter(it => (it.className || null) === key)
+			.map(it => [`${it.name}|${it.source}`, it.id]));
+		const forClass = spells.map(sp => ({
+			id: existingById.get(`${sp.name}|${sp.source}`) || CryptUtil.uid(),
+			name: sp.name,
+			source: sp.source,
+			level: Number(sp.level) || 0,
+			className: key,
+			ritual: !!sp.ritual,
+		}));
+		this._state.spellsKnown = [...others, ...forClass];
 	}
 
 	/** Set the number of expended slots for a spell level (1-9) or "pact". */

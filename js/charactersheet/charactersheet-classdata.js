@@ -98,6 +98,37 @@ export class CharacterSheetClassData {
 		})();
 	}
 
+	/** All spells from site + prerelease + brew, excluded entries removed. Cached. */
+	static pGetAllSpells () {
+		return this._pAllSpells ||= (async () => {
+			const page = UrlUtil.PG_SPELLS;
+			return [
+				...(await DataLoader.pCacheAndGetAllSite(page)),
+				...(await DataLoader.pCacheAndGetAllPrerelease(page)),
+				...(await DataLoader.pCacheAndGetAllBrew(page)),
+			].filter(it => {
+				const hash = UrlUtil.URL_TO_HASH_BUILDER[page](it);
+				return !ExcludeUtil.isExcluded(hash, "spell", it.source);
+			});
+		})();
+	}
+
+	/**
+	 * Spells on a class's spell list (by class name; 2014/2024 lists cross-reference each other),
+	 * sorted by level then name. Includes both the base and variant class lists.
+	 */
+	static async pGetSpellsForClass (className) {
+		const target = String(className || "").toLowerCase();
+		if (!target) return [];
+		const all = await this.pGetAllSpells();
+		return all
+			.filter(sp => [
+				...Renderer.spell.getCombinedClasses(sp, "fromClassList"),
+				...Renderer.spell.getCombinedClasses(sp, "fromClassListVariant"),
+			].some(c => (c.name || "").toLowerCase() === target))
+			.sort((a, b) => (a.level - b.level) || SortUtil.ascSortLower(a.name, b.name));
+	}
+
 	/** Optional features matching any of the given feature type tags (e.g. ["FS:F"], ["EI"]). */
 	static async pGetOptionalFeaturesByTypes (featureTypes) {
 		const all = await this.pGetAllOptionalFeatures();

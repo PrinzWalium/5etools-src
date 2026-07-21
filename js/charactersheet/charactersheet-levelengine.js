@@ -105,7 +105,27 @@ export function getPreparedSpellsDisplay (cls) {
 	if (!cls?.preparedSpells) return null;
 	return cls.preparedSpells
 		.replace(/<\$level\$>/g, "class level")
+		.replace(/<\$level_half_round_up\$>/g, "half class level (round up)")
+		.replace(/<\$level_half_round_down\$>/g, "half class level (round down)")
 		.replace(/<\$(\w{3})_mod\$>/g, (_, abv) => `${abv.toUpperCase()} modifier`);
+}
+
+/**
+ * Number of spells a prepared caster can prepare, from the `preparedSpells` formula.
+ * Handles the level/half-level tokens and the ability-modifier token; returns at least 1
+ * (you always prepare something), or `null` when the class does not prepare spells.
+ */
+export function getPreparedSpellCount (cls, level, abilityMod = 0) {
+	if (!cls?.preparedSpells) return null;
+	level = _clampLevel(level);
+	const expr = String(cls.preparedSpells)
+		.replace(/<\$level_half_round_up\$>/g, `${Math.ceil(level / 2)}`)
+		.replace(/<\$level_half_round_down\$>/g, `${Math.floor(level / 2)}`)
+		.replace(/<\$level\$>/g, `${level}`)
+		.replace(/<\$\w{3}_mod\$>/g, `${abilityMod}`);
+	const parts = expr.split("+").map(s => Number(s.trim()));
+	if (parts.some(n => isNaN(n))) return null;
+	return Math.max(1, parts.reduce((a, b) => a + b, 0));
 }
 
 /**

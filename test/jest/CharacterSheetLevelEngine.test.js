@@ -4,6 +4,7 @@ import {
 	checkFeatPrerequisites,
 	getAsiCount,
 	getExpertiseSkillCount,
+	getPreparedSpellCount,
 	getCantripsKnown,
 	getCasterLevelContribution,
 	getHitDieAverage,
@@ -186,6 +187,24 @@ describe("Leveling engine: expertise grants", () => {
 		const cls = {classFeatures: [[{name: "Second Wind"}], [{name: "Action Surge"}]]};
 		expect(getExpertiseSkillCount(cls, 20)).toBe(0);
 		expect(getExpertiseSkillCount(null, 5)).toBe(0);
+	});
+});
+
+describe("Leveling engine: prepared spell count", () => {
+	it("Should evaluate a full caster's prepared formula (level + mod)", () => {
+		const cls = {preparedSpells: "<$level$> + <$wis_mod$>"};
+		expect(getPreparedSpellCount(cls, 5, 3)).toBe(8);
+		expect(getPreparedSpellCount(cls, 1, 0)).toBe(1); // floor of 1
+	});
+
+	it("Should evaluate a half caster's prepared formula (half level round up + mod)", () => {
+		const cls = {preparedSpells: "<$level_half_round_up$> + <$cha_mod$>"};
+		expect(getPreparedSpellCount(cls, 5, 2)).toBe(5); // ceil(5/2)=3 +2
+	});
+
+	it("Should return null for non-preparing classes", () => {
+		expect(getPreparedSpellCount({spellsKnownProgression: []}, 5, 3)).toBeNull();
+		expect(getPreparedSpellCount(null, 5, 3)).toBeNull();
 	});
 });
 
