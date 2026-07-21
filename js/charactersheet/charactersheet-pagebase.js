@@ -24,6 +24,7 @@ export class CharacterPageBase {
 	// Bindings shared by both pages; null-safe binding skips any element a given page omits.
 	static _IPT_STR_BINDINGS = [
 		["cs-name", "name"],
+		["cs-ac-mode", "acMode"],
 		["cs-classlevel", "classText"],
 		["cs-background", "backgroundText"],
 		["cs-playername", "playerName"],

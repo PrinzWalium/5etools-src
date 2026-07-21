@@ -68,7 +68,9 @@ export class CharacterModel extends BaseComponent {
 			pickTags: {}, // {species, background, class} → renderable `{@...}` tags for the header links
 
 			level: 1,
-			ac: 10,
+			ac: 10, // manual AC (used when acMode === "manual")
+			acMode: "auto", // "auto" | "barbarian" | "monk" | "manual"
+			acMisc: 0, // flat misc bonus added to computed AC
 			initMisc: 0,
 			speed: "30 ft.",
 
@@ -146,8 +148,9 @@ export class CharacterModel extends BaseComponent {
 
 	/* -------------------------------------------- Inventory -------------------------------------------- */
 
-	/** Add an item; stacking onto an existing row when name/source match. */
-	addInventoryItem ({name, source, quantity = 1, weightLb = null}) {
+	/** Add an item; stacking onto an existing row when name/source match. Extra fields (armor/weapon
+	 *  metadata from `getInventoryItemMeta`) are stored on the row for AC/attack derivation. */
+	addInventoryItem ({name, source, quantity = 1, weightLb = null, ...meta}) {
 		const existing = this._state.inventory.find(it => it.name === name && it.source === source);
 		if (existing) {
 			existing.quantity = (Number(existing.quantity) || 0) + quantity;
@@ -156,7 +159,7 @@ export class CharacterModel extends BaseComponent {
 		}
 		this._state.inventory = [
 			...this._state.inventory,
-			{id: CryptUtil.uid(), name, source, quantity, weightLb},
+			{id: CryptUtil.uid(), name, source, quantity, weightLb, equipped: false, attuned: false, ...meta},
 		];
 	}
 

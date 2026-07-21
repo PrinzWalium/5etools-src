@@ -76,8 +76,57 @@ export function deriveCharacterSheet (state) {
 		passivePerception: 10 + skills.perception.mod,
 		initiative: abilities.dex.mod + (Number(state.initMisc) || 0),
 		spell,
+		armorClass: deriveArmorClass(state),
 		encumbrance: getEncumbrance(state),
 	};
+}
+
+/**
+ * Armor Class from equipped gear and the chosen mode.
+ *  - "manual": the character's typed AC value, unchanged.
+ *  - otherwise: equipped body armor sets the base (Light +Dex, Medium +Dex capped, Heavy flat, plus
+ *    the armor's own magic bonus); with no armor, an unarmored formula applies (10+Dex, or a
+ *    Barbarian/Monk Unarmored Defense). Equipped shields and other worn magic AC bonuses stack,
+ *    plus a flat misc bonus.
+ * @return {{ac: number, mode: string, note: string}}
+ */
+export function deriveArmorClass (state) {
+	const mode = state.acMode || "auto";
+	if (mode === "manual") return {ac: Number(state.ac) || 10, mode, note: "manual"};
+
+	const dexMod = getAbilityModifier(state, "dex");
+	const equipped = (state.inventory || []).filter(it => it.equipped);
+	const armor = equipped.find(it => it.isArmor && ["LA", "MA", "HA"].includes(it.type));
+
+	let base;
+	let note;
+	if (armor) {
+		const armorAc = Number(armor.baseAc) || 10;
+		const magic = Number(armor.bonusAc) || 0;
+		if (armor.type === "LA") base = armorAc + dexMod + magic;
+		else if (armor.type === "MA") base = armorAc + Math.min(dexMod, armor.dexterityMax ?? 2) + magic;
+		else base = armorAc + magic; // Heavy: no Dex
+		note = armor.name;
+	} else if (mode === "barbarian") {
+		base = 10 + dexMod + getAbilityModifier(state, "con");
+		note = "Unarmored Defense (Barbarian)";
+	} else if (mode === "monk") {
+		base = 10 + dexMod + getAbilityModifier(state, "wis");
+		note = "Unarmored Defense (Monk)";
+	} else {
+		base = 10 + dexMod;
+		note = "Unarmored";
+	}
+
+	const shield = equipped
+		.filter(it => it.type === "S")
+		.reduce((acc, it) => acc + (Number(it.baseAc) || 2) + (Number(it.bonusAc) || 0), 0);
+	const otherMagic = equipped
+		.filter(it => !it.isArmor && it.type !== "S" && it.bonusAc)
+		.reduce((acc, it) => acc + (Number(it.bonusAc) || 0), 0);
+	const misc = Number(state.acMisc) || 0;
+
+	return {ac: base + shield + otherMagic + misc, mode, note};
 }
 
 /** Carried weight from the inventory vs. the standard carrying capacity (Strength × 15). */

@@ -125,6 +125,8 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._comp._addHookBase("pickTags", () => this._renderPickLinks());
 		this._comp._addHookBase("deathSuccess", () => this._renderDeathSaves());
 		this._comp._addHookBase("deathFail", () => this._renderDeathSaves());
+		// AC is derived from equipped gear, so re-derive when the inventory (equip toggles) changes
+		this._comp._addHookBase("inventory", () => this._renderDerived());
 	}
 
 	_onStoreLoaded () {
@@ -252,6 +254,18 @@ class CharacterSheetPage extends CharacterPageBase {
 
 	/* -------------------------------------------- Derived rendering -------------------------------------------- */
 
+	_renderArmorClass (armorClass) {
+		const eleComputed = document.getElementById("cs-ac-computed");
+		if (!eleComputed) return;
+		eleComputed.textContent = `${armorClass.ac}`;
+		eleComputed.title = armorClass.note === "manual" ? "Manual AC" : `AC source: ${armorClass.note}`;
+		// In manual mode the number is editable; otherwise it is computed from equipped gear.
+		const isManual = (this._comp._state.acMode || "auto") === "manual";
+		const eleManual = document.getElementById("cs-ac");
+		if (eleManual) eleManual.classList.toggle("ve-hidden", !isManual);
+		eleComputed.classList.toggle("ve-hidden", isManual);
+	}
+
 	_renderDerived () {
 		const derived = deriveCharacterSheet(this._comp._getState());
 
@@ -272,6 +286,8 @@ class CharacterSheetPage extends CharacterPageBase {
 		});
 
 		document.getElementById("cs-passive-perception").textContent = `${derived.passivePerception}`;
+
+		this._renderArmorClass(derived.armorClass);
 
 		document.getElementById("cs-initiative-roll").innerHTML = Renderer.get().render(`{@initiative ${derived.initiative}|${CharacterPageBase.fmtBonus(derived.initiative)}}`);
 

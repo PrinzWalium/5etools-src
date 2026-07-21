@@ -1,5 +1,5 @@
 import "../../js/parser.js";
-import {deriveCharacterSheet, getProfBonus, getTotalLevel} from "../../js/charactersheet/charactersheet-derive.js";
+import {deriveArmorClass, deriveCharacterSheet, getProfBonus, getTotalLevel} from "../../js/charactersheet/charactersheet-derive.js";
 
 const getBaseState = (overrides = {}) => ({
 	level: 1,
@@ -94,5 +94,43 @@ describe("Character sheet derivation", () => {
 	it("Should include miscellaneous initiative bonuses", () => {
 		const state = getBaseState({abil_dex: 14, initMisc: 5});
 		expect(deriveCharacterSheet(state).initiative).toBe(7);
+	});
+
+	describe("Armor Class", () => {
+		it("Should default to 10 + Dex unarmored", () => {
+			const state = getBaseState({abil_dex: 16});
+			expect(deriveArmorClass(state).ac).toBe(13);
+		});
+
+		it("Should use light armor (base + full Dex) only when equipped", () => {
+			const armor = {id: "a", type: "LA", isArmor: true, baseAc: 11, equipped: false};
+			const state = getBaseState({abil_dex: 18, inventory: [armor]});
+			expect(deriveArmorClass(state).ac).toBe(14); // unequipped → unarmored 10+4
+			armor.equipped = true;
+			expect(deriveArmorClass(state).ac).toBe(15); // 11 + 4
+		});
+
+		it("Should cap Dex on medium armor and ignore it on heavy", () => {
+			const med = {id: "m", type: "MA", isArmor: true, baseAc: 15, equipped: true};
+			expect(deriveArmorClass(getBaseState({abil_dex: 18, inventory: [med]})).ac).toBe(17); // 15 + min(4,2)
+			const heavy = {id: "h", type: "HA", isArmor: true, baseAc: 16, equipped: true};
+			expect(deriveArmorClass(getBaseState({abil_dex: 18, inventory: [heavy]})).ac).toBe(16); // no Dex
+		});
+
+		it("Should add shields, magic armor bonuses, and worn magic AC", () => {
+			const inv = [
+				{id: "a", type: "HA", isArmor: true, baseAc: 16, bonusAc: 1, equipped: true},
+				{id: "s", type: "S", baseAc: 2, bonusAc: 1, equipped: true},
+				{id: "r", type: "RG", bonusAc: 1, equipped: true}, // ring of protection
+			];
+			expect(deriveArmorClass(getBaseState({inventory: inv})).ac).toBe(21); // 16+1 +3 +1
+		});
+
+		it("Should apply Barbarian/Monk unarmored formulas, and honour manual mode", () => {
+			const s = getBaseState({abil_dex: 14, abil_con: 16, abil_wis: 12});
+			expect(deriveArmorClass({...s, acMode: "barbarian"}).ac).toBe(15); // 10 +2 +3
+			expect(deriveArmorClass({...s, acMode: "monk"}).ac).toBe(13); // 10 +2 +1
+			expect(deriveArmorClass({...s, acMode: "manual", ac: 20}).ac).toBe(20);
+		});
 	});
 });

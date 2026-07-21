@@ -14,6 +14,42 @@ export function getItemUidParts (uid) {
 	return {name: name.trim(), source: (source || "phb").trim()};
 }
 
+/** Parse a bonus string/number like "+1" or "2" into a signed integer (0 when absent/invalid). */
+export function parseItemBonus (val) {
+	if (val == null) return 0;
+	const n = Number(String(val).replace(/[^-\d]/g, ""));
+	return isNaN(n) ? 0 : n;
+}
+
+/**
+ * Extract the mechanical fields a character sheet needs from an item entity — armor class,
+ * armor category and Dex cap, weapon damage/properties, magic AC/attack bonuses, and attunement.
+ * Kept flat so it can be stored directly on an inventory row and read by the pure derivations.
+ */
+export function getInventoryItemMeta (ent) {
+	if (!ent) return {};
+	const out = {};
+	const type = String(ent.type || "").split("|")[0];
+	if (type) out.type = type;
+	if (ent.armor) out.isArmor = true;
+	if (ent.ac != null) out.baseAc = Number(ent.ac) || 0;
+	if (ent.dexterityMax != null) out.dexterityMax = Number(ent.dexterityMax);
+	if (ent.stealth) out.stealth = true;
+	if (ent.weapon) out.isWeapon = true;
+	if (ent.dmg1) out.dmg1 = ent.dmg1;
+	if (ent.dmgType) out.dmgType = ent.dmgType;
+	if (ent.property?.length) out.properties = ent.property.map(p => String(p).split("|")[0]);
+	if (ent.weaponCategory) out.weaponCategory = ent.weaponCategory;
+	const bonusAc = parseItemBonus(ent.bonusAc);
+	if (bonusAc) out.bonusAc = bonusAc;
+	const bonusWeapon = parseItemBonus(ent.bonusWeapon ?? ent.bonusWeaponAttack);
+	if (bonusWeapon) out.bonusWeapon = bonusWeapon;
+	const bonusWeaponDamage = parseItemBonus(ent.bonusWeaponDamage);
+	if (bonusWeaponDamage) out.bonusWeaponDamage = bonusWeaponDamage;
+	if (ent.reqAttune) out.requiresAttunement = true;
+	return out;
+}
+
 /** Display a copper-piece value in the largest sensible coin, e.g. 400 → "4 gp". */
 export function getCoinDisplay (valueCp) {
 	if (valueCp % 100 === 0) return `${valueCp / 100} gp`;

@@ -20,7 +20,7 @@ import {
 	getPointBuyTotalCost,
 	isValidStandardArrayAssignment,
 } from "./charactersheet-abilityscores.js";
-import {EQUIPMENT_ALWAYS_KEY, getEquipmentChoiceGroups, getEquipmentOptionDisplay} from "./charactersheet-equipment.js";
+import {EQUIPMENT_ALWAYS_KEY, getEquipmentChoiceGroups, getEquipmentOptionDisplay, getInventoryItemMeta} from "./charactersheet-equipment.js";
 
 /**
  * Guided character creation: a step-sequence wizard
@@ -647,6 +647,7 @@ export class CharacterWizard {
 							source: ent?.source ?? entry.source,
 							quantity: entry.quantity,
 							weightLb: ent?.weight ?? null,
+							...getInventoryItemMeta(ent),
 						});
 					} else if (entry.kind === "coins") {
 						cpGained += entry.value;

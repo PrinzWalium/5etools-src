@@ -126,7 +126,19 @@
 			<div class="ve-col-5 cs__col">
 				<div class="cs__panel">
 					<div class="cs__combat-top">
-						<label class="cs__field cs__field--boxed"><span class="cs__lbl">Armor Class</span><input type="number" id="cs-ac" min="0" value="10" class="ve-form-control ve-input-xs cs__ipt-num"></label>
+						<div class="cs__field cs__field--boxed" title="Armor Class (computed from equipped armor/shield; switch mode for Unarmored Defense or a manual value)">
+							<span class="cs__lbl">Armor Class</span>
+							<div class="cs__ac-row ve-flex-v-center ve-flex-h-center">
+								<span class="cs__stat-badge-val" id="cs-ac-computed">10</span>
+								<input type="number" id="cs-ac" min="0" value="10" class="ve-form-control ve-input-xs cs__ipt-num cs__ac-manual ve-hidden" title="Manual AC value">
+							</div>
+							<select id="cs-ac-mode" class="ve-form-control ve-input-xs no-print cs__ac-mode" title="How Armor Class is calculated">
+								<option value="auto">Auto (armor)</option>
+								<option value="barbarian">Unarmored (Barb)</option>
+								<option value="monk">Unarmored (Monk)</option>
+								<option value="manual">Manual</option>
+							</select>
+						</div>
 						<div class="cs__field cs__field--boxed" title="1d20 + Dexterity modifier + misc">
 							<span class="cs__lbl">Initiative</span>
 							<div class="cs__combat-init">

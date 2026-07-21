@@ -1,4 +1,7 @@
 import {getEncumbrance} from "./charactersheet-derive.js";
+import {getInventoryItemMeta} from "./charactersheet-equipment.js";
+
+const _isEquippable = it => it.isArmor || it.isWeapon || it.bonusAc != null || ["LA", "MA", "HA", "S", "M", "R"].includes(it.type);
 
 class _InventoryRenderableCollection extends RenderableCollectionBase {
 	constructor (comp, wrpRows) {
@@ -10,8 +13,9 @@ class _InventoryRenderableCollection extends RenderableCollectionBase {
 		const tr = document.createElement("tr");
 		tr.innerHTML = `
 			<td class="cs__inv-name"></td>
-			<td class="ve-text-center" style="width: 60px;"><input type="number" min="0" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs cs__inv-qty"></td>
-			<td class="ve-text-right ve-muted ve-small cs__inv-weight" style="width: 70px;"></td>
+			<td class="ve-text-center no-print cs__inv-flags" style="width: 96px;"></td>
+			<td class="ve-text-center" style="width: 54px;"><input type="number" min="0" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs cs__inv-qty"></td>
+			<td class="ve-text-right ve-muted ve-small cs__inv-weight" style="width: 66px;"></td>
 			<td class="ve-text-center no-print" style="width: 30px;">
 				<button type="button" class="ve-btn ve-btn-xxs ve-btn-danger cs__inv-rm" title="Remove"><span class="glyphicon glyphicon-trash"></span></button>
 			</td>
@@ -20,6 +24,7 @@ class _InventoryRenderableCollection extends RenderableCollectionBase {
 		const meta = {
 			wrpRow: tr,
 			dispName: tr.querySelector(".cs__inv-name"),
+			wrpFlags: tr.querySelector(".cs__inv-flags"),
 			iptQty: tr.querySelector(".cs__inv-qty"),
 			dispWeight: tr.querySelector(".cs__inv-weight"),
 		};
@@ -37,6 +42,26 @@ class _InventoryRenderableCollection extends RenderableCollectionBase {
 		if (document.activeElement !== meta.iptQty) meta.iptQty.value = `${entity.quantity ?? 1}`;
 		const weight = (Number(entity.weightLb) || 0) * (Number(entity.quantity) || 0);
 		meta.dispWeight.textContent = entity.weightLb != null ? `${Math.round(weight * 100) / 100} lb.` : "—";
+
+		meta.wrpFlags.innerHTML = "";
+		if (_isEquippable(entity)) meta.wrpFlags.appendChild(this._getFlagToggle(entity, "equipped", "Equip", "Equipped"));
+		if (entity.requiresAttunement) meta.wrpFlags.appendChild(this._getFlagToggle(entity, "attuned", "Attune", "Attuned"));
+	}
+
+	_getFlagToggle (entity, prop, labelOff, labelOn) {
+		const lbl = document.createElement("label");
+		lbl.className = "ve-flex-v-center ve-mr-1 ve-small";
+		lbl.title = entity[prop] ? labelOn : labelOff;
+		const cb = document.createElement("input");
+		cb.type = "checkbox";
+		cb.className = "ve-mr-1";
+		cb.checked = !!entity[prop];
+		cb.addEventListener("change", () => this._comp.updateInventoryItem(entity.id, {[prop]: cb.checked}));
+		const spn = document.createElement("span");
+		spn.className = "ve-muted";
+		spn.textContent = labelOff;
+		lbl.append(cb, spn);
+		return lbl;
 	}
 
 	doDeleteExistingRender (meta) {
@@ -94,6 +119,7 @@ export class CharacterInventoryPanel {
 			source: doc.source,
 			quantity: 1,
 			weightLb: ent?.weight ?? null,
+			...getInventoryItemMeta(ent),
 		});
 	}
 }
