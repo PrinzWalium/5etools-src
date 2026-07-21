@@ -1,5 +1,4 @@
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS} from "./charactersheet/charactersheet-consts.js";
-import {CharacterModel} from "./charactersheet/charactersheet-model.js";
 import {deriveCharacterSheet, getAbilityModifier, getProfBonus} from "./charactersheet/charactersheet-derive.js";
 import {CharacterSheetClassData} from "./charactersheet/charactersheet-classdata.js";
 import {CharacterWizard} from "./charactersheet/charactersheet-wizard.js";
@@ -7,8 +6,7 @@ import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js
 import {getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses} from "./charactersheet/charactersheet-choices.js";
 import {CharacterInventoryPanel} from "./charactersheet/charactersheet-inventorypanel.js";
 import {CharacterSpellsPanel} from "./charactersheet/charactersheet-spellspanel.js";
-import {getCharacterLabel, getMigratedStore, getNewStore} from "./charactersheet/charactersheet-charstore.js";
-import {getLevelUpHp} from "./charactersheet/charactersheet-levelengine.js";
+import {CharacterPageBase} from "./charactersheet/charactersheet-pagebase.js";
 
 /** Renders the attacks table from the model's `attacks` collection. */
 class _AttacksRenderableCollection extends RenderableCollectionBase {
@@ -81,7 +79,7 @@ class _AttacksRenderableCollection extends RenderableCollectionBase {
 		const bonus = Number(entity.atkBonus) || 0;
 		const dmg = (entity.damage || "").trim();
 
-		meta.dispHit.innerHTML = Renderer.get().render(`{@hit ${bonus}|${CharacterSheetPage.fmtBonus(bonus)}|${name || "Attack"}}`);
+		meta.dispHit.innerHTML = Renderer.get().render(`{@hit ${bonus}|${CharacterPageBase.fmtBonus(bonus)}|${name || "Attack"}}`);
 
 		if (dmg && /\d\s*d\s*\d/i.test(dmg)) {
 			meta.dispDmg.innerHTML = Renderer.get().render(`{@dice ${dmg}|${dmg}|${name || "Damage"}}`);
@@ -93,71 +91,29 @@ class _AttacksRenderableCollection extends RenderableCollectionBase {
 	}
 }
 
-class CharacterSheetPage {
-	// Page-agnostic so the character sheet and the (upcoming) character builder page share one
-	// set of characters. `_LEGACY_PAGE_STORAGE_KEY` is the old per-page key we migrate from.
-	static _SHARED_STORAGE_KEY = "charactersheet-characters";
-	static _STORAGE_KEY = "charactersheet-state";
-	static _FILE_TYPE = "charactersheet";
+/** The play-and-build character sheet page (the current all-in-one sheet). */
+class CharacterSheetPage extends CharacterPageBase {
+	/* -------------------------------------------- DOM assembly -------------------------------------------- */
 
-	// Simple string-valued inputs/selects/textareas, bound verbatim to model props
-	static _IPT_STR_BINDINGS = [
-		["cs-name", "name"],
-		["cs-classlevel", "classText"],
-		["cs-background", "backgroundText"],
-		["cs-playername", "playerName"],
-		["cs-species", "speciesText"],
-		["cs-alignment", "alignment"],
-		["cs-speed", "speed"],
-		["cs-hd-total", "hdTotal"],
-		["cs-hd-cur", "hdCur"],
-		["cs-spell-ability", "spellAbility"],
-		["cs-spells", "spellsText"],
-		["cs-features", "featuresText"],
-		["cs-equipment", "equipmentText"],
-		["cs-proficiencies", "proficienciesText"],
-		["cs-personality", "personalityText"],
-	];
-
-	// Numeric inputs, bound as `number | null` (null = blank)
-	static _IPT_NUM_BINDINGS = [
-		["cs-xp", "xp"],
-		["cs-level", "level"],
-		["cs-ac", "ac"],
-		["cs-init-misc", "initMisc"],
-		["cs-hp-max", "hpMax"],
-		["cs-hp-cur", "hpCur"],
-		["cs-hp-temp", "hpTemp"],
-		["cs-cp", "cp"],
-		["cs-sp", "sp"],
-		["cs-ep", "ep"],
-		["cs-gp", "gp"],
-		["cs-pp", "pp"],
-	];
-
-	constructor () {
-		this._comp = new CharacterModel();
-		this._attacksCollection = null;
-		this._isLoading = false;
-		this._saveTimer = null;
-		this._store = null; // {storeVersion, currentId, characters: {id: envelope}}
-		this._fnsSyncInput = []; // unconditional input-sync functions, for bulk state loads
-		this._lastLevel = 1; // for detecting interactive level-ups
-		this._suppressLevelPrompt = 0; // >0 while a bulk apply (e.g. the wizard) is in progress
-	}
-
-	init () {
+	_buildDom () {
 		this._buildAbilities();
 		this._buildSaves();
 		this._buildSkills();
 		this._buildDeathSaves();
+	}
 
-		this._bindInputs();
-		this._bindStaticControls();
+	_bindDom () {
+		// Sheet-specific toolbar controls (the base binds save/load/print/reset + the switcher)
+		this._bindClick("cs-btn-wizard", () => this._pOnWizard());
+		this._bindClick("cs-attack-add", () => this._comp.addAttack());
+		this._bindClick("cs-hp-damage", () => this._adjustHp(-1));
+		this._bindClick("cs-hp-heal", () => this._adjustHp(1));
+
 		this._bindDataPickers();
 
 		this._attacksCollection = new _AttacksRenderableCollection(this._comp, document.getElementById("cs-attacks-body"));
 		this._comp._addHookBase("attacks", () => this._attacksCollection.render());
+
 		this._classPanel = new CharacterClassPanel({comp: this._comp, wrp: document.getElementById("cs-class-panel")});
 		this._classPanel.init();
 		this._inventoryPanel = new CharacterInventoryPanel({comp: this._comp, wrp: document.getElementById("cs-inventory")});
@@ -168,101 +124,23 @@ class CharacterSheetPage {
 			wrpKnown: document.getElementById("cs-spells-known"),
 		});
 		this._spellsPanel.init();
+
 		this._comp._addHookBase("pickTags", () => this._renderPickLinks());
 		this._comp._addHookBase("deathSuccess", () => this._renderDeathSaves());
 		this._comp._addHookBase("deathFail", () => this._renderDeathSaves());
-		this._comp._addHookBase("level", () => this._pMaybePromptLevelUp());
-		this._comp._addHookAllBase(() => this._onStateChange());
+	}
 
-		// Prefer the shared (page-agnostic) store; migrate the old per-page store on first run
-		const rawStore = StorageUtil.syncGet(CharacterSheetPage._SHARED_STORAGE_KEY) ??
-			StorageUtil.syncGetForPage(CharacterSheetPage._STORAGE_KEY);
-		this._store = getMigratedStore(rawStore) || getNewStore();
-		this._bindCharacterSwitcher();
-
-		const envelope = this._store.characters[this._store.currentId];
-		if (envelope) this._doLoadState(envelope);
+	_onStoreLoaded () {
 		if (!this._comp._state.attacks.length) this._comp.addAttack();
-		this._renderCharacterSelect();
-
-		this._doRenderAll();
-
-		window.dispatchEvent(new Event("toolsLoaded"));
-	}
-
-	_onStateChange () {
-		if (this._isLoading) return;
-		this._renderDerived();
-		this._saveStateDebounced();
-	}
-
-	_doLoadState (saved) {
-		this._isLoading = true;
-		try {
-			const isApplied = this._comp.setStateFrom(saved);
-			if (!isApplied) JqueryUtil.doToast({type: "danger", content: "Could not load character&mdash;unknown save format."});
-		} finally {
-			this._isLoading = false;
-		}
-		this._doRenderAll();
 	}
 
 	_doRenderAll () {
-		// Bypass the inputs' focus guards: a bulk load must win over whatever was focused
-		this._fnsSyncInput.forEach(fn => fn());
+		this._syncAllInputs();
 		this._attacksCollection.render();
 		this._renderPickLinks();
 		this._renderDeathSaves();
 		this._renderDerived();
 		this._lastLevel = this._comp.getLevelNumber();
-	}
-
-	/** On an interactive level increase, offer to add average or rolled HP for the new level(s). */
-	async _pMaybePromptLevelUp () {
-		const newLevel = this._comp.getLevelNumber();
-		const prevLevel = this._lastLevel;
-		this._lastLevel = newLevel;
-
-		if (this._isLoading || this._suppressLevelPrompt > 0 || newLevel <= prevLevel) return;
-
-		const primary = this._comp._state.classes.find(c => c.hdFaces);
-		if (!primary) return; // no hit die to base a suggestion on
-		const faces = primary.hdFaces;
-		const numLevels = newLevel - prevLevel;
-		const conMod = Parser.getAbilityModNumber(Number(this._comp._state.abil_con) || 10);
-
-		const avgTotal = getLevelUpHp({faces, conMod, numLevels}).total;
-		const optAvg = `Add average (+${avgTotal} HP)`;
-		const ptConMod = conMod ? ` ${conMod > 0 ? "+" : "−"} ${Math.abs(conMod)} per level` : "";
-		const optRoll = `Roll ${numLevels}d${faces}${ptConMod}`;
-		const optSkip = "Enter manually / skip";
-
-		const choice = await InputUiUtil.pGetUserEnum({
-			values: [optAvg, optRoll, optSkip],
-			isResolveItem: true,
-			title: `Level up to ${newLevel}${numLevels > 1 ? ` (+${numLevels} levels)` : ""}`,
-			placeholder: "How do you want to gain HP?",
-		});
-		if (choice == null || choice === optSkip) return;
-
-		const gained = choice === optRoll
-			? getLevelUpHp({faces, conMod, numLevels, fnRoll: f => Math.floor(Math.random() * f) + 1}).total
-			: avgTotal;
-
-		this._comp._state.hpMax = (Number(this._comp._state.hpMax) || 0) + gained;
-		this._comp._state.hpCur = (Number(this._comp._state.hpCur) || 0) + gained;
-		JqueryUtil.doToast({type: "success", content: `Gained ${gained} HP (now level ${newLevel}).`});
-	}
-
-	/** The wizard applies its own suggested HP, so suppress the per-level prompt while it runs. */
-	async _pOnWizard () {
-		this._suppressLevelPrompt += 1;
-		try {
-			await CharacterWizard.pShow({comp: this._comp});
-		} finally {
-			this._suppressLevelPrompt -= 1;
-			this._lastLevel = this._comp.getLevelNumber();
-		}
 	}
 
 	/* -------------------------------------------- DOM scaffolding -------------------------------------------- */
@@ -343,79 +221,6 @@ class CharacterSheetPage {
 			});
 	}
 
-	/* -------------------------------------------- Input binding -------------------------------------------- */
-
-	_bindInputs () {
-		CharacterSheetPage._IPT_STR_BINDINGS.forEach(([id, prop]) => this._bindIptStr(id, prop));
-		CharacterSheetPage._IPT_NUM_BINDINGS.forEach(([id, prop]) => this._bindIptNum(id, prop));
-		this._bindCb("cs-inspiration", "inspiration");
-	}
-
-	_bindIptStr (id, prop) {
-		const ele = document.getElementById(id);
-		const setState = () => this._comp._state[prop] = ele.value;
-		ele.addEventListener("input", setState);
-		ele.addEventListener("change", setState);
-
-		const hook = () => {
-			const val = this._comp._state[prop] ?? "";
-			if (ele.value !== `${val}`) ele.value = val;
-		};
-		this._comp._addHookBase(prop, hook);
-		this._fnsSyncInput.push(hook);
-		hook();
-	}
-
-	_bindIptNum (id, prop) {
-		const ele = document.getElementById(id);
-		const setState = () => {
-			const raw = ele.value.trim();
-			const num = Number(raw);
-			this._comp._state[prop] = raw === "" || isNaN(num) ? null : num;
-		};
-		ele.addEventListener("input", setState);
-		ele.addEventListener("change", setState);
-
-		const doSync = () => {
-			const val = this._comp._state[prop];
-			const asStr = val == null ? "" : `${val}`;
-			if (ele.value !== asStr) ele.value = asStr;
-		};
-		const hook = () => {
-			if (document.activeElement === ele) return; // don't clobber while typing
-			doSync();
-		};
-		this._comp._addHookBase(prop, hook);
-		this._fnsSyncInput.push(doSync);
-		doSync();
-	}
-
-	_bindCb (id, prop) {
-		const ele = document.getElementById(id);
-		ele.addEventListener("change", () => this._comp._state[prop] = ele.checked);
-
-		const hook = () => ele.checked = !!this._comp._state[prop];
-		this._comp._addHookBase(prop, hook);
-		this._fnsSyncInput.push(hook);
-		hook();
-	}
-
-	/* -------------------------------------------- Controls -------------------------------------------- */
-
-	_bindStaticControls () {
-		document.getElementById("cs-btn-wizard").addEventListener("click", () => this._pOnWizard());
-
-		document.getElementById("cs-attack-add").addEventListener("click", () => this._comp.addAttack());
-
-		document.getElementById("cs-hp-damage").addEventListener("click", () => this._adjustHp(-1));
-		document.getElementById("cs-hp-heal").addEventListener("click", () => this._adjustHp(1));
-
-		document.getElementById("cs-btn-save").addEventListener("click", () => this._onSaveToFile());
-		document.getElementById("cs-btn-load").addEventListener("click", () => this._onLoadFromFile());
-		document.getElementById("cs-btn-print").addEventListener("click", () => window.print());
-		document.getElementById("cs-btn-reset").addEventListener("click", () => this._onReset());
-	}
-
 	_adjustHp (sign) {
 		// The delta input is transient UI, not character state, so it is not model-bound
 		const eleDelta = document.getElementById("cs-hp-delta");
@@ -428,10 +233,10 @@ class CharacterSheetPage {
 	/* -------------------------------------------- Data pickers -------------------------------------------- */
 
 	_bindDataPickers () {
-		document.getElementById("cs-pick-species").addEventListener("click", () => this._onPickSpecies());
-		document.getElementById("cs-pick-background").addEventListener("click", () => this._onPickBackground());
-		document.getElementById("cs-pick-class").addEventListener("click", () => this._onPickClass());
-		document.getElementById("cs-attack-add-weapon").addEventListener("click", () => this._onPickWeapon());
+		this._bindClick("cs-pick-species", () => this._onPickSpecies());
+		this._bindClick("cs-pick-background", () => this._onPickBackground());
+		this._bindClick("cs-pick-class", () => this._onPickClass());
+		this._bindClick("cs-attack-add-weapon", () => this._onPickWeapon());
 		// The spell picker is bound by the spells panel
 	}
 
@@ -481,8 +286,6 @@ class CharacterSheetPage {
 		}
 
 		getAbilityChoices({ability: ent.ability, sourceName: name}).forEach(choice => {
-			// Single package: describe only the unresolved choose part (fixed was offered above);
-			// alternative packages: describe the whole choice
 			const ptChoose = choice.packages.length === 1
 				? getAbilityPackageDisplay({...choice.packages[0], fixed: {}})
 				: choice.label.replace(/^Ability scores: choose /, "");
@@ -536,20 +339,29 @@ class CharacterSheetPage {
 		return {name: name || item.name || "", atkBonus: abilMod + pb, damage};
 	}
 
-	/* -------------------------------------------- Derived rendering -------------------------------------------- */
+	/** The wizard applies its own suggested HP, so suppress the per-level prompt while it runs. */
+	async _pOnWizard () {
+		this._suppressLevelPrompt += 1;
+		try {
+			await CharacterWizard.pShow({comp: this._comp});
+		} finally {
+			this._suppressLevelPrompt -= 1;
+			this._lastLevel = this._comp.getLevelNumber();
+		}
+	}
 
-	static fmtBonus (n) { return `${n >= 0 ? "+" : "−"}${Math.abs(n)}`; }
+	/* -------------------------------------------- Derived rendering -------------------------------------------- */
 
 	_renderRoll (id, mod, name) {
 		const ele = document.getElementById(id);
 		if (!ele) return;
-		ele.innerHTML = Renderer.get().render(`{@d20 ${mod}|${CharacterSheetPage.fmtBonus(mod)}|${name}}`);
+		ele.innerHTML = Renderer.get().render(`{@d20 ${mod}|${CharacterPageBase.fmtBonus(mod)}|${name}}`);
 	}
 
 	_renderDerived () {
 		const derived = deriveCharacterSheet(this._comp._getState());
 
-		document.getElementById("cs-pb").textContent = CharacterSheetPage.fmtBonus(derived.pb);
+		document.getElementById("cs-pb").textContent = CharacterPageBase.fmtBonus(derived.pb);
 
 		CHAR_SHEET_ABILITIES.forEach(([abv, name]) => {
 			this._renderRoll(`cs-mod-${abv}`, derived.abilities[abv].mod, `${name} check`);
@@ -567,121 +379,17 @@ class CharacterSheetPage {
 
 		document.getElementById("cs-passive-perception").textContent = `${derived.passivePerception}`;
 
-		document.getElementById("cs-initiative-roll").innerHTML = Renderer.get().render(`{@initiative ${derived.initiative}|${CharacterSheetPage.fmtBonus(derived.initiative)}}`);
+		document.getElementById("cs-initiative-roll").innerHTML = Renderer.get().render(`{@initiative ${derived.initiative}|${CharacterPageBase.fmtBonus(derived.initiative)}}`);
 
 		const eleDc = document.getElementById("cs-spell-dc");
 		const eleAtk = document.getElementById("cs-spell-atk");
 		if (derived.spell) {
 			eleDc.textContent = `${derived.spell.dc}`;
-			eleAtk.innerHTML = Renderer.get().render(`{@d20 ${derived.spell.atkMod}|${CharacterSheetPage.fmtBonus(derived.spell.atkMod)}|Spell attack}`);
+			eleAtk.innerHTML = Renderer.get().render(`{@d20 ${derived.spell.atkMod}|${CharacterPageBase.fmtBonus(derived.spell.atkMod)}|Spell attack}`);
 		} else {
 			eleDc.textContent = "—";
 			eleAtk.textContent = "—";
 		}
-	}
-
-	/* -------------------------------------------- Persistence & characters -------------------------------------------- */
-
-	_saveStateDebounced () {
-		if (this._saveTimer) clearTimeout(this._saveTimer);
-		this._saveTimer = setTimeout(() => this._persistNow(), 150);
-	}
-
-	_persistNow () {
-		if (this._saveTimer) {
-			clearTimeout(this._saveTimer);
-			this._saveTimer = null;
-		}
-		this._store.characters[this._store.currentId] = this._comp.getSaveableState();
-		StorageUtil.syncSet(CharacterSheetPage._SHARED_STORAGE_KEY, this._store);
-		this._renderCharacterSelect();
-	}
-
-	_renderCharacterSelect () {
-		const sel = document.getElementById("cs-char-select");
-		sel.innerHTML = Object.entries(this._store.characters)
-			.map(([id, envelope]) => `<option value="${id.qq()}">${getCharacterLabel(id === this._store.currentId ? this._comp.getSaveableState() : envelope).qq()}</option>`)
-			.join("");
-		sel.value = this._store.currentId;
-	}
-
-	_bindCharacterSwitcher () {
-		const sel = document.getElementById("cs-char-select");
-		sel.addEventListener("change", () => this._switchCharacter(sel.value));
-
-		document.getElementById("cs-char-new").addEventListener("click", () => {
-			this._persistNow();
-			const id = CryptUtil.uid();
-			this._store.characters[id] = null;
-			this._switchCharacter(id);
-		});
-
-		document.getElementById("cs-char-delete").addEventListener("click", () => this._onDeleteCharacter());
-	}
-
-	_switchCharacter (id, {isSkipPersist = false} = {}) {
-		if (!(id in this._store.characters)) return;
-		if (!isSkipPersist && id !== this._store.currentId) this._persistNow();
-		this._store.currentId = id;
-
-		const envelope = this._store.characters[id];
-		this._isLoading = true;
-		try {
-			this._comp._setState(this._comp._getDefaultState());
-		} finally {
-			this._isLoading = false;
-		}
-		if (envelope) this._doLoadState(envelope);
-		else this._doRenderAll();
-		if (!this._comp._state.attacks.length) this._comp.addAttack();
-		this._persistNow();
-	}
-
-	async _onDeleteCharacter () {
-		if (!await InputUiUtil.pGetUserBoolean({
-			title: "Delete Character",
-			htmlDescription: `<div>Delete <b>${getCharacterLabel(this._comp.getSaveableState()).qq()}</b>?<br>This cannot be undone.</div>`,
-			textYes: "Delete",
-			textNo: "Cancel",
-		})) return;
-
-		delete this._store.characters[this._store.currentId];
-		if (!Object.keys(this._store.characters).length) this._store.characters[CryptUtil.uid()] = null;
-		this._switchCharacter(Object.keys(this._store.characters)[0], {isSkipPersist: true});
-	}
-
-	/* -------------------------------------------- Toolbar actions -------------------------------------------- */
-
-	_onSaveToFile () {
-		const name = (this._comp._state.name || "character").trim() || "character";
-		DataUtil.userDownload(Parser.stringToSlug(name) || "character", this._comp.getSaveableState(), {fileType: CharacterSheetPage._FILE_TYPE});
-	}
-
-	async _onLoadFromFile () {
-		const {jsons, errors} = await InputUiUtil.pGetUserUploadJson({expectedFileTypes: [CharacterSheetPage._FILE_TYPE]});
-		DataUtil.doHandleFileLoadErrorsGeneric(errors);
-		if (!jsons?.length) return;
-		this._doLoadState(jsons[0]);
-		this._saveStateDebounced();
-	}
-
-	async _onReset () {
-		if (!await InputUiUtil.pGetUserBoolean({
-			title: "Reset Character Sheet",
-			htmlDescription: `<div>This will clear the current character's sheet (other characters are kept).<br>Are you sure?</div>`,
-			textYes: "Reset",
-			textNo: "Cancel",
-		})) return;
-
-		this._isLoading = true;
-		try {
-			this._comp._setState(this._comp._getDefaultState());
-		} finally {
-			this._isLoading = false;
-		}
-		if (!this._comp._state.attacks.length) this._comp.addAttack();
-		this._doRenderAll();
-		this._persistNow();
 	}
 }
 
