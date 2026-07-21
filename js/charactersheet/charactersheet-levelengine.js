@@ -188,6 +188,17 @@ export function getAsiCount (cls, level) {
 }
 
 /**
+ * How many proficiencies a class can mark as Expertise by `level`. Detected data-drivenly from the
+ * class's "Expertise" features (Rogue, Bard, ...); each such feature grants two picks in the PHB.
+ */
+export function getExpertiseSkillCount (cls, level) {
+	level = _clampLevel(level);
+	return (cls?.classFeatures || [])
+		.slice(0, level)
+		.reduce((acc, lvlFeatures) => acc + (lvlFeatures || []).filter(f => f.name === "Expertise").length, 0) * 2;
+}
+
+/**
  * Check multiclassing ability requirements. Top-level ability keys are all required; keys within
  * an object inside `or` are alternatives (e.g. Fighter's `{or: [{str: 13, dex: 13}]}` means
  * "Strength 13 or Dexterity 13"), matching how the site renders these (see `render-class.js`).

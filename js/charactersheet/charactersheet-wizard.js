@@ -447,10 +447,9 @@ export class CharacterWizard {
 			const pkg = choice.packages[sel.ixPackage];
 			const slots = CharacterWizard._getPackageSlots(pkg);
 			const set = sel.slots.filter(Boolean);
-			const isDupe = new Set(set).size !== set.length;
-			if (isDupe) dispStatus.textContent = "Each increase must go to a different ability.";
-			else if (set.length < slots.length) dispStatus.textContent = `${set.length} / ${slots.length} assigned (incomplete choices are not applied)`;
-			else dispStatus.textContent = `${set.length} / ${slots.length} assigned`;
+			const ptWarn = new Set(set).size !== set.length ? " — same ability chosen more than once (allowed, but unusual)" : "";
+			if (set.length < slots.length) dispStatus.textContent = `${set.length} / ${slots.length} assigned (incomplete choices are not applied)${ptWarn}`;
+			else dispStatus.textContent = `${set.length} / ${slots.length} assigned${ptWarn}`;
 		};
 
 		const renderSlots = () => {
@@ -516,7 +515,8 @@ export class CharacterWizard {
 		if (!pkg) return null;
 		const slots = CharacterWizard._getPackageSlots(pkg);
 		const set = sel.slots.filter(Boolean);
-		if (set.length !== slots.length || new Set(set).size !== set.length) return null;
+		// Require every slot filled, but allow the same ability more than once (relaxed to a warning in the UI).
+		if (set.length !== slots.length) return null;
 
 		const bonuses = {};
 		// Single-package fixed bonuses are applied separately via getFixedAbilityBonuses

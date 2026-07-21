@@ -3,6 +3,7 @@ import {
 	checkFeatPrerequisites,
 	getAsiCount,
 	getCantripsKnown,
+	getExpertiseSkillCount,
 	getMulticlassRequirementsDisplay,
 	getOptionalFeatureCounts,
 	getPreparedSpellsDisplay,
@@ -10,7 +11,7 @@ import {
 	getSpellsKnown,
 	isMulticlassRequirementMet,
 } from "./charactersheet-levelengine.js";
-import {CHAR_SHEET_ABILITIES} from "./charactersheet-consts.js";
+import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS, PROF_STATE_EXPERTISE, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
 import {getAbilityPackages, getFixedAbilityBonuses, getProfListDisplay} from "./charactersheet-choices.js";
 
 /**
@@ -27,6 +28,8 @@ export class CharacterClassPanel {
 
 	init () {
 		this._comp._addHookBase("classes", () => this._pRender());
+		// Expertise options depend on which skills are proficient, so refresh that section when skills change.
+		CHAR_SHEET_SKILLS.forEach(({key}) => this._comp._addHookBase(`skill_${key}`, () => this._refreshExpertise()));
 		this._pRender();
 	}
 
@@ -74,8 +77,10 @@ export class CharacterClassPanel {
 		}
 		if (token !== this._renderToken) return;
 
+		this._loaded = loaded;
 		this._wrp.innerHTML = "";
 		loaded.forEach(meta => this._renderClassSection(meta));
+		this._renderExpertise(loaded);
 		this._renderSpellcasting(loaded);
 		this._renderAddClass();
 	}
@@ -118,6 +123,79 @@ export class CharacterClassPanel {
 		this._renderFeatureTimeline({wrp, entry, cls, sc});
 
 		this._wrp.appendChild(wrp);
+	}
+
+	/* -------------------------------------------- Expertise -------------------------------------------- */
+
+	_getExpertiseTotal (loaded) {
+		return (loaded || []).reduce((acc, {entry, cls}) => acc + (cls ? getExpertiseSkillCount(cls, entry.level) : 0), 0);
+	}
+
+	/** Render the Expertise chooser when the character's classes grant it (Rogue, Bard, ...). */
+	_renderExpertise (loaded) {
+		const total = this._getExpertiseTotal(loaded);
+		this._wrpExpertise = null;
+		if (!total) return;
+
+		const wrp = document.createElement("div");
+		wrp.className = "cs__panel ve-mb-2";
+		this._wrpExpertise = wrp;
+		this._wrp.appendChild(wrp);
+		this._fillExpertise();
+	}
+
+	/** Re-fill just the Expertise section (called on skill-proficiency changes). */
+	_refreshExpertise () {
+		if (this._wrpExpertise?.isConnected) this._fillExpertise();
+	}
+
+	_fillExpertise () {
+		const wrp = this._wrpExpertise;
+		if (!wrp) return;
+		const total = this._getExpertiseTotal(this._loaded);
+		const proficient = CHAR_SHEET_SKILLS.filter(({key}) => (Number(this._comp._state[`skill_${key}`]) || 0) >= PROF_STATE_PROFICIENT);
+
+		wrp.innerHTML = `<div class="ve-flex-v-center ve-mb-1"><span class="bold">Expertise</span> <span class="ve-muted ve-small ve-ml-1 cs__exp-count"></span></div>`;
+		const dispCount = wrp.querySelector(".cs__exp-count");
+
+		const renderCount = () => {
+			const nChosen = CHAR_SHEET_SKILLS.filter(({key}) => Number(this._comp._state[`skill_${key}`]) === PROF_STATE_EXPERTISE).length;
+			let cls = "ve-muted";
+			let txt = `${nChosen}/${total} chosen`;
+			if (nChosen > total) {
+				cls = "ve-text-danger";
+				txt = `${nChosen}/${total} chosen — more than your features grant`;
+			} else if (nChosen < total) txt = `${nChosen}/${total} chosen — pick ${total - nChosen} more`;
+			dispCount.className = `ve-small ve-ml-1 cs__exp-count ${cls}`;
+			dispCount.textContent = txt;
+		};
+
+		if (!proficient.length) {
+			wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">Gain skill proficiencies first, then mark up to ${total} as Expertise (double proficiency bonus).</div>`);
+			renderCount();
+			return;
+		}
+
+		const wrpOpts = document.createElement("div");
+		wrpOpts.className = "ve-flex ve-flex-wrap";
+		proficient.forEach(({key, name}) => {
+			const lbl = document.createElement("label");
+			lbl.className = "ve-flex-v-center ve-mr-3 ve-mb-1 ve-small";
+			const cb = document.createElement("input");
+			cb.type = "checkbox";
+			cb.className = "ve-mr-1";
+			cb.checked = Number(this._comp._state[`skill_${key}`]) === PROF_STATE_EXPERTISE;
+			cb.addEventListener("change", () => {
+				this._comp._state[`skill_${key}`] = cb.checked ? PROF_STATE_EXPERTISE : PROF_STATE_PROFICIENT;
+			});
+			const spn = document.createElement("span");
+			spn.textContent = name;
+			lbl.append(cb, spn);
+			wrpOpts.appendChild(lbl);
+		});
+		wrp.appendChild(wrpOpts);
+		wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small ve-mt-1">Rogues may instead apply Expertise to thieves' tools &mdash; note that under Proficiencies.</div>`);
+		renderCount();
 	}
 
 	/* -------------------------------------------- Subclass -------------------------------------------- */

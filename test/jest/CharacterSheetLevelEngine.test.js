@@ -3,6 +3,7 @@ import "../../js/parser.js";
 import {
 	checkFeatPrerequisites,
 	getAsiCount,
+	getExpertiseSkillCount,
 	getCantripsKnown,
 	getCasterLevelContribution,
 	getHitDieAverage,
@@ -160,6 +161,31 @@ describe("Leveling engine: ASI slots", () => {
 		expect(getAsiCount(cls, 3)).toBe(0);
 		expect(getAsiCount(cls, 4)).toBe(1);
 		expect(getAsiCount(cls, 6)).toBe(2);
+	});
+});
+
+describe("Leveling engine: expertise grants", () => {
+	it("Should count Expertise features (two picks each) by level", () => {
+		// Rogue-style: Expertise at 1 and 6
+		const cls = {
+			classFeatures: [
+				[{name: "Expertise"}, {name: "Sneak Attack"}],
+				[{name: "Cunning Action"}],
+				[{name: "Roguish Archetype"}],
+				[{name: "Ability Score Improvement"}],
+				[{name: "Uncanny Dodge"}],
+				[{name: "Expertise"}],
+			],
+		};
+		expect(getExpertiseSkillCount(cls, 1)).toBe(2);
+		expect(getExpertiseSkillCount(cls, 5)).toBe(2);
+		expect(getExpertiseSkillCount(cls, 6)).toBe(4);
+	});
+
+	it("Should return 0 for classes without Expertise", () => {
+		const cls = {classFeatures: [[{name: "Second Wind"}], [{name: "Action Surge"}]]};
+		expect(getExpertiseSkillCount(cls, 20)).toBe(0);
+		expect(getExpertiseSkillCount(null, 5)).toBe(0);
 	});
 });
 
