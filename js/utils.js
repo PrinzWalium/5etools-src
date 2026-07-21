@@ -3626,7 +3626,6 @@ globalThis.UrlUtil = class {
 	static PG_ACTIONS = "actions.html";
 	static PG_LANGUAGES = "languages.html";
 	static PG_STATGEN = "statgen.html";
-	static PG_CHARACTER_SHEET = "charactersheet.html";
 	static PG_LIFEGEN = "lifegen.html";
 	static PG_NAMES = "names.html";
 	static PG_DM_SCREEN = "dmscreen.html";
