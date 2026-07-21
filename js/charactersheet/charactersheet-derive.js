@@ -77,6 +77,7 @@ export function deriveCharacterSheet (state) {
 		initiative: abilities.dex.mod + (Number(state.initMisc) || 0),
 		spell,
 		armorClass: deriveArmorClass(state),
+		unarmedStrike: getUnarmedStrike(state),
 		encumbrance: getEncumbrance(state),
 	};
 }
@@ -127,6 +128,44 @@ export function deriveArmorClass (state) {
 	const misc = Number(state.acMisc) || 0;
 
 	return {ac: base + shield + otherMagic + misc, mode, note};
+}
+
+/**
+ * Build an attack row from a weapon's stored metadata: picks the attack ability (Dex for ranged,
+ * the better of Str/Dex for finesse, else Str), assumes proficiency, and folds in the weapon's magic
+ * attack/damage bonuses. Returns `{name, atkBonus, damage}` matching the attacks collection shape.
+ */
+export function getWeaponAttack (state, item) {
+	const pb = getProfBonus(state);
+	const type = String(item.type || "").split("|")[0];
+	const props = item.properties || [];
+	const isRanged = type === "R";
+	const isFinesse = props.includes("F");
+
+	let abv = "str";
+	if (isRanged) abv = "dex";
+	else if (isFinesse) abv = getAbilityModifier(state, "dex") > getAbilityModifier(state, "str") ? "dex" : "str";
+	const abilMod = getAbilityModifier(state, abv);
+
+	const bonusAttack = Number(item.bonusAttack) || 0;
+	const bonusDamage = Number(item.bonusDamage) || 0;
+
+	let damage = "";
+	if (item.dmg1) {
+		const dmgTypeFull = item.dmgType ? ` ${Parser.dmgTypeToFull(item.dmgType, {styleHint: "classic"})}` : "";
+		const dmgMod = abilMod + bonusDamage;
+		const modStr = dmgMod === 0 ? "" : (dmgMod > 0 ? `+${dmgMod}` : `${dmgMod}`);
+		damage = `${item.dmg1}${modStr}${dmgTypeFull}`;
+	}
+
+	return {name: item.name || "", atkBonus: abilMod + pb + bonusAttack, damage};
+}
+
+/** The always-available Unarmed Strike: 1 + Strength modifier bludgeoning, with proficiency. */
+export function getUnarmedStrike (state) {
+	const strMod = getAbilityModifier(state, "str");
+	const dmg = 1 + strMod;
+	return {name: "Unarmed Strike", atkBonus: strMod + getProfBonus(state), damage: `${Math.max(0, dmg)} bludgeoning`};
 }
 
 /** Carried weight from the inventory vs. the standard carrying capacity (Strength × 15). */

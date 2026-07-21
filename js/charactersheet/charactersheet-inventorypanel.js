@@ -1,7 +1,8 @@
-import {getEncumbrance} from "./charactersheet-derive.js";
+import {getEncumbrance, getWeaponAttack} from "./charactersheet-derive.js";
 import {getInventoryItemMeta} from "./charactersheet-equipment.js";
 
 const _isEquippable = it => it.isArmor || it.isWeapon || it.bonusAc != null || ["LA", "MA", "HA", "S", "M", "R"].includes(it.type);
+const _isWeapon = it => it.isWeapon || ["M", "R"].includes(it.type);
 
 class _InventoryRenderableCollection extends RenderableCollectionBase {
 	constructor (comp, wrpRows) {
@@ -46,6 +47,15 @@ class _InventoryRenderableCollection extends RenderableCollectionBase {
 		meta.wrpFlags.innerHTML = "";
 		if (_isEquippable(entity)) meta.wrpFlags.appendChild(this._getFlagToggle(entity, "equipped", "Equip", "Equipped"));
 		if (entity.requiresAttunement) meta.wrpFlags.appendChild(this._getFlagToggle(entity, "attuned", "Attune", "Attuned"));
+		if (_isWeapon(entity)) {
+			const btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = "ve-btn ve-btn-xxs ve-btn-default no-print ve-ml-1 cs__inv-wield";
+			btn.title = "Add this weapon to your attacks";
+			btn.textContent = "Wield";
+			btn.addEventListener("click", () => this._comp.addAttack(getWeaponAttack(this._comp._getState(), entity)));
+			meta.wrpFlags.appendChild(btn);
+		}
 	}
 
 	_getFlagToggle (entity, prop, labelOff, labelOn) {

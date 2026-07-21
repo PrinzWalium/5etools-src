@@ -42,10 +42,12 @@ export function getInventoryItemMeta (ent) {
 	if (ent.weaponCategory) out.weaponCategory = ent.weaponCategory;
 	const bonusAc = parseItemBonus(ent.bonusAc);
 	if (bonusAc) out.bonusAc = bonusAc;
-	const bonusWeapon = parseItemBonus(ent.bonusWeapon ?? ent.bonusWeaponAttack);
-	if (bonusWeapon) out.bonusWeapon = bonusWeapon;
-	const bonusWeaponDamage = parseItemBonus(ent.bonusWeaponDamage);
-	if (bonusWeaponDamage) out.bonusWeaponDamage = bonusWeaponDamage;
+	// `bonusWeapon` applies to both rolls; `bonusWeaponAttack`/`bonusWeaponDamage` are roll-specific.
+	const bonusShared = parseItemBonus(ent.bonusWeapon);
+	const bonusAttack = bonusShared + parseItemBonus(ent.bonusWeaponAttack);
+	const bonusDamage = bonusShared + parseItemBonus(ent.bonusWeaponDamage);
+	if (bonusAttack) out.bonusAttack = bonusAttack;
+	if (bonusDamage) out.bonusDamage = bonusDamage;
 	if (ent.reqAttune) out.requiresAttunement = true;
 	return out;
 }

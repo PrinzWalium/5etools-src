@@ -1,5 +1,5 @@
 import "../../js/parser.js";
-import {deriveArmorClass, deriveCharacterSheet, getProfBonus, getTotalLevel} from "../../js/charactersheet/charactersheet-derive.js";
+import {deriveArmorClass, deriveCharacterSheet, getProfBonus, getTotalLevel, getUnarmedStrike, getWeaponAttack} from "../../js/charactersheet/charactersheet-derive.js";
 
 const getBaseState = (overrides = {}) => ({
 	level: 1,
@@ -131,6 +131,34 @@ describe("Character sheet derivation", () => {
 			expect(deriveArmorClass({...s, acMode: "barbarian"}).ac).toBe(15); // 10 +2 +3
 			expect(deriveArmorClass({...s, acMode: "monk"}).ac).toBe(13); // 10 +2 +1
 			expect(deriveArmorClass({...s, acMode: "manual", ac: 20}).ac).toBe(20);
+		});
+	});
+
+	describe("Weapon attacks", () => {
+		it("Should use Strength for a melee weapon (with proficiency)", () => {
+			const state = getBaseState({abil_str: 16, level: 5}); // Str +3, PB +3
+			const atk = getWeaponAttack(state, {name: "Longsword", type: "M", dmg1: "1d8", dmgType: "S"});
+			expect(atk.name).toBe("Longsword");
+			expect(atk.atkBonus).toBe(6);
+			expect(atk.damage).toMatch(/^1d8\+3 slashing$/i);
+		});
+
+		it("Should use Dexterity for ranged and the better of Str/Dex for finesse", () => {
+			const state = getBaseState({abil_str: 10, abil_dex: 18});
+			expect(getWeaponAttack(state, {name: "Longbow", type: "R", dmg1: "1d8", dmgType: "P"}).damage).toMatch(/^1d8\+4 piercing$/i);
+			expect(getWeaponAttack(state, {name: "Dagger", type: "M", properties: ["F"], dmg1: "1d4", dmgType: "P"}).damage).toMatch(/^1d4\+4 piercing$/i);
+		});
+
+		it("Should fold in magic attack/damage bonuses", () => {
+			const state = getBaseState({abil_str: 16, level: 1}); // Str +3, PB +2
+			const atk = getWeaponAttack(state, {name: "+1 Longsword", type: "M", dmg1: "1d8", dmgType: "S", bonusAttack: 1, bonusDamage: 1});
+			expect(atk.atkBonus).toBe(6); // 3 + 2 + 1
+			expect(atk.damage).toMatch(/^1d8\+4 slashing$/i); // 3 + 1
+		});
+
+		it("Should build the Unarmed Strike from Strength", () => {
+			const state = getBaseState({abil_str: 14, level: 1}); // Str +2, PB +2
+			expect(getUnarmedStrike(state)).toEqual({name: "Unarmed Strike", atkBonus: 4, damage: "3 bludgeoning"});
 		});
 	});
 });

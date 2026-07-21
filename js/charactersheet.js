@@ -1,5 +1,6 @@
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS} from "./charactersheet/charactersheet-consts.js";
-import {deriveCharacterSheet, getAbilityModifier, getProfBonus} from "./charactersheet/charactersheet-derive.js";
+import {deriveCharacterSheet, getWeaponAttack} from "./charactersheet/charactersheet-derive.js";
+import {getInventoryItemMeta} from "./charactersheet/charactersheet-equipment.js";
 import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js";
 import {CharacterInventoryPanel} from "./charactersheet/charactersheet-inventorypanel.js";
 import {CharacterSpellsPanel} from "./charactersheet/charactersheet-spellspanel.js";
@@ -226,30 +227,7 @@ class CharacterSheetPage extends CharacterPageBase {
 		const doc = await SearchWidget.pGetUserItemSearch();
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
-		this._comp.addAttack(this._weaponToAttack(ent || {}, doc.n));
-	}
-
-	_weaponToAttack (item, name) {
-		const state = this._comp._getState();
-		const pb = getProfBonus(state);
-		const typeAbv = String(item.type || "").split("|")[0];
-		const props = (item.property || []).map(p => String(p).split("|")[0]);
-		const isFinesse = props.includes("F");
-		const isRanged = typeAbv === "R";
-
-		let abv = "str";
-		if (isRanged) abv = "dex";
-		else if (isFinesse) abv = getAbilityModifier(state, "dex") > getAbilityModifier(state, "str") ? "dex" : "str";
-		const abilMod = getAbilityModifier(state, abv);
-
-		let damage = "";
-		if (item.dmg1) {
-			const dmgType = item.dmgType ? ` ${Parser.dmgTypeToFull(item.dmgType)}` : "";
-			const modStr = abilMod === 0 ? "" : (abilMod > 0 ? `+${abilMod}` : `${abilMod}`);
-			damage = `${item.dmg1}${modStr}${dmgType}`;
-		}
-
-		return {name: name || item.name || "", atkBonus: abilMod + pb, damage};
+		this._comp.addAttack(getWeaponAttack(this._comp._getState(), {...getInventoryItemMeta(ent), name: doc.n}));
 	}
 
 	/* -------------------------------------------- Derived rendering -------------------------------------------- */
@@ -288,6 +266,13 @@ class CharacterSheetPage extends CharacterPageBase {
 		document.getElementById("cs-passive-perception").textContent = `${derived.passivePerception}`;
 
 		this._renderArmorClass(derived.armorClass);
+
+		const eleUnarmed = document.getElementById("cs-unarmed");
+		if (eleUnarmed) {
+			const u = derived.unarmedStrike;
+			const hitRoll = Renderer.get().render(`{@d20 ${u.atkBonus}|${CharacterPageBase.fmtBonus(u.atkBonus)}|Unarmed Strike}`);
+			eleUnarmed.innerHTML = `<span class="ve-muted">Unarmed Strike:</span> ${hitRoll} <span class="ve-muted">to hit,</span> ${u.damage.qq()}`;
+		}
 
 		document.getElementById("cs-initiative-roll").innerHTML = Renderer.get().render(`{@initiative ${derived.initiative}|${CharacterPageBase.fmtBonus(derived.initiative)}}`);
 
