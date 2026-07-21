@@ -1,4 +1,5 @@
-import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SCHEMA_VERSION, CHAR_SHEET_SKILLS} from "./charactersheet-consts.js";
+import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SCHEMA_VERSION, CHAR_SHEET_SKILLS, getSkillKeyByName} from "./charactersheet-consts.js";
+import {getGrantedFeats, getProfListDisplay} from "./charactersheet-choices.js";
 
 /**
  * The character data model: single source of truth for the sheet.
@@ -82,9 +83,12 @@ export class CharacterModel extends BaseComponent {
 			inspiration: false,
 
 			attacks: [], // [{id, name, atkBonus, damage}]
+			inventory: [], // [{id, name, source, quantity, weightLb}]
 
 			spellAbility: "",
 			spellsText: "",
+			spellsKnown: [], // [{id, name, source, level}]
+			slotsUsed: {}, // {"1": n, ..., "9": n, pact: n}
 
 			featuresText: "",
 			equipmentText: "",
@@ -140,6 +144,54 @@ export class CharacterModel extends BaseComponent {
 		this._state.pickTags = {...this._state.pickTags, [which]: tag};
 	}
 
+	/* -------------------------------------------- Inventory -------------------------------------------- */
+
+	/** Add an item; stacking onto an existing row when name/source match. */
+	addInventoryItem ({name, source, quantity = 1, weightLb = null}) {
+		const existing = this._state.inventory.find(it => it.name === name && it.source === source);
+		if (existing) {
+			existing.quantity = (Number(existing.quantity) || 0) + quantity;
+			this._triggerCollectionUpdate("inventory");
+			return;
+		}
+		this._state.inventory = [
+			...this._state.inventory,
+			{id: CryptUtil.uid(), name, source, quantity, weightLb},
+		];
+	}
+
+	updateInventoryItem (id, data) {
+		const item = this._state.inventory.find(it => it.id === id);
+		if (!item) return;
+		Object.assign(item, data);
+		this._triggerCollectionUpdate("inventory");
+	}
+
+	removeInventoryItem (id) {
+		this._state.inventory = this._state.inventory.filter(it => it.id !== id);
+	}
+
+	/* -------------------------------------------- Spells -------------------------------------------- */
+
+	/** @return `false` if the spell was already known (for that class) */
+	addKnownSpell ({name, source, level, className = null}) {
+		if (this._state.spellsKnown.some(it => it.name === name && it.source === source && (it.className || null) === (className || null))) return false;
+		this._state.spellsKnown = [
+			...this._state.spellsKnown,
+			{id: CryptUtil.uid(), name, source, level: Number(level) || 0, className},
+		];
+		return true;
+	}
+
+	removeKnownSpell (id) {
+		this._state.spellsKnown = this._state.spellsKnown.filter(it => it.id !== id);
+	}
+
+	/** Set the number of expended slots for a spell level (1-9) or "pact". */
+	setSlotsUsed (level, count) {
+		this._state.slotsUsed = {...this._state.slotsUsed, [level]: Math.max(0, Number(count) || 0)};
+	}
+
 	appendToTextProp (prop, text) {
 		if (!text) return;
 		const cur = (this._state[prop] || "").trim();
@@ -147,24 +199,227 @@ export class CharacterModel extends BaseComponent {
 		this._state[prop] = cur ? `${cur}\n${text}` : text;
 	}
 
-	/** Set the (single) class from picked class data. Multiclass support arrives with the leveling engine. */
+	/** Set a skill's proficiency state by data name (e.g. "animal handling"), never downgrading. */
+	setSkillProfByName (name, val) {
+		const key = getSkillKeyByName(name);
+		if (!key) return;
+		const prop = `skill_${key}`;
+		this._state[prop] = Math.max(Number(this._state[prop]) || 0, val);
+	}
+
+	/* -------------------------------------------- Entity application -------------------------------------------- */
+
+	/** Apply a picked species/race: search doc bookkeeping + mechanical fields from the entity. */
+	applyPickedRace ({doc, ent}) {
+		this._state.speciesText = doc.n;
+		this._state.refSpecies = {name: doc.n, source: doc.source, tag: doc.tag};
+		this.setPickTag("species", doc.tag);
+		if (ent) this.applyRaceData(ent);
+	}
+
+	// Trait entries that are boilerplate rather than named features worth surfacing
+	static _RACE_TRAIT_NAMES_IGNORED = new Set(["Age", "Size", "Speed", "Languages", "Alignment", "Ability Score Increase", "Creature Type", "Darkvision"]);
+
+	applyRaceData (race) {
+		const speed = race.speed;
+		let spd = null;
+		if (typeof speed === "number") spd = speed;
+		else if (speed && typeof speed === "object" && typeof speed.walk === "number") spd = speed.walk;
+		if (spd != null) this._state.speed = `${spd} ft.`;
+
+		(race.skillProficiencies || []).forEach(grp => {
+			Object.entries(grp).forEach(([k, v]) => { if (v === true) this.setSkillProfByName(k, 1); });
+		});
+
+		const fixedLangs = (race.languageProficiencies || [])
+			.map(grp => Object.entries(grp).filter(([, v]) => v === true).map(([k]) => k))
+			.flat();
+		if (fixedLangs.length) this.appendToTextProp("proficienciesText", `Languages: ${getProfListDisplay([Object.fromEntries(fixedLangs.map(k => [k, true]))])}`);
+
+		if (race.darkvision) this.appendToTextProp("proficienciesText", `Senses: Darkvision ${race.darkvision} ft.`);
+
+		[["resist", "Resistances"], ["immune", "Immunities"], ["vulnerable", "Vulnerabilities"], ["conditionImmune", "Condition Immunities"]]
+			.forEach(([prop, label]) => {
+				const vals = (race[prop] || []).filter(it => typeof it === "string");
+				if (vals.length) this.appendToTextProp("proficienciesText", `${label}: ${vals.join(", ")}`);
+			});
+
+		const traitNames = (race.entries || [])
+			.filter(it => it && typeof it === "object" && it.name && !CharacterModel._RACE_TRAIT_NAMES_IGNORED.has(it.name))
+			.map(it => it.name);
+		if (traitNames.length) this.appendToTextProp("featuresText", `${race.name} Traits: ${traitNames.join(", ")}`);
+	}
+
+	/** Add (or, with `isRevert`, subtract) a `{abv: n}` bonus map to the ability scores. */
+	applyAbilityBonuses (bonuses, {isRevert = false} = {}) {
+		Object.entries(bonuses || {}).forEach(([abv, n]) => {
+			const prop = `abil_${abv}`;
+			if (!(prop in this.__state)) return;
+			const cur = Number(this._state[prop]) || 10;
+			this._state[prop] = cur + (isRevert ? -n : n);
+		});
+	}
+
+	/** Apply a picked background: search doc bookkeeping + mechanical fields from the entity. */
+	applyPickedBackground ({doc, ent, isFixedOnly = false}) {
+		this._state.backgroundText = doc.n;
+		this._state.refBackground = {name: doc.n, source: doc.source, tag: doc.tag};
+		this.setPickTag("background", doc.tag);
+		if (ent) this.applyBackgroundData(ent, {isFixedOnly});
+	}
+
+	/** @param [opts.isFixedOnly] Skip "N of your choice" display entries (when a choice queue resolves them separately). */
+	applyBackgroundData (bg, {isFixedOnly = false} = {}) {
+		(bg.skillProficiencies || []).forEach(grp => {
+			Object.entries(grp).forEach(([k, v]) => { if (v === true) this.setSkillProfByName(k, 1); });
+		});
+		const tools = getProfListDisplay(bg.toolProficiencies, {isFixedOnly});
+		const langs = getProfListDisplay(bg.languageProficiencies, {isFixedOnly});
+		const parts = [];
+		if (tools) parts.push(`Tools: ${tools}`);
+		if (langs) parts.push(`Languages: ${langs}`);
+		if (parts.length) this.appendToTextProp("proficienciesText", parts.join("\n"));
+
+		// 2024-style backgrounds grant a feat directly
+		getGrantedFeats(bg.feats)
+			.forEach(feat => this.appendToTextProp("featuresText", `Feat: ${feat.displayName} (${Parser.sourceJsonToAbv(feat.source)})`));
+	}
+
+	/** Apply a picked class at a given level: display text, tag, structured entry, and mechanical fields. */
+	applyPickedClass (cls, level) {
+		this._state.classText = `${cls.name} ${level}`;
+		this.setPickTag("class", `{@class ${cls.name}${cls.source !== Parser.SRC_PHB ? `|${cls.source}` : ""}}`);
+		this.setSingleClass(cls);
+
+		if (cls.hd && cls.hd.faces) this._state.hdTotal = `${level}d${cls.hd.faces}`;
+		(cls.proficiency || []).forEach(abv => this._state[`save_${abv}`] = true);
+		if (cls.spellcastingAbility) this._state.spellAbility = cls.spellcastingAbility;
+	}
+
+	/** Set the (single) primary class from picked class data, replacing any existing classes. */
 	setSingleClass (cls) {
+		const existing = this._state.classes.length === 1 ? this._state.classes[0] : null;
+		const isSameClass = existing && existing.name === cls.name && existing.source === cls.source;
 		this._state.classes = [{
 			id: CryptUtil.uid(),
 			name: cls.name,
 			source: cls.source,
 			level: this.getLevelNumber(),
 			hdFaces: cls.hd?.faces ?? null,
-			subclass: null,
+			// Re-picking the same class (e.g. to refresh level) keeps its subclass/feature choices
+			subclass: isSameClass ? existing.subclass : null,
+			optionalFeatures: isSameClass ? (existing.optionalFeatures || []) : [],
+			asiFeatChoices: isSameClass ? (existing.asiFeatChoices || []) : [],
 		}];
 	}
 
-	_syncSingleClassLevel () {
-		if (this._state.classes.length !== 1) return;
-		const cls = this._state.classes[0];
-		if (cls.level === this.getLevelNumber()) return;
-		cls.level = this.getLevelNumber();
+	/** Add an additional (multiclass) class entry. */
+	addClassEntry (cls, level) {
+		this._state.classes = [
+			...this._state.classes,
+			{
+				id: CryptUtil.uid(),
+				name: cls.name,
+				source: cls.source,
+				level: Math.min(20, Math.max(1, Number(level) || 1)),
+				hdFaces: cls.hd?.faces ?? null,
+				subclass: null,
+				optionalFeatures: [],
+				asiFeatChoices: [],
+			},
+		];
+		this._syncDisplayFromClasses();
+	}
+
+	removeClassEntry (id) {
+		this._state.classes = this._state.classes.filter(it => it.id !== id);
+		this._syncDisplayFromClasses();
+	}
+
+	setClassEntryLevel (id, level) {
+		const entry = this._state.classes.find(it => it.id === id);
+		if (!entry) return;
+		entry.level = Math.min(20, Math.max(1, Number(level) || 1));
 		this._triggerCollectionUpdate("classes");
+		this._syncDisplayFromClasses();
+	}
+
+	setSubclassForClass (id, subclass) {
+		const entry = this._state.classes.find(it => it.id === id);
+		if (!entry) return;
+		entry.subclass = subclass ? {name: subclass.name, shortName: subclass.shortName, source: subclass.source} : null;
+		this._triggerCollectionUpdate("classes");
+	}
+
+	addOptionalFeatureForClass (id, {name, source, progressionName}) {
+		const entry = this._state.classes.find(it => it.id === id);
+		if (!entry) return;
+		entry.optionalFeatures = entry.optionalFeatures || [];
+		if (entry.optionalFeatures.some(it => it.name === name && it.source === source)) return;
+		entry.optionalFeatures.push({name, source, progressionName});
+		this._triggerCollectionUpdate("classes");
+	}
+
+	removeOptionalFeatureForClass (id, {name, source}) {
+		const entry = this._state.classes.find(it => it.id === id);
+		if (!entry?.optionalFeatures) return;
+		entry.optionalFeatures = entry.optionalFeatures.filter(it => !(it.name === name && it.source === source));
+		this._triggerCollectionUpdate("classes");
+	}
+
+	/**
+	 * Record an Ability Score Improvement-slot choice for a class: either an ASI
+	 * (`{type: "asi", bonuses}`) or a feat (`{type: "feat", name, source, bonuses}`).
+	 * Ability bonuses are applied now and reverted if the choice is removed.
+	 */
+	addAsiFeatChoice (classId, choice) {
+		const entry = this._state.classes.find(it => it.id === classId);
+		if (!entry) return;
+		entry.asiFeatChoices = entry.asiFeatChoices || [];
+		entry.asiFeatChoices.push({id: CryptUtil.uid(), ...choice});
+		if (choice.bonuses) this.applyAbilityBonuses(choice.bonuses);
+		this._triggerCollectionUpdate("classes");
+	}
+
+	removeAsiFeatChoice (classId, choiceId) {
+		const entry = this._state.classes.find(it => it.id === classId);
+		if (!entry?.asiFeatChoices) return;
+		const choice = entry.asiFeatChoices.find(it => it.id === choiceId);
+		if (!choice) return;
+		if (choice.bonuses) this.applyAbilityBonuses(choice.bonuses, {isRevert: true});
+		entry.asiFeatChoices = entry.asiFeatChoices.filter(it => it.id !== choiceId);
+		this._triggerCollectionUpdate("classes");
+	}
+
+	/** Update the display fields (class text, total level, hit dice) after structural class changes. */
+	_syncDisplayFromClasses () {
+		const classes = this._state.classes;
+		if (!classes.length) return;
+
+		this._state.classText = classes.map(it => `${it.name} ${it.level}`).join(" / ");
+		this._state.level = Math.min(20, classes.reduce((acc, it) => acc + (Number(it.level) || 0), 0));
+
+		const byFaces = {};
+		classes.forEach(it => {
+			if (!it.hdFaces) return;
+			byFaces[it.hdFaces] = (byFaces[it.hdFaces] || 0) + (Number(it.level) || 0);
+		});
+		const hd = Object.entries(byFaces).map(([faces, cnt]) => `${cnt}d${faces}`).join(" + ");
+		if (hd) this._state.hdTotal = hd;
+	}
+
+	_syncSingleClassLevel () {
+		const classes = this._state.classes;
+		if (!classes.length) return;
+
+		if (classes.length === 1 && classes[0].level !== this.getLevelNumber()) {
+			classes[0].level = this.getLevelNumber();
+			this._triggerCollectionUpdate("classes");
+		}
+
+		// With multiple classes the total is derived from per-class levels; this also refreshes
+		// the class text and hit dice displays (equal-value assignments are no-ops, so no loops)
+		this._syncDisplayFromClasses();
 	}
 
 	/* -------------------------------------------- Persistence -------------------------------------------- */

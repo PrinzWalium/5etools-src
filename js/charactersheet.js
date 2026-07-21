@@ -2,6 +2,13 @@ import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS} from "./charactersheet/characte
 import {CharacterModel} from "./charactersheet/charactersheet-model.js";
 import {deriveCharacterSheet, getAbilityModifier, getProfBonus} from "./charactersheet/charactersheet-derive.js";
 import {CharacterSheetClassData} from "./charactersheet/charactersheet-classdata.js";
+import {CharacterWizard} from "./charactersheet/charactersheet-wizard.js";
+import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js";
+import {getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses} from "./charactersheet/charactersheet-choices.js";
+import {CharacterInventoryPanel} from "./charactersheet/charactersheet-inventorypanel.js";
+import {CharacterSpellsPanel} from "./charactersheet/charactersheet-spellspanel.js";
+import {getCharacterLabel, getMigratedStore, getNewStore} from "./charactersheet/charactersheet-charstore.js";
+import {getLevelUpHp} from "./charactersheet/charactersheet-levelengine.js";
 
 /** Renders the attacks table from the model's `attacks` collection. */
 class _AttacksRenderableCollection extends RenderableCollectionBase {
@@ -89,7 +96,6 @@ class _AttacksRenderableCollection extends RenderableCollectionBase {
 class CharacterSheetPage {
 	static _STORAGE_KEY = "charactersheet-state";
 	static _FILE_TYPE = "charactersheet";
-	static _SKILL_KEY_BY_NAME = null;
 
 	// Simple string-valued inputs/selects/textareas, bound verbatim to model props
 	static _IPT_STR_BINDINGS = [
@@ -131,6 +137,10 @@ class CharacterSheetPage {
 		this._attacksCollection = null;
 		this._isLoading = false;
 		this._saveTimer = null;
+		this._store = null; // {storeVersion, currentId, characters: {id: envelope}}
+		this._fnsSyncInput = []; // unconditional input-sync functions, for bulk state loads
+		this._lastLevel = 1; // for detecting interactive level-ups
+		this._suppressLevelPrompt = 0; // >0 while a bulk apply (e.g. the wizard) is in progress
 	}
 
 	init () {
@@ -145,14 +155,29 @@ class CharacterSheetPage {
 
 		this._attacksCollection = new _AttacksRenderableCollection(this._comp, document.getElementById("cs-attacks-body"));
 		this._comp._addHookBase("attacks", () => this._attacksCollection.render());
+		this._classPanel = new CharacterClassPanel({comp: this._comp, wrp: document.getElementById("cs-class-panel")});
+		this._classPanel.init();
+		this._inventoryPanel = new CharacterInventoryPanel({comp: this._comp, wrp: document.getElementById("cs-inventory")});
+		this._inventoryPanel.init();
+		this._spellsPanel = new CharacterSpellsPanel({
+			comp: this._comp,
+			wrpSlots: document.getElementById("cs-spell-slots"),
+			wrpKnown: document.getElementById("cs-spells-known"),
+		});
+		this._spellsPanel.init();
 		this._comp._addHookBase("pickTags", () => this._renderPickLinks());
 		this._comp._addHookBase("deathSuccess", () => this._renderDeathSaves());
 		this._comp._addHookBase("deathFail", () => this._renderDeathSaves());
+		this._comp._addHookBase("level", () => this._pMaybePromptLevelUp());
 		this._comp._addHookAllBase(() => this._onStateChange());
 
-		const stored = StorageUtil.syncGetForPage(CharacterSheetPage._STORAGE_KEY);
-		if (stored) this._doLoadState(stored);
+		this._store = getMigratedStore(StorageUtil.syncGetForPage(CharacterSheetPage._STORAGE_KEY)) || getNewStore();
+		this._bindCharacterSwitcher();
+
+		const envelope = this._store.characters[this._store.currentId];
+		if (envelope) this._doLoadState(envelope);
 		if (!this._comp._state.attacks.length) this._comp.addAttack();
+		this._renderCharacterSelect();
 
 		this._doRenderAll();
 
@@ -177,10 +202,61 @@ class CharacterSheetPage {
 	}
 
 	_doRenderAll () {
+		// Bypass the inputs' focus guards: a bulk load must win over whatever was focused
+		this._fnsSyncInput.forEach(fn => fn());
 		this._attacksCollection.render();
 		this._renderPickLinks();
 		this._renderDeathSaves();
 		this._renderDerived();
+		this._lastLevel = this._comp.getLevelNumber();
+	}
+
+	/** On an interactive level increase, offer to add average or rolled HP for the new level(s). */
+	async _pMaybePromptLevelUp () {
+		const newLevel = this._comp.getLevelNumber();
+		const prevLevel = this._lastLevel;
+		this._lastLevel = newLevel;
+
+		if (this._isLoading || this._suppressLevelPrompt > 0 || newLevel <= prevLevel) return;
+
+		const primary = this._comp._state.classes.find(c => c.hdFaces);
+		if (!primary) return; // no hit die to base a suggestion on
+		const faces = primary.hdFaces;
+		const numLevels = newLevel - prevLevel;
+		const conMod = Parser.getAbilityModNumber(Number(this._comp._state.abil_con) || 10);
+
+		const avgTotal = getLevelUpHp({faces, conMod, numLevels}).total;
+		const optAvg = `Add average (+${avgTotal} HP)`;
+		const ptConMod = conMod ? ` ${conMod > 0 ? "+" : "−"} ${Math.abs(conMod)} per level` : "";
+		const optRoll = `Roll ${numLevels}d${faces}${ptConMod}`;
+		const optSkip = "Enter manually / skip";
+
+		const choice = await InputUiUtil.pGetUserEnum({
+			values: [optAvg, optRoll, optSkip],
+			isResolveItem: true,
+			title: `Level up to ${newLevel}${numLevels > 1 ? ` (+${numLevels} levels)` : ""}`,
+			placeholder: "How do you want to gain HP?",
+		});
+		if (choice == null || choice === optSkip) return;
+
+		const gained = choice === optRoll
+			? getLevelUpHp({faces, conMod, numLevels, fnRoll: f => Math.floor(Math.random() * f) + 1}).total
+			: avgTotal;
+
+		this._comp._state.hpMax = (Number(this._comp._state.hpMax) || 0) + gained;
+		this._comp._state.hpCur = (Number(this._comp._state.hpCur) || 0) + gained;
+		JqueryUtil.doToast({type: "success", content: `Gained ${gained} HP (now level ${newLevel}).`});
+	}
+
+	/** The wizard applies its own suggested HP, so suppress the per-level prompt while it runs. */
+	async _pOnWizard () {
+		this._suppressLevelPrompt += 1;
+		try {
+			await CharacterWizard.pShow({comp: this._comp});
+		} finally {
+			this._suppressLevelPrompt -= 1;
+			this._lastLevel = this._comp.getLevelNumber();
+		}
 	}
 
 	/* -------------------------------------------- DOM scaffolding -------------------------------------------- */
@@ -280,6 +356,7 @@ class CharacterSheetPage {
 			if (ele.value !== `${val}`) ele.value = val;
 		};
 		this._comp._addHookBase(prop, hook);
+		this._fnsSyncInput.push(hook);
 		hook();
 	}
 
@@ -293,14 +370,18 @@ class CharacterSheetPage {
 		ele.addEventListener("input", setState);
 		ele.addEventListener("change", setState);
 
-		const hook = () => {
+		const doSync = () => {
 			const val = this._comp._state[prop];
 			const asStr = val == null ? "" : `${val}`;
-			if (document.activeElement === ele) return;
 			if (ele.value !== asStr) ele.value = asStr;
 		};
+		const hook = () => {
+			if (document.activeElement === ele) return; // don't clobber while typing
+			doSync();
+		};
 		this._comp._addHookBase(prop, hook);
-		hook();
+		this._fnsSyncInput.push(doSync);
+		doSync();
 	}
 
 	_bindCb (id, prop) {
@@ -309,12 +390,15 @@ class CharacterSheetPage {
 
 		const hook = () => ele.checked = !!this._comp._state[prop];
 		this._comp._addHookBase(prop, hook);
+		this._fnsSyncInput.push(hook);
 		hook();
 	}
 
 	/* -------------------------------------------- Controls -------------------------------------------- */
 
 	_bindStaticControls () {
+		document.getElementById("cs-btn-wizard").addEventListener("click", () => this._pOnWizard());
+
 		document.getElementById("cs-attack-add").addEventListener("click", () => this._comp.addAttack());
 
 		document.getElementById("cs-hp-damage").addEventListener("click", () => this._adjustHp(-1));
@@ -342,37 +426,7 @@ class CharacterSheetPage {
 		document.getElementById("cs-pick-background").addEventListener("click", () => this._onPickBackground());
 		document.getElementById("cs-pick-class").addEventListener("click", () => this._onPickClass());
 		document.getElementById("cs-attack-add-weapon").addEventListener("click", () => this._onPickWeapon());
-		document.getElementById("cs-spell-add").addEventListener("click", () => this._onPickSpell());
-	}
-
-	static _getSkillKeyByName (name) {
-		if (!CharacterSheetPage._SKILL_KEY_BY_NAME) {
-			CharacterSheetPage._SKILL_KEY_BY_NAME = {};
-			CHAR_SHEET_SKILLS.forEach(s => { CharacterSheetPage._SKILL_KEY_BY_NAME[s.key.toLowerCase()] = s.key; });
-		}
-		const norm = String(name).replace(/[^a-z]/gi, "").toLowerCase();
-		return CharacterSheetPage._SKILL_KEY_BY_NAME[norm] || null;
-	}
-
-	_setSkillProfByName (name, val) {
-		const key = CharacterSheetPage._getSkillKeyByName(name);
-		if (!key) return;
-		const prop = `skill_${key}`;
-		this._comp._state[prop] = Math.max(Number(this._comp._state[prop]) || 0, val);
-	}
-
-	static _fmtProfList (arr) {
-		if (!arr || !arr.length) return "";
-		const out = [];
-		arr.forEach(grp => {
-			Object.entries(grp).forEach(([k, v]) => {
-				if (v === true) out.push(k.toTitleCase());
-				else if (k === "choose" && v && v.from) out.push(`${v.count || 1} of your choice`);
-				else if (typeof v === "number") out.push(/^any/i.test(k) ? `${v} of your choice` : `${v}× ${k.toTitleCase()}`);
-				else if (/^any/i.test(k)) out.push("one of your choice");
-			});
-		});
-		return out.join(", ");
+		// The spell picker is bound by the spells panel
 	}
 
 	_renderPickLink (which) {
@@ -390,44 +444,45 @@ class CharacterSheetPage {
 		const doc = await SearchWidget.pGetUserRaceSearch();
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
-		this._comp._state.speciesText = doc.n;
-		this._comp._state.refSpecies = {name: doc.n, source: doc.source, tag: doc.tag};
-		this._comp.setPickTag("species", doc.tag);
-		if (ent) this._applyRace(ent);
-	}
-
-	_applyRace (race) {
-		const speed = race.speed;
-		let spd = null;
-		if (typeof speed === "number") spd = speed;
-		else if (speed && typeof speed === "object" && typeof speed.walk === "number") spd = speed.walk;
-		if (spd != null) this._comp._state.speed = `${spd} ft.`;
-
-		(race.skillProficiencies || []).forEach(grp => {
-			Object.entries(grp).forEach(([k, v]) => { if (v === true) this._setSkillProfByName(k, 1); });
-		});
+		this._comp.applyPickedRace({doc, ent});
+		if (ent) await this._pOfferAbilityBonuses(ent, doc.n);
 	}
 
 	async _onPickBackground () {
 		const doc = await SearchWidget.pGetUserBackgroundSearch();
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
-		this._comp._state.backgroundText = doc.n;
-		this._comp._state.refBackground = {name: doc.n, source: doc.source, tag: doc.tag};
-		this._comp.setPickTag("background", doc.tag);
-		if (ent) this._applyBackground(ent);
+		this._comp.applyPickedBackground({doc, ent});
+		if (ent) await this._pOfferAbilityBonuses(ent, doc.n);
 	}
 
-	_applyBackground (bg) {
-		(bg.skillProficiencies || []).forEach(grp => {
-			Object.entries(grp).forEach(([k, v]) => { if (v === true) this._setSkillProfByName(k, 1); });
+	/**
+	 * After a standalone pick: offer to apply fixed ability bonuses (opt-in, since the sheet's
+	 * scores are final values), and note choose-based increases for manual resolution.
+	 * The wizard flow applies both automatically instead.
+	 */
+	async _pOfferAbilityBonuses (ent, name) {
+		const fixed = getFixedAbilityBonuses(ent.ability);
+		if (Object.keys(fixed).length) {
+			const ptBonuses = Object.entries(fixed).map(([abv, n]) => `${n >= 0 ? "+" : ""}${n} ${Parser.attAbvToFull(abv)}`).join(", ");
+			const isApply = await InputUiUtil.pGetUserBoolean({
+				title: "Apply Ability Score Increases?",
+				htmlDescription: `<div>${name.qq()} grants: <b>${ptBonuses.qq()}</b>.<br>Add this to the current ability scores?</div>`,
+				textYes: "Apply",
+				textNo: "Skip",
+			});
+			if (isApply) this._comp.applyAbilityBonuses(fixed);
+		}
+
+		getAbilityChoices({ability: ent.ability, sourceName: name}).forEach(choice => {
+			// Single package: describe only the unresolved choose part (fixed was offered above);
+			// alternative packages: describe the whole choice
+			const ptChoose = choice.packages.length === 1
+				? getAbilityPackageDisplay({...choice.packages[0], fixed: {}})
+				: choice.label.replace(/^Ability scores: choose /, "");
+			if (!ptChoose) return;
+			this._comp.appendToTextProp("proficienciesText", `Ability Scores (${name}): ${ptChoose} — assign manually`);
 		});
-		const tools = CharacterSheetPage._fmtProfList(bg.toolProficiencies);
-		const langs = CharacterSheetPage._fmtProfList(bg.languageProficiencies);
-		const parts = [];
-		if (tools) parts.push(`Tools: ${tools}`);
-		if (langs) parts.push(`Languages: ${langs}`);
-		if (parts.length) this._comp.appendToTextProp("proficienciesText", parts.join("\n"));
 	}
 
 	async _onPickClass () {
@@ -442,17 +497,7 @@ class CharacterSheetPage {
 		});
 		if (cls == null) return;
 
-		const level = this._comp.getLevelNumber();
-		this._comp._state.classText = `${cls.name} ${level}`;
-		this._comp.setPickTag("class", `{@class ${cls.name}${cls.source !== Parser.SRC_PHB ? `|${cls.source}` : ""}}`);
-		this._comp.setSingleClass(cls);
-		this._applyClass(cls, level);
-	}
-
-	_applyClass (cls, level) {
-		if (cls.hd && cls.hd.faces) this._comp._state.hdTotal = `${level}d${cls.hd.faces}`;
-		(cls.proficiency || []).forEach(abv => this._comp._state[`save_${abv}`] = true);
-		if (cls.spellcastingAbility) this._comp._state.spellAbility = cls.spellcastingAbility;
+		this._comp.applyPickedClass(cls, this._comp.getLevelNumber());
 	}
 
 	async _onPickWeapon () {
@@ -483,14 +528,6 @@ class CharacterSheetPage {
 		}
 
 		return {name: name || item.name || "", atkBonus: abilMod + pb, damage};
-	}
-
-	async _onPickSpell () {
-		await SearchUiUtil.pDoGlobalInit();
-		SearchWidget.pDoGlobalInit();
-		const doc = await SearchWidget.pGetUserSpellSearch();
-		if (!doc) return;
-		this._comp.appendToTextProp("spellsText", doc.tag);
 	}
 
 	/* -------------------------------------------- Derived rendering -------------------------------------------- */
@@ -537,13 +574,74 @@ class CharacterSheetPage {
 		}
 	}
 
-	/* -------------------------------------------- Persistence -------------------------------------------- */
+	/* -------------------------------------------- Persistence & characters -------------------------------------------- */
 
 	_saveStateDebounced () {
 		if (this._saveTimer) clearTimeout(this._saveTimer);
-		this._saveTimer = setTimeout(() => {
-			StorageUtil.syncSetForPage(CharacterSheetPage._STORAGE_KEY, this._comp.getSaveableState());
-		}, 150);
+		this._saveTimer = setTimeout(() => this._persistNow(), 150);
+	}
+
+	_persistNow () {
+		if (this._saveTimer) {
+			clearTimeout(this._saveTimer);
+			this._saveTimer = null;
+		}
+		this._store.characters[this._store.currentId] = this._comp.getSaveableState();
+		StorageUtil.syncSetForPage(CharacterSheetPage._STORAGE_KEY, this._store);
+		this._renderCharacterSelect();
+	}
+
+	_renderCharacterSelect () {
+		const sel = document.getElementById("cs-char-select");
+		sel.innerHTML = Object.entries(this._store.characters)
+			.map(([id, envelope]) => `<option value="${id.qq()}">${getCharacterLabel(id === this._store.currentId ? this._comp.getSaveableState() : envelope).qq()}</option>`)
+			.join("");
+		sel.value = this._store.currentId;
+	}
+
+	_bindCharacterSwitcher () {
+		const sel = document.getElementById("cs-char-select");
+		sel.addEventListener("change", () => this._switchCharacter(sel.value));
+
+		document.getElementById("cs-char-new").addEventListener("click", () => {
+			this._persistNow();
+			const id = CryptUtil.uid();
+			this._store.characters[id] = null;
+			this._switchCharacter(id);
+		});
+
+		document.getElementById("cs-char-delete").addEventListener("click", () => this._onDeleteCharacter());
+	}
+
+	_switchCharacter (id, {isSkipPersist = false} = {}) {
+		if (!(id in this._store.characters)) return;
+		if (!isSkipPersist && id !== this._store.currentId) this._persistNow();
+		this._store.currentId = id;
+
+		const envelope = this._store.characters[id];
+		this._isLoading = true;
+		try {
+			this._comp._setState(this._comp._getDefaultState());
+		} finally {
+			this._isLoading = false;
+		}
+		if (envelope) this._doLoadState(envelope);
+		else this._doRenderAll();
+		if (!this._comp._state.attacks.length) this._comp.addAttack();
+		this._persistNow();
+	}
+
+	async _onDeleteCharacter () {
+		if (!await InputUiUtil.pGetUserBoolean({
+			title: "Delete Character",
+			htmlDescription: `<div>Delete <b>${getCharacterLabel(this._comp.getSaveableState()).qq()}</b>?<br>This cannot be undone.</div>`,
+			textYes: "Delete",
+			textNo: "Cancel",
+		})) return;
+
+		delete this._store.characters[this._store.currentId];
+		if (!Object.keys(this._store.characters).length) this._store.characters[CryptUtil.uid()] = null;
+		this._switchCharacter(Object.keys(this._store.characters)[0], {isSkipPersist: true});
 	}
 
 	/* -------------------------------------------- Toolbar actions -------------------------------------------- */
@@ -564,13 +662,20 @@ class CharacterSheetPage {
 	async _onReset () {
 		if (!await InputUiUtil.pGetUserBoolean({
 			title: "Reset Character Sheet",
-			htmlDescription: `<div>This will clear the entire sheet.<br>Are you sure?</div>`,
+			htmlDescription: `<div>This will clear the current character's sheet (other characters are kept).<br>Are you sure?</div>`,
 			textYes: "Reset",
 			textNo: "Cancel",
 		})) return;
 
-		StorageUtil.syncSetForPage(CharacterSheetPage._STORAGE_KEY, null);
-		window.location.reload();
+		this._isLoading = true;
+		try {
+			this._comp._setState(this._comp._getDefaultState());
+		} finally {
+			this._isLoading = false;
+		}
+		if (!this._comp._state.attacks.length) this._comp.addAttack();
+		this._doRenderAll();
+		this._persistNow();
 	}
 }
 

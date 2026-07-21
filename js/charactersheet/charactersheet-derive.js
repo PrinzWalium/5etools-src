@@ -76,5 +76,16 @@ export function deriveCharacterSheet (state) {
 		passivePerception: 10 + skills.perception.mod,
 		initiative: abilities.dex.mod + (Number(state.initMisc) || 0),
 		spell,
+		encumbrance: getEncumbrance(state),
+	};
+}
+
+/** Carried weight from the inventory vs. the standard carrying capacity (Strength × 15). */
+export function getEncumbrance (state) {
+	const totalWeightLb = (state.inventory || [])
+		.reduce((acc, it) => acc + ((Number(it.weightLb) || 0) * (Number(it.quantity) || 0)), 0);
+	return {
+		totalWeightLb: Math.round(totalWeightLb * 100) / 100,
+		capacityLb: (Number(state.abil_str) || 10) * 15,
 	};
 }

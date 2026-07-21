@@ -1,0 +1,162 @@
+import "../../js/parser.js";
+import {
+	CHOICE_TYPE_ABILITY,
+	CHOICE_TYPE_LANGUAGE,
+	CHOICE_TYPE_SKILL,
+	CHOICE_TYPE_TOOL,
+	getAbilityChoices,
+	getAbilityPackageDisplay,
+	getAbilityPackages,
+	getFixedAbilityBonuses,
+	getGrantedFeats,
+	getPendingChoices,
+	getProfListDisplay,
+} from "../../js/charactersheet/charactersheet-choices.js";
+import {
+	POINT_BUY_BUDGET,
+	STANDARD_ARRAY,
+	getPointBuyCost,
+	getPointBuyTotalCost,
+	isValidStandardArrayAssignment,
+} from "../../js/charactersheet/charactersheet-abilityscores.js";
+
+describe("Choice queue extraction", () => {
+	it("Should extract a class skill choice (Fighter-style)", () => {
+		const cls = {
+			name: "Fighter",
+			startingProficiencies: {
+				skills: [{choose: {from: ["acrobatics", "animal handling", "athletics", "history", "insight", "intimidation", "perception", "survival"], count: 2}}],
+			},
+		};
+		const choices = getPendingChoices({cls});
+		expect(choices).toHaveLength(1);
+		expect(choices[0].type).toBe(CHOICE_TYPE_SKILL);
+		expect(choices[0].count).toBe(2);
+		expect(choices[0].from).toContain("Animal Handling");
+		expect(choices[0].sourceName).toBe("Class: Fighter");
+	});
+
+	it("Should extract race any-skill and standard-language choices (Half-Elf-style)", () => {
+		const race = {
+			name: "Half-Elf",
+			skillProficiencies: [{any: 2}],
+			languageProficiencies: [{common: true, elvish: true, anyStandard: 1}],
+		};
+		const choices = getPendingChoices({race});
+		const skillChoice = choices.find(it => it.type === CHOICE_TYPE_SKILL);
+		const langChoice = choices.find(it => it.type === CHOICE_TYPE_LANGUAGE);
+
+		expect(skillChoice.count).toBe(2);
+		expect(skillChoice.from).toHaveLength(18);
+		expect(langChoice.count).toBe(1);
+		expect(langChoice.from).toContain("Dwarvish");
+		// Fixed languages are not part of the choice
+		expect(langChoice.from.length).toBe(Parser.LANGUAGES_STANDARD.length);
+	});
+
+	it("Should extract background tool choices (Soldier-style gaming set)", () => {
+		const background = {
+			name: "Soldier",
+			skillProficiencies: [{athletics: true, intimidation: true}],
+			toolProficiencies: [{anyGamingSet: 1, "vehicles (land)": true}],
+		};
+		const choices = getPendingChoices({background});
+		expect(choices).toHaveLength(1);
+		expect(choices[0].type).toBe(CHOICE_TYPE_TOOL);
+		expect(choices[0].from).toContain("Dice set");
+	});
+
+	it("Should order choices species → class → background", () => {
+		const choices = getPendingChoices({
+			race: {name: "Half-Elf", skillProficiencies: [{any: 2}]},
+			cls: {name: "Fighter", startingProficiencies: {skills: [{choose: {from: ["athletics"], count: 1}}]}},
+			background: {name: "Sage", languageProficiencies: [{anyStandard: 2}]},
+		});
+		expect(choices.map(it => it.sourceName)).toEqual(["Species: Half-Elf", "Class: Fighter", "Background: Sage"]);
+	});
+
+	it("Should render fixed proficiency displays, with and without choice text", () => {
+		const groups = [{anyGamingSet: 1, "vehicles (land)": true}];
+		expect(getProfListDisplay(groups)).toBe("1 of your choice, Vehicles (Land)");
+		expect(getProfListDisplay(groups, {isFixedOnly: true})).toBe("Vehicles (Land)");
+	});
+});
+
+describe("Ability score increase extraction", () => {
+	it("Should treat a single fixed package as non-choice (Dwarf: +2 Con)", () => {
+		const ability = [{con: 2}];
+		expect(getFixedAbilityBonuses(ability)).toEqual({con: 2});
+		expect(getAbilityChoices({ability, sourceName: "Species: Dwarf"})).toEqual([]);
+	});
+
+	it("Should queue the choose part of a mixed package (Half-Elf: +2 Cha, +1 to two others)", () => {
+		const ability = [{cha: 2, choose: {from: ["str", "dex", "con", "int", "wis"], count: 2}}];
+		expect(getFixedAbilityBonuses(ability)).toEqual({cha: 2});
+		const [choice] = getAbilityChoices({ability, sourceName: "Species: Half-Elf"});
+		expect(choice.type).toBe(CHOICE_TYPE_ABILITY);
+		expect(choice.packages).toHaveLength(1);
+		expect(choice.packages[0].choose).toEqual({from: ["str", "dex", "con", "int", "wis"], count: 2, amount: 1});
+	});
+
+	it("Should queue weighted alternative packages (XPHB background: +2/+1 or +1/+1/+1)", () => {
+		const ability = [
+			{choose: {weighted: {from: ["con", "int", "wis"], weights: [2, 1]}}},
+			{choose: {weighted: {from: ["con", "int", "wis"], weights: [1, 1, 1]}}},
+		];
+		expect(getFixedAbilityBonuses(ability)).toEqual({});
+		const [choice] = getAbilityChoices({ability, sourceName: "Background: Sage"});
+		expect(choice.packages).toHaveLength(2);
+		expect(choice.packages[0].weighted.weights).toEqual([2, 1]);
+		expect(getAbilityPackageDisplay(choice.packages[0])).toBe("+2/+1 among Constitution, Intelligence, Wisdom");
+	});
+
+	it("Should surface race ability choices ahead of other race choices", () => {
+		const choices = getPendingChoices({
+			race: {name: "Half-Elf", ability: [{cha: 2, choose: {from: ["str"], count: 2}}], skillProficiencies: [{any: 2}]},
+		});
+		expect(choices.map(it => it.type)).toEqual([CHOICE_TYPE_ABILITY, CHOICE_TYPE_SKILL]);
+	});
+
+	it("Should normalise feat-style choose packages (Resilient: +1 to one of any)", () => {
+		const packages = getAbilityPackages([{choose: {from: ["str", "dex", "con", "int", "wis", "cha"], amount: 1}}]);
+		expect(packages[0].choose).toEqual({from: ["str", "dex", "con", "int", "wis", "cha"], count: 1, amount: 1});
+	});
+});
+
+describe("Granted feats (2024-style)", () => {
+	it("Should parse uid-keyed feat grants", () => {
+		expect(getGrantedFeats([{"magic initiate; wizard|xphb": true}])).toEqual([
+			{name: "magic initiate; wizard", source: "xphb", displayName: "Magic Initiate — Wizard"},
+		]);
+		expect(getGrantedFeats([{alert: true}])).toEqual([
+			{name: "alert", source: "PHB", displayName: "Alert"},
+		]);
+		expect(getGrantedFeats(null)).toEqual([]);
+	});
+});
+
+describe("Ability score methods", () => {
+	it("Should cost point-buy scores per the PHB table", () => {
+		expect(getPointBuyCost(8)).toBe(0);
+		expect(getPointBuyCost(13)).toBe(5);
+		expect(getPointBuyCost(14)).toBe(7);
+		expect(getPointBuyCost(15)).toBe(9);
+		expect(getPointBuyCost(16)).toBeNull();
+		expect(getPointBuyCost(7)).toBeNull();
+	});
+
+	it("Should total a classic 27-point spread", () => {
+		// 15/15/15/8/8/8 = 9+9+9 = 27; the classic 15/14/13/12/10/8 spread also totals exactly 27
+		expect(getPointBuyTotalCost({str: 15, dex: 15, con: 15, int: 8, wis: 8, cha: 8})).toBe(POINT_BUY_BUDGET);
+		expect(getPointBuyTotalCost({str: 15, dex: 14, con: 13, int: 12, wis: 10, cha: 8})).toBe(POINT_BUY_BUDGET);
+		expect(getPointBuyTotalCost({str: 16, dex: 8, con: 8, int: 8, wis: 8, cha: 8})).toBeNull();
+	});
+
+	it("Should validate standard array assignments", () => {
+		expect(isValidStandardArrayAssignment({str: 15, dex: 14, con: 13, int: 12, wis: 10, cha: 8})).toBe(true);
+		expect(isValidStandardArrayAssignment({str: 8, dex: 10, con: 12, int: 13, wis: 14, cha: 15})).toBe(true);
+		expect(isValidStandardArrayAssignment({str: 15, dex: 15, con: 13, int: 12, wis: 10, cha: 8})).toBe(false);
+		expect(isValidStandardArrayAssignment({str: 15, dex: 14, con: 13, int: 12, wis: 10, cha: null})).toBe(false);
+		expect(STANDARD_ARRAY).toHaveLength(6);
+	});
+});

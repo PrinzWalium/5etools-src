@@ -81,6 +81,10 @@
 
 <main class="container" data-cancer-id="cancer-wrapper">
 	<div class="cs__toolbar ve-flex-v-center ve-flex-wrap ve-mb-2 no-print">
+		<select id="cs-char-select" class="ve-form-control ve-input-xs cs__char-select no-print" title="Switch character" style="max-width: 200px; display: inline-block; width: auto;"></select>
+		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-char-new" type="button" title="New character"><span class="glyphicon glyphicon-plus"></span></button>
+		<button class="ve-btn ve-btn-sm ve-btn-danger" id="cs-char-delete" type="button" title="Delete the current character"><span class="glyphicon glyphicon-trash"></span></button>
+		<button class="ve-btn ve-btn-sm ve-btn-primary" id="cs-btn-wizard" type="button" title="Create a character step-by-step"><span class="glyphicon glyphicon-list-alt"></span> Guided Setup</button>
 		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-save" type="button" title="Save the current character to a file"><span class="glyphicon glyphicon-download"></span> Save to File</button>
 		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-load" type="button" title="Load a character from a file"><span class="glyphicon glyphicon-upload"></span> Load from File</button>
 		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-print" type="button" title="Print, or save as PDF"><span class="glyphicon glyphicon-print"></span> Print</button>
@@ -245,7 +249,7 @@
 				<div class="cs__panel">
 					<div class="cs__panel-title-row ve-flex-v-center ve-flex-h-between no-print">
 						<span class="cs__lbl ve-mb-0">Spells</span>
-						<button type="button" id="cs-spell-add" class="ve-btn ve-btn-xs ve-btn-default" title="Search and add a spell reference to the notes below"><span class="glyphicon glyphicon-search"></span> Add Spell</button>
+						<button type="button" id="cs-spell-add" class="ve-btn ve-btn-xs ve-btn-default" title="Search and add a spell to the known/prepared list"><span class="glyphicon glyphicon-search"></span> Add Spell</button>
 					</div>
 					<div class="cs__spellhdr">
 						<label class="cs__field cs__field--inline">
@@ -266,18 +270,25 @@
 							<span class="cs__lbl">Spell Attack Bonus</span>
 						</div>
 					</div>
-					<textarea id="cs-spells" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Spells known / prepared, spell slots, etc."></textarea>
+					<div id="cs-spell-slots" class="ve-mt-1"><!-- populated by JS --></div>
+					<div id="cs-spells-known" class="ve-mt-1"><!-- populated by JS --></div>
+					<textarea id="cs-spells" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Spell notes: rituals, foci, prepared lists..."></textarea>
 				</div>
 			</div>
 
 			<div class="ve-col-4 cs__col">
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Class &amp; Leveling</h5>
+					<div id="cs-class-panel"><!-- populated by JS --></div>
+				</div>
 				<div class="cs__panel">
 					<h5 class="cs__panel-title">Features &amp; Traits</h5>
 					<textarea id="cs-features" class="ve-form-control cs__textarea cs__textarea--lg" placeholder="Class features, species traits, feats..."></textarea>
 				</div>
 				<div class="cs__panel">
 					<h5 class="cs__panel-title">Equipment</h5>
-					<textarea id="cs-equipment" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Weapons, armor, gear..."></textarea>
+					<div id="cs-inventory"><!-- populated by JS --></div>
+					<textarea id="cs-equipment" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Equipment notes..."></textarea>
 					<div class="cs__currency">
 						<label class="cs__coin"><span class="cs__lbl">CP</span><input type="number" id="cs-cp" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
 						<label class="cs__coin"><span class="cs__lbl">SP</span><input type="number" id="cs-sp" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
