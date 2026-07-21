@@ -1,7 +1,9 @@
 import {getEncumbrance, getWeaponAttack} from "./charactersheet-derive.js";
 import {getInventoryItemMeta} from "./charactersheet-equipment.js";
 
-const _isEquippable = it => it.isArmor || it.isWeapon || it.bonusAc != null || ["LA", "MA", "HA", "S", "M", "R"].includes(it.type);
+const _isEquippable = it => it.isArmor || it.isWeapon
+	|| it.bonusAc != null || it.bonusSavingThrow != null || it.bonusSpellSaveDc != null || it.bonusSpellAttack != null
+	|| ["LA", "MA", "HA", "S", "M", "R"].includes(it.type);
 const _isWeapon = it => it.isWeapon || ["M", "R"].includes(it.type);
 
 class _InventoryRenderableCollection extends RenderableCollectionBase {

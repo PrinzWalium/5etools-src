@@ -48,6 +48,12 @@ export function getInventoryItemMeta (ent) {
 	const bonusDamage = bonusShared + parseItemBonus(ent.bonusWeaponDamage);
 	if (bonusAttack) out.bonusAttack = bonusAttack;
 	if (bonusDamage) out.bonusDamage = bonusDamage;
+	const bonusSpellAttack = parseItemBonus(ent.bonusSpellAttack);
+	if (bonusSpellAttack) out.bonusSpellAttack = bonusSpellAttack;
+	const bonusSpellSaveDc = parseItemBonus(ent.bonusSpellSaveDc);
+	if (bonusSpellSaveDc) out.bonusSpellSaveDc = bonusSpellSaveDc;
+	const bonusSavingThrow = parseItemBonus(ent.bonusSavingThrow);
+	if (bonusSavingThrow) out.bonusSavingThrow = bonusSavingThrow;
 	if (ent.reqAttune) out.requiresAttunement = true;
 	return out;
 }

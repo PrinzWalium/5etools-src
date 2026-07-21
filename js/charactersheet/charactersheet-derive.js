@@ -29,6 +29,7 @@ export function getAbilityModifier (state, abv) {
 export function deriveCharacterSheet (state) {
 	const totalLevel = getTotalLevel(state);
 	const pb = getProfBonus(state);
+	const magic = getEquippedMagicBonuses(state);
 
 	const abilities = {};
 	CHAR_SHEET_ABILITIES.forEach(([abv]) => {
@@ -43,7 +44,7 @@ export function deriveCharacterSheet (state) {
 		const isProf = !!state[`save_${abv}`];
 		saves[abv] = {
 			isProf,
-			mod: abilities[abv].mod + (isProf ? pb : 0),
+			mod: abilities[abv].mod + (isProf ? pb : 0) + magic.savingThrow,
 		};
 	});
 
@@ -62,8 +63,8 @@ export function deriveCharacterSheet (state) {
 	const spell = spellAbility
 		? {
 			ability: spellAbility,
-			dc: 8 + pb + abilities[spellAbility].mod,
-			atkMod: pb + abilities[spellAbility].mod,
+			dc: 8 + pb + abilities[spellAbility].mod + magic.spellSaveDc,
+			atkMod: pb + abilities[spellAbility].mod + magic.spellAttack,
 		}
 		: null;
 
@@ -128,6 +129,24 @@ export function deriveArmorClass (state) {
 	const misc = Number(state.acMisc) || 0;
 
 	return {ac: base + shield + otherMagic + misc, mode, note};
+}
+
+/**
+ * Sum the passive bonuses granted by *equipped* magic items: to saving throws (Cloak/Ring of
+ * Protection), spell save DC, and spell attack (arcane foci, rods/wands). AC bonuses are handled
+ * separately in `deriveArmorClass`.
+ * @return {{savingThrow: number, spellSaveDc: number, spellAttack: number}}
+ */
+export function getEquippedMagicBonuses (state) {
+	const out = {savingThrow: 0, spellSaveDc: 0, spellAttack: 0};
+	(state.inventory || [])
+		.filter(it => it.equipped)
+		.forEach(it => {
+			out.savingThrow += Number(it.bonusSavingThrow) || 0;
+			out.spellSaveDc += Number(it.bonusSpellSaveDc) || 0;
+			out.spellAttack += Number(it.bonusSpellAttack) || 0;
+		});
+	return out;
 }
 
 /**

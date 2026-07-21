@@ -1,5 +1,5 @@
 import "../../js/parser.js";
-import {deriveArmorClass, deriveCharacterSheet, getProfBonus, getTotalLevel, getUnarmedStrike, getWeaponAttack} from "../../js/charactersheet/charactersheet-derive.js";
+import {deriveArmorClass, deriveCharacterSheet, getEquippedMagicBonuses, getProfBonus, getTotalLevel, getUnarmedStrike, getWeaponAttack} from "../../js/charactersheet/charactersheet-derive.js";
 
 const getBaseState = (overrides = {}) => ({
 	level: 1,
@@ -159,6 +159,31 @@ describe("Character sheet derivation", () => {
 		it("Should build the Unarmed Strike from Strength", () => {
 			const state = getBaseState({abil_str: 14, level: 1}); // Str +2, PB +2
 			expect(getUnarmedStrike(state)).toEqual({name: "Unarmed Strike", atkBonus: 4, damage: "3 bludgeoning"});
+		});
+	});
+
+	describe("Equipped magic bonuses (saves / spell DC / spell attack)", () => {
+		it("Should sum only equipped items", () => {
+			const inv = [
+				{id: "c", name: "Cloak of Protection", bonusSavingThrow: 1, bonusAc: 1, equipped: true},
+				{id: "r", name: "Rod of the Pact Keeper", bonusSpellSaveDc: 1, bonusSpellAttack: 1, equipped: false},
+			];
+			expect(getEquippedMagicBonuses({inventory: inv})).toEqual({savingThrow: 1, spellSaveDc: 0, spellAttack: 0});
+			inv[1].equipped = true;
+			expect(getEquippedMagicBonuses({inventory: inv})).toEqual({savingThrow: 1, spellSaveDc: 1, spellAttack: 1});
+		});
+
+		it("Should flow into saving throws and spell DC/attack in the full derivation", () => {
+			const state = getBaseState({
+				abil_cha: 16, level: 5, save_cha: true, spellAbility: "cha", // Cha +3, PB +3
+				inventory: [{id: "c", name: "Cloak of Protection", bonusSavingThrow: 1, equipped: true},
+					{id: "r", name: "Rod", bonusSpellSaveDc: 1, bonusSpellAttack: 1, equipped: true}],
+			});
+			const d = deriveCharacterSheet(state);
+			expect(d.saves.cha.mod).toBe(7); // 3 + 3 (prof) + 1 (cloak)
+			expect(d.saves.str.mod).toBe(1); // 0 + 1 (cloak), no proficiency
+			expect(d.spell.dc).toBe(15); // 8 + 3 + 3 + 1
+			expect(d.spell.atkMod).toBe(7); // 3 + 3 + 1
 		});
 	});
 });
