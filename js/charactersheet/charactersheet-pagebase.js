@@ -25,6 +25,8 @@ export class CharacterPageBase {
 	static _IPT_STR_BINDINGS = [
 		["cs-name", "name"],
 		["cs-ac-mode", "acMode"],
+		["cs-hp-policy", "hpPolicy"],
+		["cs-concentration", "concentration"],
 		["cs-classlevel", "classText"],
 		["cs-background", "backgroundText"],
 		["cs-playername", "playerName"],
@@ -49,6 +51,7 @@ export class CharacterPageBase {
 		["cs-hp-max", "hpMax"],
 		["cs-hp-cur", "hpCur"],
 		["cs-hp-temp", "hpTemp"],
+		["cs-exhaustion", "exhaustion"],
 		["cs-cp", "cp"],
 		["cs-sp", "sp"],
 		["cs-ep", "ep"],
@@ -434,26 +437,36 @@ export class CharacterPageBase {
 		const conMod = Parser.getAbilityModNumber(Number(this._comp._state.abil_con) || 10);
 
 		const avgTotal = getLevelUpHp({faces, conMod, numLevels}).total;
+		const maxTotal = numLevels * Math.max(1, faces + conMod);
+		const rollTotal = () => getLevelUpHp({faces, conMod, numLevels, fnRoll: f => Math.floor(Math.random() * f) + 1}).total;
+
+		const applyGain = gained => {
+			this._comp._state.hpMax = (Number(this._comp._state.hpMax) || 0) + gained;
+			this._comp._state.hpCur = (Number(this._comp._state.hpCur) || 0) + gained;
+			JqueryUtil.doToast({type: "success", content: `Gained ${gained} HP (now level ${newLevel}).`});
+		};
+
+		// A saved HP policy applies automatically; "ask" (the default) prompts each level-up.
+		const policy = this._comp._state.hpPolicy || "ask";
+		if (policy === "average") return applyGain(avgTotal);
+		if (policy === "max") return applyGain(maxTotal);
+		if (policy === "roll") return applyGain(rollTotal());
+
 		const optAvg = `Add average (+${avgTotal} HP)`;
+		const optMax = `Add max (+${maxTotal} HP)`;
 		const ptConMod = conMod ? ` ${conMod > 0 ? "+" : "−"} ${Math.abs(conMod)} per level` : "";
 		const optRoll = `Roll ${numLevels}d${faces}${ptConMod}`;
 		const optSkip = "Enter manually / skip";
 
 		const choice = await InputUiUtil.pGetUserEnum({
-			values: [optAvg, optRoll, optSkip],
+			values: [optAvg, optMax, optRoll, optSkip],
 			isResolveItem: true,
 			title: `Level up to ${newLevel}${numLevels > 1 ? ` (+${numLevels} levels)` : ""}`,
 			placeholder: "How do you want to gain HP?",
 		});
 		if (choice == null || choice === optSkip) return;
 
-		const gained = choice === optRoll
-			? getLevelUpHp({faces, conMod, numLevels, fnRoll: f => Math.floor(Math.random() * f) + 1}).total
-			: avgTotal;
-
-		this._comp._state.hpMax = (Number(this._comp._state.hpMax) || 0) + gained;
-		this._comp._state.hpCur = (Number(this._comp._state.hpCur) || 0) + gained;
-		JqueryUtil.doToast({type: "success", content: `Gained ${gained} HP (now level ${newLevel}).`});
+		applyGain(choice === optRoll ? rollTotal() : choice === optMax ? maxTotal : avgTotal);
 	}
 }
 

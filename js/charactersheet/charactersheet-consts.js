@@ -39,6 +39,12 @@ export const PROF_STATE_NONE = 0;
 export const PROF_STATE_PROFICIENT = 1;
 export const PROF_STATE_EXPERTISE = 2;
 
+/** The standard conditions (Exhaustion is tracked separately as a 0–6 level). */
+export const CHAR_SHEET_CONDITIONS = [
+	"Blinded", "Charmed", "Deafened", "Frightened", "Grappled", "Incapacitated", "Invisible",
+	"Paralyzed", "Petrified", "Poisoned", "Prone", "Restrained", "Stunned", "Unconscious",
+];
+
 let _SKILL_KEY_BY_NAME = null;
 
 /** Map a skill name as found in data (e.g. "animal handling") to its state key (e.g. "animalHandling"). */

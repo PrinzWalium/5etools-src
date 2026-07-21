@@ -1,4 +1,4 @@
-import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS} from "./charactersheet/charactersheet-consts.js";
+import {CHAR_SHEET_ABILITIES, CHAR_SHEET_CONDITIONS, CHAR_SHEET_SKILLS} from "./charactersheet/charactersheet-consts.js";
 import {deriveCharacterSheet, getWeaponAttack} from "./charactersheet/charactersheet-derive.js";
 import {getInventoryItemMeta} from "./charactersheet/charactersheet-equipment.js";
 import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js";
@@ -99,6 +99,7 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._buildSaves();
 		this._buildSkills();
 		this._buildDeathSaves();
+		this._buildConditions();
 	}
 
 	_bindDom () {
@@ -107,6 +108,8 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._bindClick("cs-attack-add", () => this._comp.addAttack());
 		this._bindClick("cs-hp-damage", () => this._adjustHp(-1));
 		this._bindClick("cs-hp-heal", () => this._adjustHp(1));
+		this._bindClick("cs-short-rest", () => this._comp.shortRest());
+		this._bindClick("cs-long-rest", () => this._comp.longRest());
 
 		this._bindDataPickers();
 
@@ -129,6 +132,7 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._comp._addHookBase("pickTags", () => this._renderPickLinks());
 		this._comp._addHookBase("deathSuccess", () => this._renderDeathSaves());
 		this._comp._addHookBase("deathFail", () => this._renderDeathSaves());
+		this._comp._addHookBase("conditions", () => this._renderConditions());
 		// AC is derived from equipped gear, so re-derive when the inventory (equip toggles) changes
 		this._comp._addHookBase("inventory", () => this._renderDerived());
 	}
@@ -142,6 +146,7 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._attacksCollection.render();
 		this._renderPickLinks();
 		this._renderDeathSaves();
+		this._renderConditions();
 		this._renderDerived();
 		this._lastLevel = this._comp.getLevelNumber();
 	}
@@ -207,6 +212,26 @@ class CharacterSheetPage extends CharacterPageBase {
 				const dots = document.getElementById(id).querySelectorAll(".cs__death-dot");
 				dots.forEach((dot, ix) => dot.classList.toggle("cs__death-dot--active", ix < cnt));
 			});
+	}
+
+	_buildConditions () {
+		const wrp = document.getElementById("cs-conditions");
+		if (!wrp) return;
+		wrp.innerHTML = CHAR_SHEET_CONDITIONS
+			.map(name => `<button type="button" class="ve-btn ve-btn-xxs ve-btn-default cs__cond no-print" data-cs-cond="${name.qq()}">${name.qq()}</button>`)
+			.join("");
+		wrp.querySelectorAll(".cs__cond").forEach(btn => {
+			btn.addEventListener("click", () => this._comp.toggleCondition(btn.getAttribute("data-cs-cond")));
+		});
+	}
+
+	_renderConditions () {
+		const active = new Set(this._comp._state.conditions || []);
+		document.querySelectorAll("#cs-conditions .cs__cond").forEach(btn => {
+			const on = active.has(btn.getAttribute("data-cs-cond"));
+			btn.classList.toggle("ve-btn-danger", on);
+			btn.classList.toggle("ve-btn-default", !on);
+		});
 	}
 
 	_adjustHp (sign) {

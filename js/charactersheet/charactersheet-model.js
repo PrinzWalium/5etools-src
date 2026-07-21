@@ -84,6 +84,11 @@ export class CharacterModel extends BaseComponent {
 			deathFail: 0,
 			inspiration: false,
 
+			conditions: [], // active condition names
+			exhaustion: 0, // 0–6
+			concentration: "", // what the character is concentrating on
+			hpPolicy: "ask", // "ask" | "average" | "max" | "roll" — how the level-up prompt gains HP
+
 			attacks: [], // [{id, name, atkBonus, damage}]
 			inventory: [], // [{id, name, source, quantity, weightLb}]
 
@@ -214,6 +219,36 @@ export class CharacterModel extends BaseComponent {
 	}
 
 	/** Set the number of expended slots for a spell level (1-9) or "pact". */
+	/* -------------------------------------------- Rests & conditions -------------------------------------------- */
+
+	/** Toggle a named condition on/off. */
+	toggleCondition (name) {
+		const set = new Set(this._state.conditions || []);
+		if (set.has(name)) set.delete(name);
+		else set.add(name);
+		this._state.conditions = [...set];
+	}
+
+	/**
+	 * A long rest: restore HP to max, clear temporary HP and all spell slots, restore Hit Dice and
+	 * death saves, drop concentration, and reduce Exhaustion by one.
+	 */
+	longRest () {
+		this._state.hpCur = Number(this._state.hpMax) || 0;
+		this._state.hpTemp = 0;
+		this._state.slotsUsed = {};
+		if (this._state.hdTotal) this._state.hdCur = this._state.hdTotal;
+		this._state.deathSuccess = 0;
+		this._state.deathFail = 0;
+		this._state.concentration = "";
+		this._state.exhaustion = Math.max(0, (Number(this._state.exhaustion) || 0) - 1);
+	}
+
+	/** A short rest: restore Pact Magic slots (Warlock). Other spell slots and Hit Dice are unchanged. */
+	shortRest () {
+		this._state.slotsUsed = {...this._state.slotsUsed, pact: 0};
+	}
+
 	setSlotsUsed (level, count) {
 		this._state.slotsUsed = {...this._state.slotsUsed, [level]: Math.max(0, Number(count) || 0)};
 	}
