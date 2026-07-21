@@ -7,6 +7,34 @@
 		font-style: italic;
 	}
 
+	/* -------------------------------------------- Build / Play mode -------------------------------------------- */
+
+	.cs__mode-toggle {
+		flex: 0 0 auto;
+	}
+
+	// Play mode = a clean in-session sheet: hide build-only controls, lock build-time inputs,
+	// but keep session tracking (HP, spell slots, attacks, inventory, notes) fully editable.
+	.cs-mode--play {
+		#cs-btn-wizard,
+		#cs-spell-add,
+		.cs__pick-btn,
+		#cs-class-panel button {
+			display: none;
+		}
+
+		#cs-class-panel input,
+		.cs__list-cb,
+		.cs__prof {
+			pointer-events: none;
+		}
+
+		input[readonly] {
+			background-color: rgba(127, 127, 127, 0.08);
+			cursor: not-allowed;
+		}
+	}
+
 	.cs__lbl {
 		display: block;
 		font-size: 0.7em;

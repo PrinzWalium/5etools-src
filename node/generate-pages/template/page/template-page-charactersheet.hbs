@@ -16,6 +16,10 @@
 
 <main class="container" data-cancer-id="cancer-wrapper">
 	<div class="cs__toolbar ve-flex-v-center ve-flex-wrap ve-mb-2 no-print">
+		<div class="ve-btn-group cs__mode-toggle ve-mr-2" role="group" title="Build mode: make character choices (class, level, feats, ability scores). Play mode: a clean sheet for tracking HP, spell slots, and combat during a session.">
+			<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-mode-build" type="button"><span class="glyphicon glyphicon-wrench"></span> Build</button>
+			<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-mode-play" type="button"><span class="glyphicon glyphicon-play"></span> Play</button>
+		</div>
 		<select id="cs-char-select" class="ve-form-control ve-input-xs cs__char-select no-print" title="Switch character" style="max-width: 200px; display: inline-block; width: auto;"></select>
 		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-char-new" type="button" title="New character"><span class="glyphicon glyphicon-plus"></span></button>
 		<button class="ve-btn ve-btn-sm ve-btn-danger" id="cs-char-delete" type="button" title="Delete the current character"><span class="glyphicon glyphicon-trash"></span></button>

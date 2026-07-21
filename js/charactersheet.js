@@ -95,7 +95,16 @@ class _AttacksRenderableCollection extends RenderableCollectionBase {
 
 class CharacterSheetPage {
 	static _STORAGE_KEY = "charactersheet-state";
+	static _MODE_KEY = "charactersheet-mode";
+	static _MODE_BUILD = "build";
+	static _MODE_PLAY = "play";
 	static _FILE_TYPE = "charactersheet";
+
+	// Inputs that represent build-time character choices; made read-only in Play mode.
+	static _BUILD_LOCK_INPUT_IDS = [
+		"cs-level", "cs-classlevel", "cs-background", "cs-species",
+		"cs-abil-str", "cs-abil-dex", "cs-abil-con", "cs-abil-int", "cs-abil-wis", "cs-abil-cha",
+	];
 
 	// Simple string-valued inputs/selects/textareas, bound verbatim to model props
 	static _IPT_STR_BINDINGS = [
@@ -141,6 +150,7 @@ class CharacterSheetPage {
 		this._fnsSyncInput = []; // unconditional input-sync functions, for bulk state loads
 		this._lastLevel = 1; // for detecting interactive level-ups
 		this._suppressLevelPrompt = 0; // >0 while a bulk apply (e.g. the wizard) is in progress
+		this._mode = CharacterSheetPage._MODE_BUILD;
 	}
 
 	init () {
@@ -181,7 +191,44 @@ class CharacterSheetPage {
 
 		this._doRenderAll();
 
+		this._bindModeToggle();
+		const storedMode = StorageUtil.syncGetForPage(CharacterSheetPage._MODE_KEY);
+		this._setMode(storedMode === CharacterSheetPage._MODE_PLAY ? CharacterSheetPage._MODE_PLAY : CharacterSheetPage._MODE_BUILD);
+
 		window.dispatchEvent(new Event("toolsLoaded"));
+	}
+
+	/* -------------------------------------------- Build / Play mode -------------------------------------------- */
+
+	_bindModeToggle () {
+		document.getElementById("cs-mode-build").addEventListener("click", () => this._setMode(CharacterSheetPage._MODE_BUILD));
+		document.getElementById("cs-mode-play").addEventListener("click", () => this._setMode(CharacterSheetPage._MODE_PLAY));
+	}
+
+	_setMode (mode) {
+		this._mode = mode;
+		const isPlay = mode === CharacterSheetPage._MODE_PLAY;
+
+		// Container class drives CSS that hides build-only buttons and dims locked controls
+		const wrp = document.querySelector("main.container");
+		if (wrp) {
+			wrp.classList.toggle("cs-mode--play", isPlay);
+			wrp.classList.toggle("cs-mode--build", !isPlay);
+		}
+
+		// Active state on the toggle buttons
+		document.getElementById("cs-mode-build").classList.toggle("ve-btn-primary", !isPlay);
+		document.getElementById("cs-mode-play").classList.toggle("ve-btn-primary", isPlay);
+
+		// Build-time inputs become read-only in Play mode (switch to Build to edit — the escape hatch)
+		CharacterSheetPage._BUILD_LOCK_INPUT_IDS.forEach(id => {
+			const ele = document.getElementById(id);
+			if (!ele) return;
+			ele.readOnly = isPlay;
+			ele.title = isPlay ? "Locked in Play mode — switch to Build to change this" : "";
+		});
+
+		StorageUtil.syncSetForPage(CharacterSheetPage._MODE_KEY, mode);
 	}
 
 	_onStateChange () {
