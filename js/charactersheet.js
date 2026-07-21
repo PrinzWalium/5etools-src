@@ -4,6 +4,7 @@ import {getInventoryItemMeta} from "./charactersheet/charactersheet-equipment.js
 import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js";
 import {CharacterInventoryPanel} from "./charactersheet/charactersheet-inventorypanel.js";
 import {CharacterSpellsPanel} from "./charactersheet/charactersheet-spellspanel.js";
+import {CharacterActionsPanel} from "./charactersheet/charactersheet-actionspanel.js";
 import {CharacterPageBase} from "./charactersheet/charactersheet-pagebase.js";
 
 /** Renders the attacks table from the model's `attacks` collection. */
@@ -122,6 +123,8 @@ class CharacterSheetPage extends CharacterPageBase {
 			wrpKnown: document.getElementById("cs-spells-known"),
 		});
 		this._spellsPanel.init();
+		this._actionsPanel = new CharacterActionsPanel({comp: this._comp, wrp: document.getElementById("cs-actions")});
+		this._actionsPanel.init();
 
 		this._comp._addHookBase("pickTags", () => this._renderPickLinks());
 		this._comp._addHookBase("deathSuccess", () => this._renderDeathSaves());

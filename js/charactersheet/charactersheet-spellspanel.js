@@ -1,6 +1,7 @@
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {getCantripsKnown, getPreparedSpellCount, getSpellcastingMeta, getSpellsKnown} from "./charactersheet-levelengine.js";
 import {getAbilityModifier} from "./charactersheet-derive.js";
+import {normaliseCastTime} from "./charactersheet-actions.js";
 
 /**
  * Tracked spellcasting: the known/prepared spell list (validated against the character's class
@@ -96,7 +97,7 @@ export class CharacterSpellsPanel {
 
 		const chosen = ixs.map(ix => {
 			const sp = spells[ix];
-			return {name: sp.name, source: sp.source, level: sp.level, ritual: !!sp.meta?.ritual};
+			return {name: sp.name, source: sp.source, level: sp.level, ritual: !!sp.meta?.ritual, castTime: normaliseCastTime(sp.time)};
 		});
 		this._comp.setKnownSpellsForClass(className, chosen);
 	}
@@ -321,7 +322,7 @@ export class CharacterSpellsPanel {
 			}
 		}
 
-		const isAdded = this._comp.addKnownSpell({name: doc.n, source: doc.source, level: ent?.level ?? 0, className, ritual: !!ent?.meta?.ritual});
+		const isAdded = this._comp.addKnownSpell({name: doc.n, source: doc.source, level: ent?.level ?? 0, className, ritual: !!ent?.meta?.ritual, castTime: normaliseCastTime(ent?.time)});
 		if (!isAdded) JqueryUtil.doToast({type: "info", content: `${doc.n} is already in the list.`});
 	}
 }
