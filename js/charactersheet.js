@@ -94,6 +94,9 @@ class _AttacksRenderableCollection extends RenderableCollectionBase {
 }
 
 class CharacterSheetPage {
+	// Page-agnostic so the character sheet and the (upcoming) character builder page share one
+	// set of characters. `_LEGACY_PAGE_STORAGE_KEY` is the old per-page key we migrate from.
+	static _SHARED_STORAGE_KEY = "charactersheet-characters";
 	static _STORAGE_KEY = "charactersheet-state";
 	static _FILE_TYPE = "charactersheet";
 
@@ -171,7 +174,10 @@ class CharacterSheetPage {
 		this._comp._addHookBase("level", () => this._pMaybePromptLevelUp());
 		this._comp._addHookAllBase(() => this._onStateChange());
 
-		this._store = getMigratedStore(StorageUtil.syncGetForPage(CharacterSheetPage._STORAGE_KEY)) || getNewStore();
+		// Prefer the shared (page-agnostic) store; migrate the old per-page store on first run
+		const rawStore = StorageUtil.syncGet(CharacterSheetPage._SHARED_STORAGE_KEY) ??
+			StorageUtil.syncGetForPage(CharacterSheetPage._STORAGE_KEY);
+		this._store = getMigratedStore(rawStore) || getNewStore();
 		this._bindCharacterSwitcher();
 
 		const envelope = this._store.characters[this._store.currentId];
@@ -587,7 +593,7 @@ class CharacterSheetPage {
 			this._saveTimer = null;
 		}
 		this._store.characters[this._store.currentId] = this._comp.getSaveableState();
-		StorageUtil.syncSetForPage(CharacterSheetPage._STORAGE_KEY, this._store);
+		StorageUtil.syncSet(CharacterSheetPage._SHARED_STORAGE_KEY, this._store);
 		this._renderCharacterSelect();
 	}
 
