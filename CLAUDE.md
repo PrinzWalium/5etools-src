@@ -20,9 +20,11 @@ its own DOM assembly + rendering.
 **Fork-owned (upstream has no version → these never conflict on an upstream merge):**
 - `charactersheet.html`, `charbuilder.html` — **generated**, do not hand-edit (see below)
 - `js/charactersheet.js`, `js/charbuilder.js` — the two page entry points
-- `js/charactersheet/*.js` — the shared modules (pagebase, model, derive, classdata,
-  levelengine, choices, abilityscores, equipment, wizard, and the panel
-  renderers, charstore)
+- `js/charactersheet/*.js` — the shared modules: pure rules (`derive`,
+  `levelengine`, `choices`, `abilityscores`, `equipment`, `actions`, `charstore`,
+  `consts`), data access (`classdata`), the model (`model`), the page base
+  (`pagebase`), and the panel renderers (`classpanel`, `inventorypanel`,
+  `spellspanel`, `actionspanel`, `wizard`)
 - `css/charactersheet.css`, `scss/charactersheet.scss` (shared by both pages)
 - `node/generate-pages/template/page/template-page-charactersheet.hbs`,
   `.../template-page-charbuilder.hbs`
@@ -55,7 +57,25 @@ template, run `node node/generate-pages.js` and commit both.
   not hardcoded — except the PHB multiclass spell-slot table, which is a fixed
   core rule in `charactersheet-levelengine.js`.
 - The pure rules modules (`derive`, `levelengine`, `choices`, `abilityscores`,
-  `equipment`, `charstore`) are unit-tested; keep them DOM-free and tested.
+  `equipment`, `actions`, `charstore`) are unit-tested; keep them DOM-free and tested.
+
+## What the feature covers (so you don't rebuild it)
+
+- **Builder** (`charbuilder.html`): guided wizard; species/background/class pickers;
+  ability scores; the class/leveling panel (subclass, ASI/feat with prerequisite
+  warnings, optional features, **Expertise** chooser, features timeline); the
+  class-filtered **spell manager** (learnable-only, known vs prepared counts,
+  ritual flags); real inventory with equip/attune; HP-on-level-up policy.
+  Feat skill/Expertise **choices are resolved interactively**.
+- **Sheet** (`charactersheet.html`): the play view — abilities/saves/skills,
+  **computed Armor Class** (armor/shield/unarmored modes + magic bonuses),
+  attacks with a **Wield** button and an automatic **Unarmed Strike**, an
+  **Actions** panel (action/bonus/reaction economy), spell slots, death saves,
+  **rests** (short/long), and a **conditions & concentration** tracker.
+- Equipped magic items feed derivations globally: AC, saving throws, spell save
+  DC and spell attack, and weapon attack/damage (`derive.js`).
+- Both pages share one character store, so a character built in the builder is
+  immediately playable on the sheet.
 
 ## Updating from upstream
 
