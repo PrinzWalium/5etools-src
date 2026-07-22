@@ -98,6 +98,17 @@ export class CharacterSheetClassData {
 		})();
 	}
 
+	/** A single feat by name/source; the `; subtype` suffix in background feat uids is stripped for lookup. */
+	static async pGetFeat ({name, source}) {
+		const baseName = String(name || "").split(";")[0].trim().toLowerCase();
+		if (!baseName) return null;
+		const feats = await this.pGetAllFeats();
+		const src = String(source || "").toLowerCase();
+		return feats.find(f => f.name.toLowerCase() === baseName && f.source.toLowerCase() === src)
+			|| feats.find(f => f.name.toLowerCase() === baseName)
+			|| null;
+	}
+
 	/** All spells from site + prerelease + brew, excluded entries removed. Cached. */
 	static pGetAllSpells () {
 		return this._pAllSpells ||= (async () => {

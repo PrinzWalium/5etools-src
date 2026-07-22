@@ -1,4 +1,4 @@
-import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SCHEMA_VERSION, CHAR_SHEET_SKILLS, getSkillKeyByName} from "./charactersheet-consts.js";
+import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SCHEMA_VERSION, CHAR_SHEET_SKILLS, EXPENDABLE_RESOURCES, getSkillKeyByName} from "./charactersheet-consts.js";
 import {getGrantedFeats, getProfListDisplay} from "./charactersheet-choices.js";
 
 /**
@@ -92,11 +92,13 @@ export class CharacterModel extends BaseComponent {
 			attacks: [], // [{id, name, atkBonus, damage}]
 			inventory: [], // [{id, name, source, quantity, weightLb}]
 			weaponMasteries: [], // inventory weapon names whose mastery property is active
+			originFeats: [], // [{id, name, source, bonuses}] — feats granted by a 2024 background
 
 			spellAbility: "",
 			spellsText: "",
 			spellsKnown: [], // [{id, name, source, level}]
 			slotsUsed: {}, // {"1": n, ..., "9": n, pact: n}
+			resourcesUsed: {}, // {resourceLabel: n} — expended class resources (Rages, Ki, Wild Shape, ...)
 
 			featuresText: "",
 			equipmentText: "",
@@ -220,6 +222,21 @@ export class CharacterModel extends BaseComponent {
 	}
 
 	/** Set the number of expended slots for a spell level (1-9) or "pact". */
+	/** Record a background-granted origin feat and apply its ability bonuses (no duplicates by name/source). */
+	addOriginFeat ({name, source, displayName = null, bonuses = null}) {
+		if (this._state.originFeats.some(it => it.name === name && it.source === source)) return false;
+		this._state.originFeats = [...this._state.originFeats, {id: CryptUtil.uid(), name, source, displayName: displayName || name, bonuses}];
+		if (bonuses) this.applyAbilityBonuses(bonuses);
+		return true;
+	}
+
+	removeOriginFeat (id) {
+		const feat = this._state.originFeats.find(it => it.id === id);
+		if (!feat) return;
+		if (feat.bonuses) this.applyAbilityBonuses(feat.bonuses, {isRevert: true});
+		this._state.originFeats = this._state.originFeats.filter(it => it.id !== id);
+	}
+
 	/** Toggle an owned weapon's mastery as active. */
 	toggleWeaponMastery (name) {
 		const set = new Set(this._state.weaponMasteries || []);
@@ -246,6 +263,7 @@ export class CharacterModel extends BaseComponent {
 		this._state.hpCur = Number(this._state.hpMax) || 0;
 		this._state.hpTemp = 0;
 		this._state.slotsUsed = {};
+		this._state.resourcesUsed = {}; // a long rest restores every class resource
 		if (this._state.hdTotal) this._state.hdCur = this._state.hdTotal;
 		this._state.deathSuccess = 0;
 		this._state.deathFail = 0;
@@ -253,9 +271,17 @@ export class CharacterModel extends BaseComponent {
 		this._state.exhaustion = Math.max(0, (Number(this._state.exhaustion) || 0) - 1);
 	}
 
-	/** A short rest: restore Pact Magic slots (Warlock). Other spell slots and Hit Dice are unchanged. */
+	/** A short rest: restore Pact Magic slots (Warlock) and short-rest class resources (Ki, Wild Shape, ...). */
 	shortRest () {
 		this._state.slotsUsed = {...this._state.slotsUsed, pact: 0};
+		const used = {...this._state.resourcesUsed};
+		Object.keys(used).forEach(label => { if (EXPENDABLE_RESOURCES[label] === "short") used[label] = 0; });
+		this._state.resourcesUsed = used;
+	}
+
+	/** Set expended uses of a named class resource (Rages, Ki Points, Wild Shape, ...). */
+	setResourceUsed (label, n) {
+		this._state.resourcesUsed = {...this._state.resourcesUsed, [label]: Math.max(0, Number(n) || 0)};
 	}
 
 	setSlotsUsed (level, count) {

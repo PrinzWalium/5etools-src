@@ -13,8 +13,8 @@ import {
 	getSpellsKnown,
 	isMulticlassRequirementMet,
 } from "./charactersheet-levelengine.js";
-import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS, PROF_STATE_EXPERTISE, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
-import {getAbilityPackages, getExpertiseChoices, getFixedAbilityBonuses, getProfListDisplay, getSkillChoices} from "./charactersheet-choices.js";
+import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS, EXPENDABLE_RESOURCES, PROF_STATE_EXPERTISE, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
+import {pPickAbilities, pResolveFeat} from "./charactersheet-featgrant.js";
 
 /**
  * The "Class & Leveling" sheet panel: renders the derived feature timeline, subclass and
@@ -35,6 +35,8 @@ export class CharacterClassPanel {
 		// Weapon-mastery options depend on owned weapons and current picks.
 		this._comp._addHookBase("inventory", () => this._refreshWeaponMastery());
 		this._comp._addHookBase("weaponMasteries", () => this._refreshWeaponMastery());
+		// Expended class resources (Rages, Ki, Wild Shape, ...) re-render the timeline's resource rows.
+		this._comp._addHookBase("resourcesUsed", () => this._pRender());
 		this._pRender();
 	}
 
@@ -84,11 +86,43 @@ export class CharacterClassPanel {
 
 		this._loaded = loaded;
 		this._wrp.innerHTML = "";
+		this._renderOriginFeats();
 		loaded.forEach(meta => this._renderClassSection(meta));
 		this._renderExpertise(loaded);
 		this._renderWeaponMastery(loaded);
 		this._renderSpellcasting(loaded);
 		this._renderAddClass();
+	}
+
+	/** Origin feats granted by a 2024 background (character-level, above the class sections). */
+	_renderOriginFeats () {
+		const feats = this._comp._state.originFeats || [];
+		if (!feats.length) return;
+
+		const wrp = document.createElement("div");
+		wrp.className = "ve-mb-2";
+		const head = document.createElement("div");
+		head.className = "bold ve-mb-1";
+		head.textContent = "Origin Feats";
+		wrp.appendChild(head);
+
+		feats.forEach(feat => {
+			const row = document.createElement("div");
+			row.className = "ve-small ve-mb-1 ve-flex-v-center";
+			const lbl = document.createElement("span");
+			lbl.innerHTML = Renderer.get().render(`{@feat ${feat.name}|${feat.source}${feat.displayName && feat.displayName !== feat.name ? `|${feat.displayName}` : ""}}`);
+			row.appendChild(lbl);
+			const btnRm = document.createElement("button");
+			btnRm.type = "button";
+			btnRm.className = "ve-btn ve-btn-xxs ve-btn-danger ve-ml-2 no-print";
+			btnRm.title = "Remove origin feat";
+			btnRm.innerHTML = `<span class="glyphicon glyphicon-trash"></span>`;
+			btnRm.addEventListener("click", () => this._comp.removeOriginFeat(feat.id));
+			row.appendChild(btnRm);
+			wrp.appendChild(row);
+		});
+
+		this._wrp.appendChild(wrp);
 	}
 
 	_renderClassSection ({entry, cls, sc}) {
@@ -139,12 +173,44 @@ export class CharacterClassPanel {
 			...(sc ? getClassResources(sc, entry.level) : []),
 		];
 		if (!resources.length) return;
+
+		const used = this._comp._state.resourcesUsed || {};
+		const staticRes = [];
+		resources.forEach(r => {
+			const total = /^\d+$/.test(String(r.value).trim()) ? Number(r.value) : null;
+			// Expendable use-resources (Rages, Ki, Wild Shape, Channel Divinity, ...) get a spend tracker
+			if (total != null && EXPENDABLE_RESOURCES[r.label]) wrp.appendChild(this._getResourceTracker(r.label, total, Math.min(total, Number(used[r.label]) || 0)));
+			else staticRes.push(r);
+		});
+
+		if (staticRes.length) {
+			const row = document.createElement("div");
+			row.className = "ve-small ve-mb-1";
+			row.innerHTML = staticRes
+				.map(r => `<span class="ve-muted">${r.label.qq()}:</span> <span class="bold">${r.value.qq()}</span>`)
+				.join(`<span class="ve-muted"> &middot; </span>`);
+			wrp.appendChild(row);
+		}
+	}
+
+	/** A used/total dot tracker for an expendable class resource. */
+	_getResourceTracker (label, total, used) {
 		const row = document.createElement("div");
-		row.className = "ve-small ve-mb-1";
-		row.innerHTML = resources
-			.map(r => `<span class="ve-muted">${r.label.qq()}:</span> <span class="bold">${r.value.qq()}</span>`)
-			.join(`<span class="ve-muted"> &middot; </span>`);
-		wrp.appendChild(row);
+		row.className = "ve-small ve-mb-1 ve-flex-v-center";
+		const lbl = document.createElement("span");
+		lbl.className = "ve-muted ve-mr-2";
+		lbl.textContent = `${label} (${total - used}/${total}):`;
+		row.appendChild(lbl);
+		for (let i = 0; i < total; ++i) {
+			const cb = document.createElement("input");
+			cb.type = "checkbox";
+			cb.className = "ve-mr-1 no-print";
+			cb.title = "Expend/restore a use";
+			cb.checked = i < used;
+			cb.addEventListener("change", () => this._comp.setResourceUsed(label, (i + 1 === used) ? i : i + 1));
+			row.appendChild(cb);
+		}
+		return row;
 	}
 
 	/* -------------------------------------------- Expertise -------------------------------------------- */
@@ -404,8 +470,9 @@ export class CharacterClassPanel {
 		const row = document.createElement("div");
 		row.className = "ve-small ve-mb-1";
 
+		const remaining = total - chosen.length;
 		const lbl = document.createElement("span");
-		lbl.className = "ve-muted";
+		lbl.className = remaining > 0 ? "ve-text-danger bold" : "ve-muted";
 		lbl.textContent = `ASI / Feats (${Math.min(chosen.length, total)}/${total}): `;
 		row.appendChild(lbl);
 
@@ -427,34 +494,16 @@ export class CharacterClassPanel {
 			row.appendChild(spn);
 		});
 
-		if (chosen.length < total) {
+		if (remaining > 0) {
 			const btn = document.createElement("button");
 			btn.type = "button";
 			btn.className = "ve-btn ve-btn-xxs ve-btn-primary no-print";
-			btn.textContent = "Choose...";
+			btn.textContent = `Choose ASI or Feat (${remaining} left)`;
 			btn.addEventListener("click", () => this._pOnChooseAsiFeat({entry}));
 			row.appendChild(btn);
 		}
 
 		wrp.appendChild(row);
-	}
-
-	/** Sequentially pick `count` distinct abilities from `from`; null on cancel. */
-	async _pPickAbilities ({count, from, title}) {
-		const out = [];
-		for (let i = 0; i < count; ++i) {
-			const remaining = from.filter(abv => !out.includes(abv));
-			const abv = await InputUiUtil.pGetUserEnum({
-				values: remaining,
-				isResolveItem: true,
-				fnDisplay: it => Parser.attAbvToFull(it),
-				title: count > 1 ? `${title} (${i + 1} of ${count})` : title,
-				placeholder: "Select an ability...",
-			});
-			if (abv == null) return null;
-			out.push(abv);
-		}
-		return out;
 	}
 
 	async _pOnChooseAsiFeat ({entry}) {
@@ -481,7 +530,7 @@ export class CharacterClassPanel {
 		if (spread == null) return;
 
 		const isSingle = spread === "+2 to one ability";
-		const picked = await this._pPickAbilities({count: isSingle ? 1 : 2, from: allAbvs, title: "Increase which ability?"});
+		const picked = await pPickAbilities({count: isSingle ? 1 : 2, from: allAbvs, title: "Increase which ability?"});
 		if (!picked) return;
 
 		const bonuses = {};
@@ -542,77 +591,9 @@ export class CharacterClassPanel {
 			}
 		}
 
-		// Resolve the feat's ability increases: fixed parts apply directly; choose-based parts prompt
-		const bonuses = {...getFixedAbilityBonuses(feat.ability)};
-		const packages = getAbilityPackages(feat.ability);
-		if (packages.length === 1 && packages[0].choose) {
-			const {from, count, amount} = packages[0].choose;
-			const picked = await this._pPickAbilities({count, from, title: `${feat.name}: increase which ability?`});
-			if (!picked) return;
-			picked.forEach(abv => bonuses[abv] = (bonuses[abv] || 0) + amount);
-		}
-
-		this._applyFeatSecondaryGrants(feat);
-		await this._pResolveFeatSkillChoices(feat);
+		const bonuses = await pResolveFeat(this._comp, feat);
+		if (bonuses == null) return;
 		this._comp.addAsiFeatChoice(entry.id, {type: "feat", name: feat.name, source: feat.source, bonuses});
-	}
-
-	/**
-	 * Resolve a feat's structured skill and Expertise *choices* interactively (Prodigy, Skill Expert, ...),
-	 * applying the picks to the model. Expertise options are computed after skill picks so a freshly
-	 * granted proficiency is eligible for Expertise.
-	 */
-	async _pResolveFeatSkillChoices (feat) {
-		for (const choice of getSkillChoices({groups: feat.skillProficiencies, sourceName: feat.name})) {
-			const picked = await this._pPickList({count: choice.count, from: choice.from, title: `${feat.name}: choose skill${choice.count > 1 ? "s" : ""}`});
-			(picked || []).forEach(name => this._comp.setSkillProfByName(name, 1));
-		}
-
-		const proficientNames = CHAR_SHEET_SKILLS
-			.filter(({key}) => (Number(this._comp._state[`skill_${key}`]) || 0) >= PROF_STATE_PROFICIENT)
-			.map(({name}) => name);
-		for (const choice of getExpertiseChoices({groups: feat.expertise, sourceName: feat.name, proficientSkillNames: proficientNames})) {
-			const picked = await this._pPickList({count: choice.count, from: choice.from, title: `${feat.name}: choose Expertise skill${choice.count > 1 ? "s" : ""}`});
-			(picked || []).forEach(name => this._comp.setSkillProfByName(name, PROF_STATE_EXPERTISE));
-		}
-	}
-
-	/** Sequentially pick `count` distinct items from `from`; returns picks (or null if none chosen). */
-	async _pPickList ({count, from, title}) {
-		if (!from?.length) return null;
-		const out = [];
-		for (let i = 0; i < count; ++i) {
-			const remaining = from.filter(it => !out.includes(it));
-			if (!remaining.length) break;
-			const picked = await InputUiUtil.pGetUserEnum({
-				values: remaining,
-				isResolveItem: true,
-				fnDisplay: it => it,
-				title: count > 1 ? `${title} (${i + 1} of ${count})` : title,
-				placeholder: "Select...",
-			});
-			if (picked == null) return out.length ? out : null;
-			out.push(picked);
-		}
-		return out;
-	}
-
-	/** Apply a feat's non-ability structured grants: fixed skills/expertise; languages/tools as notes. */
-	_applyFeatSecondaryGrants (feat) {
-		(feat.skillProficiencies || []).forEach(grp => {
-			Object.entries(grp).forEach(([k, v]) => { if (v === true) this._comp.setSkillProfByName(k, 1); });
-		});
-		(feat.expertise || []).forEach(grp => {
-			Object.entries(grp).forEach(([k, v]) => { if (v === true) this._comp.setSkillProfByName(k, 2); });
-		});
-
-		const pts = [];
-		// Skill/expertise choices are resolved interactively; tools/languages have no structured store, so note them
-		const langs = getProfListDisplay(feat.languageProficiencies);
-		if (langs) pts.push(`Languages: ${langs}`);
-		const tools = getProfListDisplay(feat.toolProficiencies);
-		if (tools) pts.push(`Tools: ${tools}`);
-		if (pts.length) this._comp.appendToTextProp("proficienciesText", `${feat.name}: ${pts.join("; ")}`);
 	}
 
 	/* -------------------------------------------- Feature timeline -------------------------------------------- */

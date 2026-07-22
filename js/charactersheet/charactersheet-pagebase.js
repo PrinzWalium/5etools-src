@@ -4,7 +4,8 @@ import {getCharacterLabel, getMigratedStore, getNewStore} from "./charactersheet
 import {getLevelUpHp} from "./charactersheet-levelengine.js";
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {CharacterWizard} from "./charactersheet-wizard.js";
-import {getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses} from "./charactersheet-choices.js";
+import {getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats} from "./charactersheet-choices.js";
+import {pResolveFeat} from "./charactersheet-featgrant.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -218,7 +219,31 @@ export class CharacterPageBase {
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
 		this._comp.applyPickedBackground({doc, ent});
-		if (ent) await this._pOfferAbilityBonuses(ent, doc.n);
+		if (ent) {
+			await this._pOfferAbilityBonuses(ent, doc.n);
+			await this._pGrantBackgroundFeats(ent);
+		}
+	}
+
+	/**
+	 * 2024 backgrounds grant a fixed Origin feat (`feats: [{"magic initiate; cleric|xphb": true}]`).
+	 * Resolve each interactively (ability increase, fixed grants, skill/Expertise choices) and record it.
+	 */
+	async _pGrantBackgroundFeats (bgEnt) {
+		for (const {name, source, displayName} of getGrantedFeats(bgEnt.feats)) {
+			const feat = await CharacterSheetClassData.pGetFeat({name, source}).catch(() => null);
+			if (!feat) continue;
+			const isApply = await InputUiUtil.pGetUserBoolean({
+				title: "Grant Origin Feat?",
+				htmlDescription: `<div>This background grants the origin feat <b>${(displayName || feat.name).qq()}</b>.<br>Add it now?</div>`,
+				textYes: "Add",
+				textNo: "Skip",
+			});
+			if (!isApply) continue;
+			const bonuses = await pResolveFeat(this._comp, feat);
+			if (bonuses == null) continue;
+			this._comp.addOriginFeat({name: feat.name, source: feat.source, displayName: displayName || feat.name, bonuses});
+		}
 	}
 
 	/**

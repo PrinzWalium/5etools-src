@@ -39,6 +39,22 @@ export const PROF_STATE_NONE = 0;
 export const PROF_STATE_PROFICIENT = 1;
 export const PROF_STATE_EXPERTISE = 2;
 
+/** Class-table resources that are expendable uses (label → rest that restores them). Others (Weapon
+ *  Mastery, Invocations, Favored Enemy) are known-counts, not uses, so they get no tracker. */
+export const EXPENDABLE_RESOURCES = {
+	"Rages": "long",
+	"Ki Points": "short",
+	"Focus Points": "short",
+	"Channel Divinity": "short",
+	"Wild Shape": "short",
+	"Sorcery Points": "long",
+	"Superiority Dice": "short",
+	"Second Wind": "short",
+	"Action Surge": "short",
+	"Indomitable": "long",
+	"Bardic Inspiration": "long",
+};
+
 /** The standard conditions (Exhaustion is tracked separately as a 0–6 level). */
 export const CHAR_SHEET_CONDITIONS = [
 	"Blinded", "Charmed", "Deafened", "Frightened", "Grappled", "Incapacitated", "Invisible",
