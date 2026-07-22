@@ -39,6 +39,7 @@ export function getInventoryItemMeta (ent) {
 	if (ent.dmg1) out.dmg1 = ent.dmg1;
 	if (ent.dmgType) out.dmgType = ent.dmgType;
 	if (ent.property?.length) out.properties = ent.property.map(p => String(p).split("|")[0]);
+	if (ent.mastery?.length) out.mastery = ent.mastery.map(m => String(m).split("|")[0]);
 	if (ent.weaponCategory) out.weaponCategory = ent.weaponCategory;
 	const bonusAc = parseItemBonus(ent.bonusAc);
 	if (bonusAc) out.bonusAc = bonusAc;

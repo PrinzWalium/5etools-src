@@ -91,6 +91,7 @@ export class CharacterModel extends BaseComponent {
 
 			attacks: [], // [{id, name, atkBonus, damage}]
 			inventory: [], // [{id, name, source, quantity, weightLb}]
+			weaponMasteries: [], // inventory weapon names whose mastery property is active
 
 			spellAbility: "",
 			spellsText: "",
@@ -219,6 +220,14 @@ export class CharacterModel extends BaseComponent {
 	}
 
 	/** Set the number of expended slots for a spell level (1-9) or "pact". */
+	/** Toggle an owned weapon's mastery as active. */
+	toggleWeaponMastery (name) {
+		const set = new Set(this._state.weaponMasteries || []);
+		if (set.has(name)) set.delete(name);
+		else set.add(name);
+		this._state.weaponMasteries = [...set];
+	}
+
 	/* -------------------------------------------- Rests & conditions -------------------------------------------- */
 
 	/** Toggle a named condition on/off. */

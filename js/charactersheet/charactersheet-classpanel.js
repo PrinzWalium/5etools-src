@@ -5,6 +5,7 @@ import {
 	getCantripsKnown,
 	getClassResources,
 	getExpertiseSkillCount,
+	getWeaponMasteryCount,
 	getMulticlassRequirementsDisplay,
 	getOptionalFeatureCounts,
 	getPreparedSpellsDisplay,
@@ -31,6 +32,9 @@ export class CharacterClassPanel {
 		this._comp._addHookBase("classes", () => this._pRender());
 		// Expertise options depend on which skills are proficient, so refresh that section when skills change.
 		CHAR_SHEET_SKILLS.forEach(({key}) => this._comp._addHookBase(`skill_${key}`, () => this._refreshExpertise()));
+		// Weapon-mastery options depend on owned weapons and current picks.
+		this._comp._addHookBase("inventory", () => this._refreshWeaponMastery());
+		this._comp._addHookBase("weaponMasteries", () => this._refreshWeaponMastery());
 		this._pRender();
 	}
 
@@ -82,6 +86,7 @@ export class CharacterClassPanel {
 		this._wrp.innerHTML = "";
 		loaded.forEach(meta => this._renderClassSection(meta));
 		this._renderExpertise(loaded);
+		this._renderWeaponMastery(loaded);
 		this._renderSpellcasting(loaded);
 		this._renderAddClass();
 	}
@@ -212,6 +217,66 @@ export class CharacterClassPanel {
 		});
 		wrp.appendChild(wrpOpts);
 		wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small ve-mt-1">Rogues may instead apply Expertise to thieves' tools &mdash; note that under Proficiencies.</div>`);
+		renderCount();
+	}
+
+	/* -------------------------------------------- Weapon Mastery (2024) -------------------------------------------- */
+
+	_getWeaponMasteryTotal (loaded) {
+		return (loaded || []).reduce((acc, {entry, cls}) => acc + (cls ? getWeaponMasteryCount(cls, entry.level) : 0), 0);
+	}
+
+	_renderWeaponMastery (loaded) {
+		this._wrpMastery = null;
+		if (!this._getWeaponMasteryTotal(loaded)) return;
+		const wrp = document.createElement("div");
+		wrp.className = "cs__panel ve-mb-2";
+		this._wrpMastery = wrp;
+		this._wrp.appendChild(wrp);
+		this._fillWeaponMastery();
+	}
+
+	_refreshWeaponMastery () {
+		if (this._wrpMastery?.isConnected) this._fillWeaponMastery();
+	}
+
+	_fillWeaponMastery () {
+		const wrp = this._wrpMastery;
+		if (!wrp) return;
+		const total = this._getWeaponMasteryTotal(this._loaded);
+		const chosen = new Set(this._comp._state.weaponMasteries || []);
+		const weapons = (this._comp._state.inventory || []).filter(it => it.mastery?.length);
+
+		wrp.innerHTML = `<div class="ve-flex-v-center ve-mb-1"><span class="bold">Weapon Mastery</span> <span class="ve-small ve-ml-1 cs__wm-count"></span></div>`;
+		const dispCount = wrp.querySelector(".cs__wm-count");
+		const renderCount = () => {
+			const n = (this._comp._state.weaponMasteries || []).length;
+			dispCount.className = `ve-small ve-ml-1 cs__wm-count ${n > total ? "ve-text-danger" : "ve-muted"}`;
+			dispCount.textContent = n > total ? `${n}/${total} chosen — more than your class grants` : (n < total ? `${n}/${total} chosen — pick ${total - n} more` : `${n}/${total} chosen`);
+		};
+
+		if (!weapons.length) {
+			wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">Add weapons to your inventory, then choose up to ${total} whose mastery property you can use.</div>`);
+			renderCount();
+			return;
+		}
+
+		const wrpOpts = document.createElement("div");
+		wrpOpts.className = "ve-flex ve-flex-wrap";
+		weapons.forEach(it => {
+			const lbl = document.createElement("label");
+			lbl.className = "ve-flex-v-center ve-mr-3 ve-mb-1 ve-small";
+			const cb = document.createElement("input");
+			cb.type = "checkbox";
+			cb.className = "ve-mr-1";
+			cb.checked = chosen.has(it.name);
+			cb.addEventListener("change", () => this._comp.toggleWeaponMastery(it.name));
+			const spn = document.createElement("span");
+			spn.innerHTML = `${it.name.qq()} <span class="ve-muted">(${it.mastery.join(", ").qq()})</span>`;
+			lbl.append(cb, spn);
+			wrpOpts.appendChild(lbl);
+		});
+		wrp.appendChild(wrpOpts);
 		renderCount();
 	}
 

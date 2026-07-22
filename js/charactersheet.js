@@ -1,6 +1,8 @@
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_CONDITIONS, CHAR_SHEET_SKILLS} from "./charactersheet/charactersheet-consts.js";
 import {deriveCharacterSheet, getWeaponAttack} from "./charactersheet/charactersheet-derive.js";
 import {getInventoryItemMeta} from "./charactersheet/charactersheet-equipment.js";
+import {getFeatureInitiativeBonus} from "./charactersheet/charactersheet-features.js";
+import {CharacterSheetClassData} from "./charactersheet/charactersheet-classdata.js";
 import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js";
 import {CharacterInventoryPanel} from "./charactersheet/charactersheet-inventorypanel.js";
 import {CharacterSpellsPanel} from "./charactersheet/charactersheet-spellspanel.js";
@@ -135,6 +137,14 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._comp._addHookBase("conditions", () => this._renderConditions());
 		// AC is derived from equipped gear, so re-derive when the inventory (equip toggles) changes
 		this._comp._addHookBase("inventory", () => this._renderDerived());
+		// Some features add to derived stats (e.g. Rakish Audacity → initiative); reload on class changes
+		this._comp._addHookBase("classes", () => this._pRefreshFeatureEffects());
+	}
+
+	/** Load the character's feature names (async) so derived stats can include curated feature effects. */
+	async _pRefreshFeatureEffects () {
+		this._featureNames = await CharacterSheetClassData.pGetCharacterFeatureNames(this._comp._state.classes).catch(() => []);
+		this._renderDerived();
 	}
 
 	_onStoreLoaded () {
@@ -148,6 +158,7 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._renderDeathSaves();
 		this._renderConditions();
 		this._renderDerived();
+		this._pRefreshFeatureEffects();
 		this._lastLevel = this._comp.getLevelNumber();
 	}
 
@@ -302,7 +313,9 @@ class CharacterSheetPage extends CharacterPageBase {
 			eleUnarmed.innerHTML = `<span class="ve-muted">Unarmed Strike:</span> ${hitRoll} <span class="ve-muted">to hit,</span> ${u.damage.qq()}`;
 		}
 
-		document.getElementById("cs-initiative-roll").innerHTML = Renderer.get().render(`{@initiative ${derived.initiative}|${CharacterPageBase.fmtBonus(derived.initiative)}}`);
+		const abilMods = Object.fromEntries(CHAR_SHEET_ABILITIES.map(([abv]) => [abv, derived.abilities[abv].mod]));
+		const initiative = derived.initiative + getFeatureInitiativeBonus(this._featureNames, {abilities: abilMods, pb: derived.pb});
+		document.getElementById("cs-initiative-roll").innerHTML = Renderer.get().render(`{@initiative ${initiative}|${CharacterPageBase.fmtBonus(initiative)}}`);
 
 		const eleDc = document.getElementById("cs-spell-dc");
 		const eleAtk = document.getElementById("cs-spell-atk");

@@ -24,24 +24,11 @@ export class CharacterActionsPanel {
 
 	/** Character features `{name, tag}` for the structured classes, up to each class's level. */
 	async _pGetFeatures () {
-		const out = [];
-		for (const entry of this._comp._state.classes) {
-			const cls = await CharacterSheetClassData.pGetClass({name: entry.name, source: entry.source}).catch(() => null);
-			if (!cls) continue;
-			const sc = entry.subclass
-				? await CharacterSheetClassData.pGetSubclass({className: entry.name, classSource: entry.source, shortName: entry.subclass.shortName, source: entry.subclass.source}).catch(() => null)
-				: null;
-			CharacterSheetClassData.getFeatureTimeline(cls, {subclass: sc, level: entry.level})
-				.forEach(({feature, isSubclassFeature}) => {
-					const {name} = CharacterSheetClassData.getFeatureNameMeta(feature);
-					if (!name) return;
-					const tag = isSubclassFeature
-						? CharacterClassPanel._getSubclassFeatureTag(feature)
-						: CharacterClassPanel._getClassFeatureTag(feature);
-					out.push({name, tag});
-				});
-		}
-		return out;
+		const feats = await CharacterSheetClassData.pGetCharacterFeatures(this._comp._state.classes);
+		return feats.map(({name, feature, isSubclassFeature}) => ({
+			name,
+			tag: isSubclassFeature ? CharacterClassPanel._getSubclassFeatureTag(feature) : CharacterClassPanel._getClassFeatureTag(feature),
+		}));
 	}
 
 	async _pRender () {

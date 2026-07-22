@@ -138,6 +138,48 @@ export class CharacterSheetClassData {
 	}
 
 	/**
+	 * All features a character has from its structured classes/subclasses, up to each class's level.
+	 * @return {Promise<Array<{name: string, feature: object, isSubclassFeature: boolean}>>}
+	 */
+	static async pGetCharacterFeatures (classes) {
+		const out = [];
+		for (const entry of classes || []) {
+			const cls = await this.pGetClass({name: entry.name, source: entry.source}).catch(() => null);
+			if (!cls) continue;
+			const sc = entry.subclass
+				? await this.pGetSubclass({className: entry.name, classSource: entry.source, shortName: entry.subclass.shortName, source: entry.subclass.source}).catch(() => null)
+				: null;
+			this.getFeatureTimeline(cls, {subclass: sc, level: entry.level}).forEach(({feature, isSubclassFeature}) => {
+				const {name} = this.getFeatureNameMeta(feature);
+				if (name) out.push({name, feature, isSubclassFeature});
+			});
+		}
+		return out;
+	}
+
+	/**
+	 * Every feature name a character has, including nested sub-features (e.g. a 2014 subclass's
+	 * level feature bundles Rakish Audacity, Fancy Footwork, ... as dereferenced sub-entries).
+	 * Used to match against curated feature-effect maps.
+	 */
+	static async pGetCharacterFeatureNames (classes) {
+		const feats = await this.pGetCharacterFeatures(classes);
+		const names = new Set();
+		const collect = node => {
+			if (Array.isArray(node)) return node.forEach(collect);
+			if (node && typeof node === "object") {
+				if (typeof node.name === "string") names.add(node.name);
+				if (Array.isArray(node.entries)) collect(node.entries);
+			}
+		};
+		feats.forEach(({name, feature}) => {
+			if (name) names.add(name);
+			collect(feature?.entries);
+		});
+		return [...names];
+	}
+
+	/**
 	 * Display name/source for a dereferenced feature. The dereferencer's entry-nesting step strips
 	 * `name`/`source` from wrapper features with a `header`, moving the named content into
 	 * `entries[0]`, so resolve by drilling down.

@@ -234,6 +234,19 @@ function _fmtResourceCell (cell) {
 	return null;
 }
 
+/** How many weapon masteries the class grants at `level` (the "Weapon Mastery" table column; 2024). */
+export function getWeaponMasteryCount (cls, level) {
+	level = _clampLevel(level);
+	for (const group of _getTableGroups(cls)) {
+		if (!group.colLabels || !group.rows) continue;
+		const ix = group.colLabels.findIndex(l => /weapon mastery/i.test(_stripTags(l)));
+		if (ix < 0) continue;
+		const val = Number(_fmtResourceCell(group.rows[level - 1]?.[ix]));
+		return isNaN(val) ? 0 : val;
+	}
+	return 0;
+}
+
 /**
  * Per-level class resources read straight from the class/subclass table columns — e.g. Rages,
  * Rage Damage, Weapon Mastery count, Sneak Attack dice, Martial Arts die, Ki/Focus/Sorcery Points,
