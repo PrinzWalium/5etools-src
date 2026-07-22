@@ -50,10 +50,10 @@ export function normaliseCastTime (time) {
  * @param attacks weapon attack rows `[{name, atkBonus, damage}]`
  * @param unarmed the derived Unarmed Strike `{name, atkBonus, damage}` (optional)
  * @param spells known spells `[{name, source, level, castTime}]`
- * @param featureNames class/feat feature names present on the character
+ * @param features character features, each a name string or `{name, tag}` (tag = a renderable `{@...}` link)
  * @return {{action: Array, bonus: Array, reaction: Array}}
  */
-export function buildActionEconomy ({attacks = [], unarmed = null, spells = [], featureNames = []} = {}) {
+export function buildActionEconomy ({attacks = [], unarmed = null, spells = [], features = []} = {}) {
 	const out = {action: [], bonus: [], reaction: []};
 
 	const addWeapon = a => {
@@ -70,9 +70,14 @@ export function buildActionEconomy ({attacks = [], unarmed = null, spells = [], 
 		out[ct].push({label: sp.name, source: sp.source, sub: sp.level === 0 ? "Cantrip" : `Level ${sp.level}`, kind: "spell"});
 	});
 
-	[...new Set(featureNames)].forEach(name => {
+	const seen = new Set();
+	features.forEach(f => {
+		const name = typeof f === "string" ? f : f?.name;
+		const tag = typeof f === "string" ? null : f?.tag;
+		if (!name || seen.has(name)) return;
+		seen.add(name);
 		const econ = FEATURE_ACTION_ECONOMY[name];
-		if (econ && out[econ]) out[econ].push({label: name, kind: "feature"});
+		if (econ && out[econ]) out[econ].push({label: name, kind: "feature", tag});
 	});
 
 	return out;

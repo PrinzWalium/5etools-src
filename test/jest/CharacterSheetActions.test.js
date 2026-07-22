@@ -39,12 +39,17 @@ describe("Action economy: grouping", () => {
 
 	it("Should place curated features in their economy and ignore unknown features", () => {
 		const out = buildActionEconomy({
-			featureNames: ["Second Wind", "Uncanny Dodge", "Channel Divinity", "Sneak Attack", "Second Wind"],
+			features: ["Second Wind", "Uncanny Dodge", "Channel Divinity", "Sneak Attack", "Second Wind"],
 		});
 		expect(out.bonus.map(a => a.label)).toEqual(["Second Wind"]); // de-duplicated
 		expect(out.reaction.map(a => a.label)).toEqual(["Uncanny Dodge"]);
 		expect(out.action.map(a => a.label)).toEqual(["Channel Divinity"]);
 		// "Sneak Attack" is not in the curated map → not listed as its own action
 		expect([...out.action, ...out.bonus, ...out.reaction].some(a => a.label === "Sneak Attack")).toBe(false);
+	});
+
+	it("Should carry a renderable tag on features for hover links", () => {
+		const out = buildActionEconomy({features: [{name: "Cunning Action", tag: "{@classFeature Cunning Action|Rogue||2}"}]});
+		expect(out.bonus[0]).toMatchObject({label: "Cunning Action", kind: "feature", tag: "{@classFeature Cunning Action|Rogue||2}"});
 	});
 });

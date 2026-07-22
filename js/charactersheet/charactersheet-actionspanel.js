@@ -1,4 +1,5 @@
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
+import {CharacterClassPanel} from "./charactersheet-classpanel.js";
 import {getUnarmedStrike} from "./charactersheet-derive.js";
 import {buildActionEconomy} from "./charactersheet-actions.js";
 
@@ -21,9 +22,9 @@ export class CharacterActionsPanel {
 		this._pRender();
 	}
 
-	/** Distinct feature names for the character's structured classes, up to each class's level. */
-	async _pGetFeatureNames () {
-		const names = new Set();
+	/** Character features `{name, tag}` for the structured classes, up to each class's level. */
+	async _pGetFeatures () {
+		const out = [];
 		for (const entry of this._comp._state.classes) {
 			const cls = await CharacterSheetClassData.pGetClass({name: entry.name, source: entry.source}).catch(() => null);
 			if (!cls) continue;
@@ -31,17 +32,21 @@ export class CharacterActionsPanel {
 				? await CharacterSheetClassData.pGetSubclass({className: entry.name, classSource: entry.source, shortName: entry.subclass.shortName, source: entry.subclass.source}).catch(() => null)
 				: null;
 			CharacterSheetClassData.getFeatureTimeline(cls, {subclass: sc, level: entry.level})
-				.forEach(({feature}) => {
+				.forEach(({feature, isSubclassFeature}) => {
 					const {name} = CharacterSheetClassData.getFeatureNameMeta(feature);
-					if (name) names.add(name);
+					if (!name) return;
+					const tag = isSubclassFeature
+						? CharacterClassPanel._getSubclassFeatureTag(feature)
+						: CharacterClassPanel._getClassFeatureTag(feature);
+					out.push({name, tag});
 				});
 		}
-		return [...names];
+		return out;
 	}
 
 	async _pRender () {
 		const token = ++this._renderToken;
-		const featureNames = await this._pGetFeatureNames();
+		const features = await this._pGetFeatures();
 		if (token !== this._renderToken) return;
 
 		const state = this._comp._getState();
@@ -49,7 +54,7 @@ export class CharacterActionsPanel {
 			attacks: state.attacks || [],
 			unarmed: getUnarmedStrike(state),
 			spells: state.spellsKnown || [],
-			featureNames,
+			features,
 		});
 
 		this._wrp.innerHTML = "";
@@ -75,9 +80,10 @@ export class CharacterActionsPanel {
 		items.forEach(it => {
 			const row = document.createElement("div");
 			row.className = "ve-small ve-flex-v-baseline";
-			const label = it.kind === "spell"
-				? Renderer.get().render(`{@spell ${it.label}${it.source && it.source.toLowerCase() !== "phb" ? `|${it.source}` : ""}}`)
-				: `<span>${it.label.qq()}</span>`;
+			let label;
+			if (it.kind === "spell") label = Renderer.get().render(`{@spell ${it.label}${it.source && it.source.toLowerCase() !== "phb" ? `|${it.source}` : ""}}`);
+			else if (it.kind === "feature" && it.tag) label = Renderer.get().render(it.tag);
+			else label = `<span>${it.label.qq()}</span>`;
 			const ptSub = it.sub ? ` <span class="ve-muted">(${it.sub.qq()})</span>` : "";
 			row.innerHTML = `${label}${ptSub}`;
 			wrp.appendChild(row);

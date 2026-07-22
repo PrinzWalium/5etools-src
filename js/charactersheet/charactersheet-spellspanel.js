@@ -84,9 +84,27 @@ export class CharacterSpellsPanel {
 		});
 		const defaults = spells.map((sp, ix) => (knownKeys.has(`${sp.name}|${sp.source}`) ? ix : null)).filter(ix => ix != null);
 
+		// Show this class's allowances so players know how many to pick
+		const limits = [];
+		if (cantripEnt) {
+			const maxCantrips = getCantripsKnown(cantripEnt, entry.level);
+			if (maxCantrips != null) limits.push(`${maxCantrips} cantrip${maxCantrips === 1 ? "" : "s"}`);
+		}
+		const knownEnt = [cls, sc].find(it => it?.spellsKnownProgression);
+		const preparedEnt = [cls, sc].find(it => it?.preparedSpells);
+		if (knownEnt) {
+			const maxKnown = getSpellsKnown(knownEnt, entry.level);
+			if (maxKnown != null) limits.push(`${maxKnown} spells known`);
+		} else if (preparedEnt) {
+			const abv = preparedEnt.spellcastingAbility;
+			const maxPrep = getPreparedSpellCount(preparedEnt, entry.level, abv ? getAbilityModifier(this._comp._getState(), abv) : 0);
+			if (maxPrep != null) limits.push(`${maxPrep} spells prepared`);
+		}
+		const ptLimits = limits.length ? ` You can have <b>${limits.join("</b> and <b>")}</b>.` : "";
+
 		const ixs = await InputUiUtil.pGetUserMultipleChoice({
 			title: `${className} Spells`,
-			htmlDescription: `<div class="ve-muted ve-small ve-mb-1">Showing cantrips and spells up to ${maxLevel ? Parser.spLevelToFull(maxLevel) : "your castable"} level. Tick the spells this class knows or has prepared.</div>`,
+			htmlDescription: `<div class="ve-muted ve-small ve-mb-1">Showing cantrips and spells up to ${maxLevel ? Parser.spLevelToFull(maxLevel) : "your castable"} level.${ptLimits} Tick the spells this class knows or has prepared.</div>`,
 			values,
 			defaults,
 			max: values.length, // no hard cap; over-selection is surfaced as a warning in the counts row

@@ -218,6 +218,46 @@ export function getExpertiseSkillCount (cls, level) {
 		.reduce((acc, lvlFeatures) => acc + (lvlFeatures || []).filter(f => f.name === "Expertise").length, 0) * 2;
 }
 
+const _RESOURCE_SKIP_LABEL = /cantrip|spells known|prepared spells|spell slots|slot level|^\d+(st|nd|rd|th)$/i;
+
+/** Format a class-table cell (string / number / `{type:"dice"|"bonus"|"bonusSpeed"}`) to display text, or null. */
+function _fmtResourceCell (cell) {
+	if (cell == null) return null;
+	if (typeof cell === "number") return cell ? `${cell}` : null;
+	if (typeof cell === "string") return cell.trim() || null;
+	if (cell.type === "dice") {
+		const r = cell.toRoll?.[0];
+		return r ? `${r.number}d${r.faces}` : null;
+	}
+	if (cell.type === "bonus") return `${cell.value >= 0 ? "+" : ""}${cell.value}`;
+	if (cell.type === "bonusSpeed") return cell.value ? `+${cell.value} ft.` : null;
+	return null;
+}
+
+/**
+ * Per-level class resources read straight from the class/subclass table columns — e.g. Rages,
+ * Rage Damage, Weapon Mastery count, Sneak Attack dice, Martial Arts die, Ki/Focus/Sorcery Points,
+ * Channel Divinity, Wild Shape, Bardic Die, Invocations. Spell-slot/known/prepared columns are
+ * skipped (handled by the spell panel). Data-driven, so it needs no per-class rules.
+ * @return {Array<{label: string, value: string}>}
+ */
+export function getClassResources (clsOrSc, level) {
+	level = _clampLevel(level);
+	const out = [];
+	for (const group of _getTableGroups(clsOrSc)) {
+		if (!group.colLabels || !group.rows) continue;
+		const row = group.rows[level - 1];
+		if (!row) continue;
+		group.colLabels.forEach((rawLabel, i) => {
+			const label = _stripTags(rawLabel).trim();
+			if (!label || _RESOURCE_SKIP_LABEL.test(label)) return;
+			const value = _fmtResourceCell(row[i]);
+			if (value != null) out.push({label, value});
+		});
+	}
+	return out;
+}
+
 /**
  * Check multiclassing ability requirements. Top-level ability keys are all required; keys within
  * an object inside `or` are alternatives (e.g. Fighter's `{or: [{str: 13, dex: 13}]}` means

@@ -3,6 +3,7 @@ import "../../js/parser.js";
 import {
 	checkFeatPrerequisites,
 	getAsiCount,
+	getClassResources,
 	getExpertiseSkillCount,
 	getPreparedSpellCount,
 	getCantripsKnown,
@@ -187,6 +188,39 @@ describe("Leveling engine: expertise grants", () => {
 		const cls = {classFeatures: [[{name: "Second Wind"}], [{name: "Action Surge"}]]};
 		expect(getExpertiseSkillCount(cls, 20)).toBe(0);
 		expect(getExpertiseSkillCount(null, 5)).toBe(0);
+	});
+});
+
+describe("Leveling engine: class resources (table columns)", () => {
+	it("Should read dice/number/bonus columns and skip spell columns", () => {
+		const cls = {
+			classTableGroups: [
+				{colLabels: ["Rages", "Rage Damage", "Weapon Mastery"], rows: [
+					["2", {type: "bonus", value: 2}, "2"],
+					["3", {type: "bonus", value: 2}, "3"],
+				]},
+				{colLabels: ["Sneak Attack"], rows: [
+					[{type: "dice", toRoll: [{number: 1, faces: 6}]}],
+					[{type: "dice", toRoll: [{number: 2, faces: 6}]}],
+				]},
+				{colLabels: ["Cantrips Known", "1st"], rowsSpellProgression: [[3, 2], [3, 3]]}, // spell cols: ignored
+			],
+		};
+		expect(getClassResources(cls, 2)).toEqual([
+			{label: "Rages", value: "3"},
+			{label: "Rage Damage", value: "+2"},
+			{label: "Weapon Mastery", value: "3"},
+			{label: "Sneak Attack", value: "2d6"},
+		]);
+	});
+
+	it("Should drop empty cells (0 / blank / 0-speed)", () => {
+		const cls = {classTableGroups: [{colLabels: ["Focus Points", "Unarmored Movement"], rows: [[0, {type: "bonusSpeed", value: 0}]]}]};
+		expect(getClassResources(cls, 1)).toEqual([]);
+	});
+
+	it("Should return [] for a class without table groups", () => {
+		expect(getClassResources({}, 5)).toEqual([]);
 	});
 });
 

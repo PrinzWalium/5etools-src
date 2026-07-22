@@ -3,6 +3,7 @@ import {
 	checkFeatPrerequisites,
 	getAsiCount,
 	getCantripsKnown,
+	getClassResources,
 	getExpertiseSkillCount,
 	getMulticlassRequirementsDisplay,
 	getOptionalFeatureCounts,
@@ -118,11 +119,27 @@ export class CharacterClassPanel {
 		wrp.appendChild(wrpHead);
 
 		this._renderSubclassRow({wrp, entry, cls});
+		this._renderResources({wrp, entry, cls, sc});
 		this._renderOptionalFeatureRows({wrp, entry, cls, sc});
 		this._renderAsiFeatRow({wrp, entry, cls});
 		this._renderFeatureTimeline({wrp, entry, cls, sc});
 
 		this._wrp.appendChild(wrp);
+	}
+
+	/** Data-driven class resources (Rages, Sneak Attack, Ki/Focus, Channel Divinity, Weapon Mastery count, ...). */
+	_renderResources ({wrp, entry, cls, sc}) {
+		const resources = [
+			...getClassResources(cls, entry.level),
+			...(sc ? getClassResources(sc, entry.level) : []),
+		];
+		if (!resources.length) return;
+		const row = document.createElement("div");
+		row.className = "ve-small ve-mb-1";
+		row.innerHTML = resources
+			.map(r => `<span class="ve-muted">${r.label.qq()}:</span> <span class="bold">${r.value.qq()}</span>`)
+			.join(`<span class="ve-muted"> &middot; </span>`);
+		wrp.appendChild(row);
 	}
 
 	/* -------------------------------------------- Expertise -------------------------------------------- */
