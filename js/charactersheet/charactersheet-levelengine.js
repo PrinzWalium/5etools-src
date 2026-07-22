@@ -234,7 +234,10 @@ function _fmtResourceCell (cell) {
 	return null;
 }
 
-/** How many weapon masteries the class grants at `level` (the "Weapon Mastery" table column; 2024). */
+// Classes whose Weapon Mastery count is fixed in feature prose ("two kinds") rather than a table column.
+const _WEAPON_MASTERY_FIXED = {Rogue: 2, Ranger: 2, Paladin: 2};
+
+/** How many weapon masteries the class grants at `level` (the "Weapon Mastery" table column, or a fixed prose count). */
 export function getWeaponMasteryCount (cls, level) {
 	level = _clampLevel(level);
 	for (const group of _getTableGroups(cls)) {
@@ -244,7 +247,34 @@ export function getWeaponMasteryCount (cls, level) {
 		const val = Number(_fmtResourceCell(group.rows[level - 1]?.[ix]));
 		return isNaN(val) ? 0 : val;
 	}
-	return 0;
+	// Fixed-count classes: only if the class actually has a Weapon Mastery feature (2024 classes)
+	const hasWmFeature = (cls?.classFeatures || []).slice(0, level).some(lvl => (lvl || []).some(f => f.name === "Weapon Mastery"));
+	return hasWmFeature ? (_WEAPON_MASTERY_FIXED[cls?.name] || 0) : 0;
+}
+
+/**
+ * Spell uids ("cure wounds|phb") a class/subclass grants automatically via `additionalSpells`
+ * (domain/patron/circle spells, always-prepared or expanded lists) up to `level`. Only the
+ * numeric class-level keys and plain uid entries are returned; dynamic `{choose}`/`{all}` filter
+ * entries and spell-slot-keyed (`s6`) grants are skipped.
+ */
+export function getGrantedSpellUids (clsOrSc, level) {
+	level = _clampLevel(level);
+	const out = [];
+	(clsOrSc?.additionalSpells || []).forEach(grp => {
+		["prepared", "known", "expanded", "innate"].forEach(bucket => {
+			const byLevel = grp[bucket];
+			if (!byLevel || typeof byLevel !== "object") return;
+			Object.entries(byLevel).forEach(([lk, spells]) => {
+				const lvl = Number(lk);
+				if (isNaN(lvl) || lvl > level) return;
+				(Array.isArray(spells) ? spells : [spells]).forEach(sp => {
+					if (typeof sp === "string") out.push(sp.toLowerCase());
+				});
+			});
+		});
+	});
+	return [...new Set(out)];
 }
 
 /**

@@ -5,6 +5,7 @@ import {
 	getAsiCount,
 	getClassResources,
 	getExpertiseSkillCount,
+	getGrantedSpellUids,
 	getPreparedSpellCount,
 	getCantripsKnown,
 	getCasterLevelContribution,
@@ -188,6 +189,23 @@ describe("Leveling engine: expertise grants", () => {
 		const cls = {classFeatures: [[{name: "Second Wind"}], [{name: "Action Surge"}]]};
 		expect(getExpertiseSkillCount(cls, 20)).toBe(0);
 		expect(getExpertiseSkillCount(null, 5)).toBe(0);
+	});
+});
+
+describe("Leveling engine: granted spells (additionalSpells)", () => {
+	it("Should collect prepared/known/expanded uids up to the class level, skipping later levels and non-uids", () => {
+		const sc = {additionalSpells: [{
+			prepared: {"1": ["bless", "cure wounds"], "3": ["spiritual weapon"], "5": ["revivify"]},
+			expanded: {"1": [{choose: "level=0;1"}]}, // dynamic → skipped
+		}]};
+		expect(getGrantedSpellUids(sc, 3).sort()).toEqual(["bless", "cure wounds", "spiritual weapon"].sort());
+		expect(getGrantedSpellUids(sc, 5)).toContain("revivify");
+	});
+
+	it("Should skip spell-slot-keyed (s6) entries and return [] with no additionalSpells", () => {
+		const sc = {additionalSpells: [{known: {"s6": ["wish|xphb"]}}]};
+		expect(getGrantedSpellUids(sc, 20)).toEqual([]);
+		expect(getGrantedSpellUids({}, 5)).toEqual([]);
 	});
 });
 

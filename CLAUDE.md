@@ -77,6 +77,52 @@ template, run `node node/generate-pages.js` and commit both.
 - Both pages share one character store, so a character built in the builder is
   immediately playable on the sheet.
 
+## 5etools class data structure (read this before adding class mechanics)
+
+Almost every class/subclass mechanic the builder needs is **structured data**,
+not prose — mining it is how you integrate features correctly. Files:
+
+- `data/class/class-<name>.json` — arrays `class[]`, `subclass[]`,
+  `classFeature[]`, `subclassFeature[]`. The `DataLoader` class loader
+  **dereferences** the feature refs, so a loaded `cls.classFeatures` is a
+  **by-level array of resolved feature objects** (index 0 = level 1). Read via
+  `CharacterSheetClassData`, never re-parse refs yourself.
+- `data/class/fluff-class-<name>.json` — prose only (`classFluff`, `subclassFluff`).
+
+Key fields (all read by `charactersheet-levelengine.js` unless noted):
+
+- **`classFeatures` refs** are strings `"Name|Class|ClassSource|Level"` (source
+  blank ⇒ PHB). A feature that unlocks the subclass is `{classFeature, gainSubclassFeature: true}`.
+  2014 subclasses bundle their level features as **nested `refSubclassFeature`
+  entries inside one level feature** (e.g. Rakish Audacity lives *inside* the
+  level‑3 "Swashbuckler" feature) — collect names recursively
+  (`CharacterSheetClassData.pGetCharacterFeatureNames`).
+- **`classTableGroups`** = the class table. `colLabels` + `rows` hold per-level
+  resource values — **Rages, Rage Damage, Weapon Mastery (count), Sneak Attack,
+  Martial Arts die, Ki/Focus/Sorcery Points, Channel Divinity, Wild Shape,
+  Bardic Die, Invocations, Favored Enemy**. Cells are strings, numbers, or
+  `{type:"dice"|"bonus"|"bonusSpeed"}` (`getClassResources`/`getWeaponMasteryCount`).
+  A group with `rowsSpellProgression` is the spell-slot table instead.
+- **Spellcasting**: `casterProgression` (`full`/`1/2`/`1/3`/`artificer`/`pact`),
+  `cantripProgression`, `spellsKnownProgression`, `preparedSpells` (formula),
+  `spellcastingAbility`.
+- **`additionalSpells`** — auto-granted domain/patron/circle spells. Array of
+  groups with buckets `prepared`/`known`/`expanded`/`innate`, each keyed by
+  **class level** → list of uids (`"cure wounds|phb"`) or dynamic
+  `{choose}`/`{all}` filters. `getGrantedSpellUids` reads the plain-uid ones.
+- **`optionalfeatureProgression`** — counts of Invocations / Fighting Styles /
+  Maneuvers etc. by level (`getOptionalFeatureCounts`).
+- **`startingProficiencies`** (skills/tools/languages, some as `{choose}`),
+  **`startingEquipment`** (`defaultData` A/B groups), **`multiclassing`**.
+- Feature *effects* that are only prose (a subclass adding an ability mod to
+  Initiative, etc.) can't be read structurally — those use a **small curated map**
+  (`charactersheet-features.js`, `charactersheet-actions.js`). Prefer structured
+  reads; fall back to curated only for unambiguous prose cases.
+
+Some counts are inconsistent between books (e.g. Weapon Mastery is a table
+column for Fighter/Barbarian but prose "two kinds" for Rogue/Ranger/Paladin) —
+read the column when present, curated fallback otherwise.
+
 ## Updating from upstream
 
 Preferred: `bash scripts/update-from-upstream.sh` (fetches, merges, regenerates

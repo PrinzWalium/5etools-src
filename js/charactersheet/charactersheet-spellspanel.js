@@ -1,5 +1,5 @@
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
-import {getCantripsKnown, getPreparedSpellCount, getSpellcastingMeta, getSpellsKnown} from "./charactersheet-levelengine.js";
+import {getCantripsKnown, getGrantedSpellUids, getPreparedSpellCount, getSpellcastingMeta, getSpellsKnown} from "./charactersheet-levelengine.js";
 import {deriveCharacterSheet, getAbilityModifier} from "./charactersheet-derive.js";
 import {getSpellSummary, normaliseCastTime} from "./charactersheet-actions.js";
 
@@ -16,7 +16,10 @@ export class CharacterSpellsPanel {
 	}
 
 	init () {
-		this._comp._addHookBase("classes", () => this._pRenderSlots());
+		this._comp._addHookBase("classes", () => {
+			this._pRenderSlots();
+			this._pRenderKnown(); // granted (subclass) spells depend on class/subclass
+		});
 		this._comp._addHookBase("slotsUsed", () => this._pRenderSlots());
 		this._comp._addHookBase("spellsKnown", () => {
 			this._pRenderKnown();
@@ -36,8 +39,42 @@ export class CharacterSpellsPanel {
 	async _pEnsureSpellData () {
 		if (this._spellByKey) return this._spellByKey;
 		const all = await CharacterSheetClassData.pGetAllSpells().catch(() => []);
-		this._spellByKey = new Map(all.map(sp => [`${sp.name.toLowerCase()}|${sp.source.toLowerCase()}`, sp]));
+		this._spellByKey = new Map();
+		this._spellByName = new Map();
+		all.forEach(sp => {
+			this._spellByKey.set(`${sp.name.toLowerCase()}|${sp.source.toLowerCase()}`, sp);
+			if (!this._spellByName.has(sp.name.toLowerCase())) this._spellByName.set(sp.name.toLowerCase(), sp);
+		});
 		return this._spellByKey;
+	}
+
+	/** Spells the character's classes/subclasses grant automatically (domain/patron/circle lists). */
+	async _pGetGrantedSpells () {
+		const loaded = await this._pGetLoadedClasses();
+		const byKey = await this._pEnsureSpellData();
+		const out = [];
+		const seen = new Set();
+		loaded.forEach(({entry, cls, sc}) => {
+			[cls, sc].forEach(ent => {
+				if (!ent) return;
+				getGrantedSpellUids(ent, entry.level).forEach(uid => {
+					const [name, source] = uid.split("|");
+					const spEnt = byKey.get(`${name}|${(source || "phb").toLowerCase()}`) || this._spellByName.get(name);
+					const resolved = {
+						name: spEnt?.name || name.replace(/\b\w/g, c => c.toUpperCase()),
+						source: spEnt?.source || (source || "PHB").toUpperCase(),
+						level: spEnt?.level ?? 0,
+						className: cls?.name || null,
+						granted: true,
+					};
+					const key = `${resolved.name.toLowerCase()}|${resolved.source.toLowerCase()}`;
+					if (seen.has(key)) return;
+					seen.add(key);
+					out.push(resolved);
+				});
+			});
+		});
+		return out;
 	}
 
 	/* -------------------------------------------- Class-filtered spell manager -------------------------------------------- */
@@ -199,42 +236,8 @@ export class CharacterSpellsPanel {
 			this._wrpSlots.appendChild(note);
 		}
 
-		// Cantrip / known-or-prepared counts vs the class progressions; over-limit is flagged, not blocked
-		const known = this._comp._state.spellsKnown || [];
-		const state = this._comp._getState();
-		const countItems = [];
-		loaded.forEach(({entry, cls, sc}) => {
-			const clsName = cls?.name;
-			const mine = known.filter(it => !it.className || it.className === clsName);
-			const cntCantrips = mine.filter(it => it.level === 0).length;
-			const cntLeveled = mine.filter(it => it.level > 0).length;
-
-			const cantripEnt = [cls, sc].find(it => it?.cantripProgression);
-			if (cantripEnt) {
-				const maxCantrips = getCantripsKnown(cantripEnt, entry.level);
-				if (maxCantrips != null) countItems.push({text: `Cantrips: ${cntCantrips}/${maxCantrips}`, isOver: cntCantrips > maxCantrips});
-			}
-
-			const knownEnt = [cls, sc].find(it => it?.spellsKnownProgression);
-			const preparedEnt = [cls, sc].find(it => it?.preparedSpells);
-			if (knownEnt) {
-				const maxKnown = getSpellsKnown(knownEnt, entry.level);
-				if (maxKnown != null) countItems.push({text: `Spells known: ${cntLeveled}/${maxKnown}`, isOver: cntLeveled > maxKnown});
-			} else if (preparedEnt) {
-				const abv = preparedEnt.spellcastingAbility;
-				const mod = abv ? getAbilityModifier(state, abv) : 0;
-				const maxPrep = getPreparedSpellCount(preparedEnt, entry.level, mod);
-				if (maxPrep != null) countItems.push({text: `Spells prepared: ${cntLeveled}/${maxPrep}`, isOver: cntLeveled > maxPrep});
-			}
-		});
-		if (countItems.length) {
-			const disp = document.createElement("div");
-			disp.className = "ve-small";
-			disp.innerHTML = countItems
-				.map(c => `<span class="${c.isOver ? "ve-text-danger" : "ve-muted"}">${c.text.qq()}</span>`)
-				.join(`<span class="ve-muted"> · </span>`);
-			this._wrpSlots.appendChild(disp);
-		}
+		const countItems = this._getSpellCountItems(loaded);
+		if (countItems.length) this._wrpSlots.appendChild(this._getCountsLine(countItems));
 
 		const btnReset = document.createElement("button");
 		btnReset.type = "button";
@@ -244,23 +247,75 @@ export class CharacterSpellsPanel {
 		this._wrpSlots.appendChild(btnReset);
 	}
 
+	/** Cantrip / known-or-prepared counts vs the class progressions (granted spells don't count). */
+	_getSpellCountItems (loaded) {
+		const known = this._comp._state.spellsKnown || [];
+		const state = this._comp._getState();
+		const out = [];
+		loaded.forEach(({entry, cls, sc}) => {
+			const clsName = cls?.name;
+			const mine = known.filter(it => !it.className || it.className === clsName);
+			const cntCantrips = mine.filter(it => it.level === 0).length;
+			const cntLeveled = mine.filter(it => it.level > 0).length;
+
+			const cantripEnt = [cls, sc].find(it => it?.cantripProgression);
+			if (cantripEnt) {
+				const maxCantrips = getCantripsKnown(cantripEnt, entry.level);
+				if (maxCantrips != null) out.push({text: `Cantrips: ${cntCantrips}/${maxCantrips}`, isOver: cntCantrips > maxCantrips});
+			}
+
+			const knownEnt = [cls, sc].find(it => it?.spellsKnownProgression);
+			const preparedEnt = [cls, sc].find(it => it?.preparedSpells);
+			if (knownEnt) {
+				const maxKnown = getSpellsKnown(knownEnt, entry.level);
+				if (maxKnown != null) out.push({text: `Spells known: ${cntLeveled}/${maxKnown}`, isOver: cntLeveled > maxKnown});
+			} else if (preparedEnt) {
+				const abv = preparedEnt.spellcastingAbility;
+				const mod = abv ? getAbilityModifier(state, abv) : 0;
+				const maxPrep = getPreparedSpellCount(preparedEnt, entry.level, mod);
+				if (maxPrep != null) out.push({text: `Spells prepared: ${cntLeveled}/${maxPrep}`, isOver: cntLeveled > maxPrep});
+			}
+		});
+		return out;
+	}
+
+	_getCountsLine (countItems, {isBold = false} = {}) {
+		const disp = document.createElement("div");
+		disp.className = `ve-small ${isBold ? "ve-mb-1" : ""}`;
+		disp.innerHTML = countItems
+			.map(c => `<span class="${c.isOver ? "ve-text-danger bold" : "ve-muted"}" title="${c.isOver ? "Over the usual limit" : ""}">${c.text.qq()}</span>`)
+			.join(`<span class="ve-muted"> &middot; </span>`);
+		return disp;
+	}
+
 	/* -------------------------------------------- Known spells -------------------------------------------- */
 
 	async _pRenderKnown () {
 		const token = (this._knownToken = (this._knownToken || 0) + 1);
 		const known = this._comp._state.spellsKnown || [];
 		this._wrpKnown.innerHTML = "";
-		if (!known.length) return;
 
 		const byKey = await this._pEnsureSpellData();
 		if (token !== this._knownToken) return;
+		const granted = await this._pGetGrantedSpells();
+		if (token !== this._knownToken) return;
+		// A granted spell already chosen manually shouldn't appear twice.
+		const knownKeys = new Set(known.map(it => `${it.name.toLowerCase()}|${(it.source || "").toLowerCase()}`));
+		const grantedShown = granted.filter(sp => !knownKeys.has(`${sp.name.toLowerCase()}|${sp.source.toLowerCase()}`));
+
+		if (!known.length && !grantedShown.length) return;
 		const derivedSpell = deriveCharacterSheet(this._comp._getState()).spell;
 
-		const renderGroup = (className, spells) => {
-			if (className) {
+		// Prominent counts right above the list, so players see how many they may pick (red when over)
+		const countItems = this._getSpellCountItems(await this._pGetLoadedClasses());
+		if (token !== this._knownToken) return;
+		if (countItems.length) this._wrpKnown.appendChild(this._getCountsLine(countItems, {isBold: true}));
+
+		const renderGroup = (heading, spells, {isGranted = false} = {}) => {
+			if (heading) {
 				const hdr = document.createElement("div");
 				hdr.className = "bold ve-small ve-mt-1";
-				hdr.textContent = className;
+				hdr.textContent = heading;
 				this._wrpKnown.appendChild(hdr);
 			}
 			const byLevel = {};
@@ -272,7 +327,7 @@ export class CharacterSpellsPanel {
 				this._wrpKnown.appendChild(hdr);
 				byLevel[level]
 					.sort((a, b) => a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1)
-					.forEach(spell => this._wrpKnown.appendChild(this._getKnownSpellRow(spell, byKey, derivedSpell)));
+					.forEach(spell => this._wrpKnown.appendChild(this._getKnownSpellRow(spell, byKey, derivedSpell, {isGranted})));
 			});
 		};
 
@@ -283,13 +338,15 @@ export class CharacterSpellsPanel {
 				.forEach(className => renderGroup(className, known.filter(it => it.className === className)));
 			const unattributed = known.filter(it => !it.className);
 			if (unattributed.length) renderGroup(null, unattributed);
-			return;
+		} else if (known.length) {
+			renderGroup(null, known);
 		}
-		renderGroup(null, known);
+
+		if (grantedShown.length) renderGroup("Always Prepared (subclass)", grantedShown, {isGranted: true});
 	}
 
-	/** One known-spell row: the spell link (+ ritual marker), a compact cast summary, and a remove button. */
-	_getKnownSpellRow (spell, byKey, derivedSpell) {
+	/** One known-spell row: the spell link (+ ritual marker), a compact cast summary, and a remove button (or a granted marker). */
+	_getKnownSpellRow (spell, byKey, derivedSpell, {isGranted = false} = {}) {
 		const row = document.createElement("div");
 		row.className = "ve-small ve-mb-1 ve-flex-v-baseline";
 
@@ -306,6 +363,14 @@ export class CharacterSpellsPanel {
 			spnSum.className = "ve-muted ve-mr-1";
 			spnSum.textContent = `— ${summary}`;
 			row.appendChild(spnSum);
+		}
+
+		if (isGranted) {
+			const badge = document.createElement("span");
+			badge.className = "ve-muted ve-small ve-ml-auto ve-italic";
+			badge.textContent = "always prepared";
+			row.appendChild(badge);
+			return row;
 		}
 
 		const btnRm = document.createElement("button");
