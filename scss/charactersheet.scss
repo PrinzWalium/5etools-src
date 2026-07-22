@@ -56,6 +56,78 @@
 		border-bottom-color: rgb(255 255 255 / 12%);
 	}
 
+	// Feature cards: each class/subclass feature as an expandable card with its rules text inline.
+	.cs__feat-list {
+		margin-top: 6px;
+	}
+
+	.cs__feat-card {
+		border: 1px solid rgb(0 0 0 / 12%);
+		border-radius: 5px;
+		margin-bottom: 6px;
+		background: rgb(0 0 0 / 2%);
+	}
+
+	.ve-night-mode .cs__feat-card {
+		border-color: rgb(255 255 255 / 12%);
+		background: rgb(255 255 255 / 3%);
+	}
+
+	.cs__feat-card > summary {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 5px 8px;
+		cursor: pointer;
+		list-style: none;
+	}
+
+	.cs__feat-card > summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.cs__feat-card > summary::before {
+		content: "\25b8"; // ▸
+		opacity: 0.6;
+		transition: transform 0.1s ease;
+	}
+
+	.cs__feat-card[open] > summary::before {
+		transform: rotate(90deg);
+	}
+
+	.cs__feat-lvl {
+		flex: 0 0 auto;
+		font-size: 0.7em;
+		font-weight: bold;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		opacity: 0.7;
+		min-width: 2.2em;
+	}
+
+	.cs__feat-name {
+		flex: 1;
+		font-weight: bold;
+	}
+
+	.cs__feat-badge {
+		flex: 0 0 auto;
+		font-size: 0.7em;
+		font-weight: bold;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		padding: 1px 6px;
+		border-radius: 999px;
+		border: 1px solid currentcolor;
+		opacity: 0.85;
+	}
+
+	.cs__feat-body {
+		padding: 2px 10px 8px;
+		font-size: 0.9em;
+	}
+
 	.cs__hdr-name .cs__ipt-name {
 		font-size: 1.4em;
 		font-weight: bold;

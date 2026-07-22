@@ -602,30 +602,58 @@ export class CharacterClassPanel {
 		const timeline = CharacterSheetClassData.getFeatureTimeline(cls, {subclass: sc, level: entry.level});
 		if (!timeline.length) return;
 
-		const byLevel = {};
-		timeline.forEach(({level, feature, isSubclassFeature}) => {
-			(byLevel[level] = byLevel[level] || []).push({feature, isSubclassFeature});
+		const outer = document.createElement("details");
+		outer.open = true;
+		outer.innerHTML = `<summary class="ve-small ve-muted clickable">Features by level</summary>`;
+
+		const list = document.createElement("div");
+		list.className = "cs__feat-list";
+		timeline.forEach(meta => {
+			const card = this._getFeatureCard(meta);
+			if (card) list.appendChild(card);
 		});
+		outer.appendChild(list);
 
-		const details = document.createElement("details");
-		details.open = true;
-		details.innerHTML = `<summary class="ve-small ve-muted clickable">Features by level</summary>`;
+		wrp.appendChild(outer);
+	}
 
-		Object.entries(byLevel).forEach(([level, features]) => {
-			const div = document.createElement("div");
-			div.className = "ve-small";
-			const tags = features
-				.map(({feature, isSubclassFeature}) => isSubclassFeature
-					? CharacterClassPanel._getSubclassFeatureTag(feature)
-					: CharacterClassPanel._getClassFeatureTag(feature))
-				.filter(Boolean)
-				.join(", ");
-			if (!tags) return;
-			div.innerHTML = `<span class="ve-muted">L${level}:</span> ${Renderer.get().render(tags)}`;
-			details.appendChild(div);
-		});
+	/** One expandable feature card: level badge, name (hover link), subclass badge, and rendered rules text. */
+	_getFeatureCard ({level, feature, isSubclassFeature}) {
+		const {name} = CharacterSheetClassData.getFeatureNameMeta(feature);
+		if (!name) return null;
 
-		wrp.appendChild(details);
+		const tag = isSubclassFeature
+			? CharacterClassPanel._getSubclassFeatureTag(feature)
+			: CharacterClassPanel._getClassFeatureTag(feature);
+
+		const card = document.createElement("details");
+		card.className = "cs__feat-card";
+
+		const summary = document.createElement("summary");
+		const nameHtml = tag ? Renderer.get().render(tag) : name.qq();
+		summary.innerHTML = `
+			<span class="cs__feat-lvl">L${level}</span>
+			<span class="cs__feat-name">${nameHtml}</span>
+			${isSubclassFeature ? `<span class="cs__feat-badge">Subclass</span>` : ""}
+		`;
+		card.appendChild(summary);
+
+		const body = document.createElement("div");
+		body.className = "cs__feat-body";
+		const entries = this._getFeatureBodyEntries(feature);
+		body.innerHTML = entries.length
+			? Renderer.get().render({type: "entries", entries})
+			: `<span class="ve-muted ve-small">No rules text.</span>`;
+		card.appendChild(body);
+
+		return card;
+	}
+
+	/** The rules entries to show in a card body, drilling through the dereferencer's header-wrapper nesting. */
+	_getFeatureBodyEntries (feature) {
+		let cur = feature;
+		while (cur && cur.name == null && Array.isArray(cur.entries) && cur.entries.length === 1 && typeof cur.entries[0] === "object") cur = cur.entries[0];
+		return (cur?.entries || feature.entries || []).filter(Boolean);
 	}
 
 	/* -------------------------------------------- Spellcasting -------------------------------------------- */
