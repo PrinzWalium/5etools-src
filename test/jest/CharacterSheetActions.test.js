@@ -1,4 +1,4 @@
-import {buildActionEconomy, normaliseCastTime} from "../../js/charactersheet/charactersheet-actions.js";
+import {buildActionEconomy, getSpellSummary, normaliseCastTime} from "../../js/charactersheet/charactersheet-actions.js";
 
 describe("Action economy: casting-time normalisation", () => {
 	it("Should map a spell's time to an economy bucket", () => {
@@ -51,5 +51,23 @@ describe("Action economy: grouping", () => {
 	it("Should carry a renderable tag on features for hover links", () => {
 		const out = buildActionEconomy({features: [{name: "Cunning Action", tag: "{@classFeature Cunning Action|Rogue||2}"}]});
 		expect(out.bonus[0]).toMatchObject({label: "Cunning Action", kind: "feature", tag: "{@classFeature Cunning Action|Rogue||2}"});
+	});
+});
+
+describe("Spell summary line", () => {
+	it("Should summarise an attack cantrip with the character's spell attack", () => {
+		const firebolt = {time: [{number: 1, unit: "action"}], range: {distance: {type: "feet", amount: 120}}, spellAttack: ["R"], damageInflict: ["fire"]};
+		expect(getSpellSummary(firebolt, {dc: 15, atkMod: 7})).toBe("Action · 120 ft. · Ranged atk +7 · Fire");
+	});
+
+	it("Should summarise a save spell with the character's DC and concentration", () => {
+		const hold = {time: [{number: 1, unit: "action"}], range: {distance: {type: "feet", amount: 60}}, savingThrow: ["wisdom"], duration: [{concentration: true}]};
+		expect(getSpellSummary(hold, {dc: 14, atkMod: 6})).toBe("Action · 60 ft. · WIS save DC 14 · Conc.");
+	});
+
+	it("Should handle self/touch ranges and bonus-action timing, and empty for no entity", () => {
+		expect(getSpellSummary({time: [{number: 1, unit: "bonus"}], range: {distance: {type: "self"}}})).toBe("Bonus · Self");
+		expect(getSpellSummary({time: [{number: 1, unit: "action"}], range: {distance: {type: "touch"}}})).toBe("Action · Touch");
+		expect(getSpellSummary(null)).toBe("");
 	});
 });

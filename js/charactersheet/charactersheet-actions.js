@@ -36,6 +36,49 @@ export const FEATURE_ACTION_ECONOMY = {
 
 const _fmtBonus = n => `${n >= 0 ? "+" : "−"}${Math.abs(n)}`;
 
+/** Compact display of a spell's range (`{distance:{type, amount}}`). */
+function _fmtSpellRange (range) {
+	const d = range?.distance;
+	if (!d) return null;
+	if (d.type === "self") return "Self";
+	if (d.type === "touch") return "Touch";
+	if (d.type === "feet") return `${d.amount} ft.`;
+	if (d.type === "miles") return `${d.amount} mi.`;
+	if (d.type === "sight") return "Sight";
+	if (d.type === "unlimited") return "Unlimited";
+	return d.amount ? `${d.amount} ${d.type}` : (d.type || null);
+}
+
+/**
+ * A compact at-a-glance summary line for a known spell: casting time, range, attack or save
+ * (using the character's derived spell attack/DC when given), damage types, and concentration.
+ * @param ent the spell entity (or null → empty string)
+ * @param derivedSpell `{dc, atkMod}` from the character's derivation (optional)
+ */
+export function getSpellSummary (ent, derivedSpell = null) {
+	if (!ent) return "";
+	const parts = [];
+
+	const t = Array.isArray(ent.time) ? ent.time[0] : null;
+	if (t?.unit) parts.push(t.unit === "action" ? "Action" : t.unit === "bonus" ? "Bonus" : t.unit === "reaction" ? "Reaction" : `${t.number} ${t.unit}${t.number > 1 ? "s" : ""}`);
+
+	const rng = _fmtSpellRange(ent.range);
+	if (rng) parts.push(rng);
+
+	if (ent.spellAttack?.length) {
+		const bonus = derivedSpell ? ` ${_fmtBonus(derivedSpell.atkMod)}` : "";
+		parts.push(`${ent.spellAttack[0] === "M" ? "Melee" : "Ranged"} atk${bonus}`);
+	} else if (ent.savingThrow?.length) {
+		const abv = String(ent.savingThrow[0]).slice(0, 3).toUpperCase();
+		parts.push(`${abv} save${derivedSpell ? ` DC ${derivedSpell.dc}` : ""}`);
+	}
+
+	if (ent.damageInflict?.length) parts.push(ent.damageInflict.map(d => d[0].toUpperCase() + d.slice(1)).join("/"));
+	if (ent.duration?.some(d => d?.concentration)) parts.push("Conc.");
+
+	return parts.join(" · ");
+}
+
 /** Normalise a spell's `time` (array of `{number, unit}`, or a string) to an economy bucket. */
 export function normaliseCastTime (time) {
 	const unit = Array.isArray(time) ? time[0]?.unit : (typeof time === "string" ? time : null);

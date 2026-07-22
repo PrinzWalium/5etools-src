@@ -1,7 +1,7 @@
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {getCantripsKnown, getPreparedSpellCount, getSpellcastingMeta, getSpellsKnown} from "./charactersheet-levelengine.js";
-import {getAbilityModifier} from "./charactersheet-derive.js";
-import {normaliseCastTime} from "./charactersheet-actions.js";
+import {deriveCharacterSheet, getAbilityModifier} from "./charactersheet-derive.js";
+import {getSpellSummary, normaliseCastTime} from "./charactersheet-actions.js";
 
 /**
  * Tracked spellcasting: the known/prepared spell list (validated against the character's class
@@ -19,15 +19,25 @@ export class CharacterSpellsPanel {
 		this._comp._addHookBase("classes", () => this._pRenderSlots());
 		this._comp._addHookBase("slotsUsed", () => this._pRenderSlots());
 		this._comp._addHookBase("spellsKnown", () => {
-			this._renderKnown();
+			this._pRenderKnown();
 			this._pRenderSlots(); // known counts live in the slots block
 		});
+		// The spell-summary numbers depend on the spellcasting ability score/level, so refresh on those too.
+		["spellAbility", "level", "abil_int", "abil_wis", "abil_cha"].forEach(prop => this._comp._addHookBase(prop, () => this._pRenderKnown()));
 		document.getElementById("cs-spell-add").addEventListener("click", () => this._pOnAddSpell());
 		const btnBrowse = document.getElementById("cs-spell-browse");
 		if (btnBrowse) btnBrowse.addEventListener("click", () => this._pOnBrowseClassSpells());
 
-		this._renderKnown();
+		this._pRenderKnown();
 		this._pRenderSlots();
+	}
+
+	/** Cache spell entities by "name|source" (lowercased) for enriching the known list with cast details. */
+	async _pEnsureSpellData () {
+		if (this._spellByKey) return this._spellByKey;
+		const all = await CharacterSheetClassData.pGetAllSpells().catch(() => []);
+		this._spellByKey = new Map(all.map(sp => [`${sp.name.toLowerCase()}|${sp.source.toLowerCase()}`, sp]));
+		return this._spellByKey;
 	}
 
 	/* -------------------------------------------- Class-filtered spell manager -------------------------------------------- */
@@ -236,65 +246,76 @@ export class CharacterSpellsPanel {
 
 	/* -------------------------------------------- Known spells -------------------------------------------- */
 
-	_renderKnown () {
+	async _pRenderKnown () {
+		const token = (this._knownToken = (this._knownToken || 0) + 1);
 		const known = this._comp._state.spellsKnown || [];
 		this._wrpKnown.innerHTML = "";
 		if (!known.length) return;
+
+		const byKey = await this._pEnsureSpellData();
+		if (token !== this._knownToken) return;
+		const derivedSpell = deriveCharacterSheet(this._comp._getState()).spell;
+
+		const renderGroup = (className, spells) => {
+			if (className) {
+				const hdr = document.createElement("div");
+				hdr.className = "bold ve-small ve-mt-1";
+				hdr.textContent = className;
+				this._wrpKnown.appendChild(hdr);
+			}
+			const byLevel = {};
+			spells.forEach(spell => (byLevel[spell.level] = byLevel[spell.level] || []).push(spell));
+			Object.keys(byLevel).map(Number).sort((a, b) => a - b).forEach(level => {
+				const hdr = document.createElement("div");
+				hdr.className = "ve-muted ve-small ve-mt-1";
+				hdr.textContent = level === 0 ? "Cantrips" : Parser.spLevelToFull(level);
+				this._wrpKnown.appendChild(hdr);
+				byLevel[level]
+					.sort((a, b) => a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1)
+					.forEach(spell => this._wrpKnown.appendChild(this._getKnownSpellRow(spell, byKey, derivedSpell)));
+			});
+		};
 
 		// Group by class only when the character actually spreads spells across multiple classes
 		const distinctClasses = new Set(known.map(it => it.className).filter(Boolean));
 		if (distinctClasses.size > 1) {
 			[...distinctClasses].sort((a, b) => a.toLowerCase() < b.toLowerCase() ? -1 : 1)
-				.forEach(className => this._renderKnownGroup({className, spells: known.filter(it => it.className === className)}));
+				.forEach(className => renderGroup(className, known.filter(it => it.className === className)));
 			const unattributed = known.filter(it => !it.className);
-			if (unattributed.length) this._renderKnownGroup({className: null, spells: unattributed});
+			if (unattributed.length) renderGroup(null, unattributed);
 			return;
 		}
-
-		this._renderKnownGroup({className: null, spells: known});
+		renderGroup(null, known);
 	}
 
-	_renderKnownGroup ({className, spells}) {
-		if (className) {
-			const hdr = document.createElement("div");
-			hdr.className = "bold ve-small ve-mt-1";
-			hdr.textContent = className;
-			this._wrpKnown.appendChild(hdr);
+	/** One known-spell row: the spell link (+ ritual marker), a compact cast summary, and a remove button. */
+	_getKnownSpellRow (spell, byKey, derivedSpell) {
+		const row = document.createElement("div");
+		row.className = "ve-small ve-mb-1 ve-flex-v-baseline";
+
+		const spn = document.createElement("span");
+		spn.className = "ve-mr-1";
+		const ptRitual = spell.ritual ? ` <span class="ve-muted" title="Ritual">(R)</span>` : "";
+		spn.innerHTML = Renderer.get().render(`{@spell ${spell.name}${spell.source?.toLowerCase() !== "phb" ? `|${spell.source}` : ""}}`) + ptRitual;
+		row.appendChild(spn);
+
+		const ent = byKey.get(`${spell.name.toLowerCase()}|${(spell.source || "").toLowerCase()}`);
+		const summary = getSpellSummary(ent, derivedSpell);
+		if (summary) {
+			const spnSum = document.createElement("span");
+			spnSum.className = "ve-muted ve-mr-1";
+			spnSum.textContent = `— ${summary}`;
+			row.appendChild(spnSum);
 		}
 
-		const byLevel = {};
-		spells.forEach(spell => (byLevel[spell.level] = byLevel[spell.level] || []).push(spell));
-
-		Object.keys(byLevel)
-			.map(Number)
-			.sort((a, b) => a - b)
-			.forEach(level => {
-				const row = document.createElement("div");
-				row.className = "ve-small ve-mb-1";
-				const lbl = document.createElement("span");
-				lbl.className = "ve-muted";
-				lbl.textContent = `${level === 0 ? "Cantrips" : Parser.spLevelToFull(level)}: `;
-				row.appendChild(lbl);
-
-				byLevel[level]
-					.sort((a, b) => a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1)
-					.forEach(spell => {
-						const spn = document.createElement("span");
-						spn.className = "ve-mr-2";
-						const ptRitual = spell.ritual ? ` <span class="ve-muted" title="Ritual">(R)</span>` : "";
-						spn.innerHTML = Renderer.get().render(`{@spell ${spell.name}${spell.source?.toLowerCase() !== "phb" ? `|${spell.source}` : ""}}`) + ptRitual;
-						const btnRm = document.createElement("button");
-						btnRm.type = "button";
-						btnRm.className = "ve-btn ve-btn-xxs ve-btn-default no-print ve-ml-1";
-						btnRm.title = `Remove ${spell.name}`;
-						btnRm.textContent = "×";
-						btnRm.addEventListener("click", () => this._comp.removeKnownSpell(spell.id));
-						spn.appendChild(btnRm);
-						row.appendChild(spn);
-					});
-
-				this._wrpKnown.appendChild(row);
-			});
+		const btnRm = document.createElement("button");
+		btnRm.type = "button";
+		btnRm.className = "ve-btn ve-btn-xxs ve-btn-default no-print ve-ml-auto";
+		btnRm.title = `Remove ${spell.name}`;
+		btnRm.textContent = "×";
+		btnRm.addEventListener("click", () => this._comp.removeKnownSpell(spell.id));
+		row.appendChild(btnRm);
+		return row;
 	}
 
 	/** Names of the character's classes that can cast spells. */
