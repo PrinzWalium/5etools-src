@@ -88,8 +88,6 @@ export class CharacterClassPanel {
 		this._wrp.innerHTML = "";
 		this._renderOriginFeats();
 		loaded.forEach(meta => this._renderClassSection(meta));
-		this._renderExpertise(loaded);
-		this._renderWeaponMastery(loaded);
 		this._renderSpellcasting(loaded);
 		this._renderAddClass();
 	}
@@ -157,10 +155,7 @@ export class CharacterClassPanel {
 		}
 		wrp.appendChild(wrpHead);
 
-		this._renderSubclassRow({wrp, entry, cls});
 		this._renderResources({wrp, entry, cls, sc});
-		this._renderOptionalFeatureRows({wrp, entry, cls, sc});
-		this._renderAsiFeatRow({wrp, entry, cls});
 		this._renderFeatureTimeline({wrp, entry, cls, sc});
 
 		this._wrp.appendChild(wrp);
@@ -213,34 +208,43 @@ export class CharacterClassPanel {
 		return row;
 	}
 
-	/* -------------------------------------------- Expertise -------------------------------------------- */
+	/* -------------------------------------------- Choice boxes -------------------------------------------- */
 
-	_getExpertiseTotal (loaded) {
-		return (loaded || []).reduce((acc, {entry, cls}) => acc + (cls ? getExpertiseSkillCount(cls, entry.level) : 0), 0);
+	/** A highlighted box inside a feature card's body that holds that feature's inline chooser. */
+	_makeChoiceBox (body) {
+		const box = document.createElement("div");
+		box.className = "cs__feat-choice";
+		body.appendChild(box);
+		return box;
 	}
 
-	/** Render the Expertise chooser when the character's classes grant it (Rogue, Bard, ...). */
-	_renderExpertise (loaded) {
-		const total = this._getExpertiseTotal(loaded);
-		this._wrpExpertise = null;
-		if (!total) return;
+	/** A standalone choice box for choosers with no matching feature card (fallback below the timeline). */
+	_makeFallbackBox (container) {
+		const box = document.createElement("div");
+		box.className = "cs__feat-choice cs__feat-choice--loose";
+		container.appendChild(box);
+		return box;
+	}
 
-		const wrp = document.createElement("div");
-		wrp.className = "cs__panel ve-mb-2";
-		this._wrpExpertise = wrp;
-		this._wrp.appendChild(wrp);
+	/* -------------------------------------------- Expertise -------------------------------------------- */
+
+	/** Expertise chooser for one class, hosted inside its "Expertise" feature card. */
+	_renderExpertiseChooser (box, {entry, cls}) {
+		this._wrpExpertise = box;
+		this._expertiseCtx = {entry, cls};
 		this._fillExpertise();
 	}
 
-	/** Re-fill just the Expertise section (called on skill-proficiency changes). */
+	/** Re-fill just the Expertise chooser (called on skill-proficiency changes), preserving card state. */
 	_refreshExpertise () {
-		if (this._wrpExpertise?.isConnected) this._fillExpertise();
+		if (this._wrpExpertise?.isConnected && this._expertiseCtx) this._fillExpertise();
 	}
 
 	_fillExpertise () {
 		const wrp = this._wrpExpertise;
-		if (!wrp) return;
-		const total = this._getExpertiseTotal(this._loaded);
+		if (!wrp || !this._expertiseCtx) return;
+		const {cls, entry} = this._expertiseCtx;
+		const total = getExpertiseSkillCount(cls, entry.level);
 		const proficient = CHAR_SHEET_SKILLS.filter(({key}) => (Number(this._comp._state[`skill_${key}`]) || 0) >= PROF_STATE_PROFICIENT);
 
 		wrp.innerHTML = `<div class="ve-flex-v-center ve-mb-1"><span class="bold">Expertise</span> <span class="ve-muted ve-small ve-ml-1 cs__exp-count"></span></div>`;
@@ -248,13 +252,13 @@ export class CharacterClassPanel {
 
 		const renderCount = () => {
 			const nChosen = CHAR_SHEET_SKILLS.filter(({key}) => Number(this._comp._state[`skill_${key}`]) === PROF_STATE_EXPERTISE).length;
-			let cls = "ve-muted";
+			let clsName = "ve-muted";
 			let txt = `${nChosen}/${total} chosen`;
 			if (nChosen > total) {
-				cls = "ve-text-danger";
+				clsName = "ve-text-danger";
 				txt = `${nChosen}/${total} chosen — more than your features grant`;
 			} else if (nChosen < total) txt = `${nChosen}/${total} chosen — pick ${total - nChosen} more`;
-			dispCount.className = `ve-small ve-ml-1 cs__exp-count ${cls}`;
+			dispCount.className = `ve-small ve-ml-1 cs__exp-count ${clsName}`;
 			dispCount.textContent = txt;
 		};
 
@@ -288,62 +292,85 @@ export class CharacterClassPanel {
 
 	/* -------------------------------------------- Weapon Mastery (2024) -------------------------------------------- */
 
-	_getWeaponMasteryTotal (loaded) {
-		return (loaded || []).reduce((acc, {entry, cls}) => acc + (cls ? getWeaponMasteryCount(cls, entry.level) : 0), 0);
+	/** All weapons that have a mastery property, from item data (cached). Mastery is by weapon *type*, not ownership. */
+	_pGetMasteryWeapons () {
+		return this._pMasteryWeapons ||= (async () => {
+			const all = await Renderer.item.pBuildList();
+			const seen = new Set();
+			return all
+				// Base weapon *types* only (Longsword, Shortbow, ...) — not the thousands of magic variants.
+				.filter(it => it.mastery?.length && it.weapon && it._isBaseItem)
+				.map(it => ({name: it.name, source: it.source, mastery: it.mastery.map(m => String(m).split("|")[0])}))
+				.filter(it => { const k = it.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
+				.sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+		})();
 	}
 
-	_renderWeaponMastery (loaded) {
-		this._wrpMastery = null;
-		if (!this._getWeaponMasteryTotal(loaded)) return;
-		const wrp = document.createElement("div");
-		wrp.className = "cs__panel ve-mb-2";
-		this._wrpMastery = wrp;
-		this._wrp.appendChild(wrp);
+	/** Weapon-mastery chooser for one class, hosted inside its "Weapon Mastery" feature card. */
+	_renderWeaponMasteryChooser (box, {entry, cls}) {
+		this._wrpMastery = box;
+		this._wmCtx = {entry, cls};
 		this._fillWeaponMastery();
 	}
 
 	_refreshWeaponMastery () {
-		if (this._wrpMastery?.isConnected) this._fillWeaponMastery();
+		if (this._wrpMastery?.isConnected && this._wmCtx) this._fillWeaponMastery();
 	}
 
 	_fillWeaponMastery () {
 		const wrp = this._wrpMastery;
-		if (!wrp) return;
-		const total = this._getWeaponMasteryTotal(this._loaded);
-		const chosen = new Set(this._comp._state.weaponMasteries || []);
-		const weapons = (this._comp._state.inventory || []).filter(it => it.mastery?.length);
+		if (!wrp || !this._wmCtx) return;
+		const {cls, entry} = this._wmCtx;
+		const total = getWeaponMasteryCount(cls, entry.level);
+		const chosen = this._comp._state.weaponMasteries || [];
 
 		wrp.innerHTML = `<div class="ve-flex-v-center ve-mb-1"><span class="bold">Weapon Mastery</span> <span class="ve-small ve-ml-1 cs__wm-count"></span></div>`;
 		const dispCount = wrp.querySelector(".cs__wm-count");
-		const renderCount = () => {
-			const n = (this._comp._state.weaponMasteries || []).length;
-			dispCount.className = `ve-small ve-ml-1 cs__wm-count ${n > total ? "ve-text-danger" : "ve-muted"}`;
-			dispCount.textContent = n > total ? `${n}/${total} chosen — more than your class grants` : (n < total ? `${n}/${total} chosen — pick ${total - n} more` : `${n}/${total} chosen`);
-		};
+		const n = chosen.length;
+		dispCount.className = `ve-small ve-ml-1 cs__wm-count ${n > total ? "ve-text-danger" : "ve-muted"}`;
+		dispCount.textContent = n > total ? `${n}/${total} chosen — more than your class grants` : (n < total ? `${n}/${total} chosen — pick ${total - n} more` : `${n}/${total} chosen`);
 
-		if (!weapons.length) {
-			wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">Add weapons to your inventory, then choose up to ${total} whose mastery property you can use.</div>`);
-			renderCount();
-			return;
+		if (chosen.length) {
+			const wrpChosen = document.createElement("div");
+			wrpChosen.className = "ve-flex ve-flex-wrap ve-mb-1";
+			chosen.forEach(name => {
+				const spn = document.createElement("span");
+				spn.className = "ve-flex-v-center ve-mr-2 ve-mb-1 ve-small";
+				spn.innerHTML = `<span class="bold">${name.qq()}</span>`;
+				const btnRm = document.createElement("button");
+				btnRm.type = "button";
+				btnRm.className = "ve-btn ve-btn-xxs ve-btn-default no-print ve-ml-1";
+				btnRm.title = `Remove ${name}`;
+				btnRm.textContent = "×";
+				btnRm.addEventListener("click", () => this._comp.toggleWeaponMastery(name));
+				spn.appendChild(btnRm);
+				wrpChosen.appendChild(spn);
+			});
+			wrp.appendChild(wrpChosen);
 		}
 
-		const wrpOpts = document.createElement("div");
-		wrpOpts.className = "ve-flex ve-flex-wrap";
-		weapons.forEach(it => {
-			const lbl = document.createElement("label");
-			lbl.className = "ve-flex-v-center ve-mr-3 ve-mb-1 ve-small";
-			const cb = document.createElement("input");
-			cb.type = "checkbox";
-			cb.className = "ve-mr-1";
-			cb.checked = chosen.has(it.name);
-			cb.addEventListener("change", () => this._comp.toggleWeaponMastery(it.name));
-			const spn = document.createElement("span");
-			spn.innerHTML = `${it.name.qq()} <span class="ve-muted">(${it.mastery.join(", ").qq()})</span>`;
-			lbl.append(cb, spn);
-			wrpOpts.appendChild(lbl);
+		const btn = document.createElement("button");
+		btn.type = "button";
+		btn.className = "ve-btn ve-btn-xxs ve-btn-primary no-print";
+		btn.textContent = "Choose weapon…";
+		btn.addEventListener("click", () => this._pOnChooseWeaponMastery());
+		wrp.appendChild(btn);
+		wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small ve-mt-1">Pick the weapon types whose mastery property you can use — you need not own them.</div>`);
+	}
+
+	async _pOnChooseWeaponMastery () {
+		const chosen = this._comp._state.weaponMasteries || [];
+		const weapons = (await this._pGetMasteryWeapons()).filter(w => !chosen.includes(w.name));
+		if (!weapons.length) return;
+		const picked = await InputUiUtil.pGetUserEnum({
+			values: weapons,
+			isResolveItem: true,
+			fnDisplay: w => `${w.name} — ${w.mastery.join(", ")}`,
+			title: "Choose a weapon you have mastery with",
+			placeholder: "Select a weapon...",
 		});
-		wrp.appendChild(wrpOpts);
-		renderCount();
+		if (picked == null) return;
+		this._comp.toggleWeaponMastery(picked.name);
 	}
 
 	/* -------------------------------------------- Subclass -------------------------------------------- */
@@ -353,34 +380,26 @@ export class CharacterClassPanel {
 		return ix < 0 ? null : ix + 1;
 	}
 
-	_renderSubclassRow ({wrp, entry, cls}) {
-		const gainLevel = CharacterClassPanel._getSubclassGainLevel(cls);
-		if (gainLevel == null) return;
-
+	/** Subclass pick/change chooser, hosted inside the feature card that unlocks the subclass. */
+	_renderSubclassChooser (box, {entry, cls}) {
 		const title = cls.subclassTitle || "Subclass";
-		const row = document.createElement("div");
-		row.className = "ve-small ve-mb-1";
 
 		if (entry.subclass) {
-			row.innerHTML = `<span class="ve-muted">${title.qq()}:</span> <span class="bold">${entry.subclass.name.qq()}</span> <span class="ve-muted">(${Parser.sourceJsonToAbv(entry.subclass.source).qq()})</span> `;
+			box.innerHTML = `<span class="ve-muted">${title.qq()}:</span> <span class="bold">${entry.subclass.name.qq()}</span> <span class="ve-muted">(${Parser.sourceJsonToAbv(entry.subclass.source).qq()})</span> `;
 			const btnChange = document.createElement("button");
 			btnChange.type = "button";
 			btnChange.className = "ve-btn ve-btn-xxs ve-btn-default no-print";
 			btnChange.textContent = "Change";
 			btnChange.addEventListener("click", () => this._pOnChooseSubclass({entry, cls}));
-			row.appendChild(btnChange);
-		} else if (entry.level >= gainLevel) {
+			box.appendChild(btnChange);
+		} else {
 			const btn = document.createElement("button");
 			btn.type = "button";
 			btn.className = "ve-btn ve-btn-xs ve-btn-primary no-print";
 			btn.textContent = `Choose ${title}...`;
 			btn.addEventListener("click", () => this._pOnChooseSubclass({entry, cls}));
-			row.appendChild(btn);
-		} else {
-			row.innerHTML = `<span class="ve-muted">${title.qq()} unlocks at level ${gainLevel}</span>`;
+			box.appendChild(btn);
 		}
-
-		wrp.appendChild(row);
 	}
 
 	async _pOnChooseSubclass ({entry, cls}) {
@@ -399,50 +418,38 @@ export class CharacterClassPanel {
 
 	/* -------------------------------------------- Optional features -------------------------------------------- */
 
-	_renderOptionalFeatureRows ({wrp, entry, cls, sc}) {
-		const progressions = [
-			...getOptionalFeatureCounts(cls, entry.level),
-			...(sc ? getOptionalFeatureCounts(sc, entry.level) : []),
-		];
-		if (!progressions.length) return;
+	/** One optional-feature progression chooser (Fighting Style, Maneuvers, Invocations, ...) for its feature card. */
+	_renderOptionalFeatureChooser (box, {entry, prog}) {
+		const chosenForProg = (entry.optionalFeatures || []).filter(it => it.progressionName === prog.name);
 
-		const chosen = entry.optionalFeatures || [];
+		const wrpLabel = document.createElement("span");
+		const remaining = prog.count - chosenForProg.length;
+		wrpLabel.className = remaining > 0 ? "ve-text-danger bold" : "ve-muted";
+		wrpLabel.textContent = `${prog.name} (${chosenForProg.length}/${prog.count}): `;
+		box.appendChild(wrpLabel);
 
-		progressions.forEach(prog => {
-			const chosenForProg = chosen.filter(it => it.progressionName === prog.name);
-			const row = document.createElement("div");
-			row.className = "ve-small ve-mb-1";
-
-			const wrpLabel = document.createElement("span");
-			wrpLabel.className = "ve-muted";
-			wrpLabel.textContent = `${prog.name} (${chosenForProg.length}/${prog.count}): `;
-			row.appendChild(wrpLabel);
-
-			chosenForProg.forEach(feat => {
-				const spn = document.createElement("span");
-				spn.className = "ve-mr-1";
-				spn.innerHTML = Renderer.get().render(CharacterClassPanel._getOptionalFeatureTag(feat));
-				const btnRm = document.createElement("button");
-				btnRm.type = "button";
-				btnRm.className = "ve-btn ve-btn-xxs ve-btn-default no-print";
-				btnRm.title = `Remove ${feat.name}`;
-				btnRm.textContent = "×";
-				btnRm.addEventListener("click", () => this._comp.removeOptionalFeatureForClass(entry.id, feat));
-				spn.appendChild(btnRm);
-				row.appendChild(spn);
-			});
-
-			if (chosenForProg.length < prog.count) {
-				const btn = document.createElement("button");
-				btn.type = "button";
-				btn.className = "ve-btn ve-btn-xxs ve-btn-primary no-print";
-				btn.textContent = `Choose...`;
-				btn.addEventListener("click", () => this._pOnChooseOptionalFeature({entry, prog}));
-				row.appendChild(btn);
-			}
-
-			wrp.appendChild(row);
+		chosenForProg.forEach(feat => {
+			const spn = document.createElement("span");
+			spn.className = "ve-mr-1";
+			spn.innerHTML = Renderer.get().render(CharacterClassPanel._getOptionalFeatureTag(feat));
+			const btnRm = document.createElement("button");
+			btnRm.type = "button";
+			btnRm.className = "ve-btn ve-btn-xxs ve-btn-default no-print";
+			btnRm.title = `Remove ${feat.name}`;
+			btnRm.textContent = "×";
+			btnRm.addEventListener("click", () => this._comp.removeOptionalFeatureForClass(entry.id, feat));
+			spn.appendChild(btnRm);
+			box.appendChild(spn);
 		});
+
+		if (chosenForProg.length < prog.count) {
+			const btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = "ve-btn ve-btn-xxs ve-btn-primary no-print";
+			btn.textContent = `Choose...`;
+			btn.addEventListener("click", () => this._pOnChooseOptionalFeature({entry, prog}));
+			box.appendChild(btn);
+		}
 	}
 
 	async _pOnChooseOptionalFeature ({entry, prog}) {
@@ -462,21 +469,16 @@ export class CharacterClassPanel {
 
 	/* -------------------------------------------- ASI / feats -------------------------------------------- */
 
-	_renderAsiFeatRow ({wrp, entry, cls}) {
-		const total = getAsiCount(cls, entry.level);
-		if (!total) return;
-		const chosen = entry.asiFeatChoices || [];
+	/** One ASI-or-feat slot, hosted inside an "Ability Score Improvement" feature card. */
+	_renderAsiSlot (box, {entry, slotIndex}) {
+		const choice = (entry.asiFeatChoices || [])[slotIndex];
 
-		const row = document.createElement("div");
-		row.className = "ve-small ve-mb-1";
-
-		const remaining = total - chosen.length;
 		const lbl = document.createElement("span");
-		lbl.className = remaining > 0 ? "ve-text-danger bold" : "ve-muted";
-		lbl.textContent = `ASI / Feats (${Math.min(chosen.length, total)}/${total}): `;
-		row.appendChild(lbl);
+		lbl.className = choice ? "ve-muted" : "ve-text-danger bold";
+		lbl.textContent = "Ability Score Improvement or Feat: ";
+		box.appendChild(lbl);
 
-		chosen.forEach(choice => {
+		if (choice) {
 			const spn = document.createElement("span");
 			spn.className = "ve-mr-1";
 			if (choice.type === "feat") {
@@ -491,19 +493,15 @@ export class CharacterClassPanel {
 			btnRm.textContent = "×";
 			btnRm.addEventListener("click", () => this._comp.removeAsiFeatChoice(entry.id, choice.id));
 			spn.appendChild(btnRm);
-			row.appendChild(spn);
-		});
-
-		if (remaining > 0) {
+			box.appendChild(spn);
+		} else {
 			const btn = document.createElement("button");
 			btn.type = "button";
 			btn.className = "ve-btn ve-btn-xxs ve-btn-primary no-print";
-			btn.textContent = `Choose ASI or Feat (${remaining} left)`;
+			btn.textContent = "Choose ASI or Feat";
 			btn.addEventListener("click", () => this._pOnChooseAsiFeat({entry}));
-			row.appendChild(btn);
+			box.appendChild(btn);
 		}
-
-		wrp.appendChild(row);
 	}
 
 	async _pOnChooseAsiFeat ({entry}) {
@@ -598,9 +596,25 @@ export class CharacterClassPanel {
 
 	/* -------------------------------------------- Feature timeline -------------------------------------------- */
 
+	/** Per-class-section chooser context: which inline choices attach to which feature cards. */
+	_getSectionChoosers ({entry, cls, sc}) {
+		const optionalProgs = new Map();
+		[...getOptionalFeatureCounts(cls, entry.level), ...(sc ? getOptionalFeatureCounts(sc, entry.level) : [])]
+			.forEach(prog => { if (!optionalProgs.has(prog.name)) optionalProgs.set(prog.name, prog); });
+		return {
+			gainLevel: CharacterClassPanel._getSubclassGainLevel(cls),
+			expertiseTotal: getExpertiseSkillCount(cls, entry.level),
+			wmTotal: getWeaponMasteryCount(cls, entry.level),
+			asiTotal: getAsiCount(cls, entry.level),
+			optionalProgs,
+		};
+	}
+
 	_renderFeatureTimeline ({wrp, entry, cls, sc}) {
 		const timeline = CharacterSheetClassData.getFeatureTimeline(cls, {subclass: sc, level: entry.level});
 		if (!timeline.length) return;
+
+		const ctx = this._getSectionChoosers({entry, cls, sc});
 
 		const outer = document.createElement("details");
 		outer.open = true;
@@ -608,11 +622,63 @@ export class CharacterClassPanel {
 
 		const list = document.createElement("div");
 		list.className = "cs__feat-list";
+
+		const done = {expertise: false, wm: false, opt: new Set()};
+		let asiOrdinal = 0;
+
 		timeline.forEach(meta => {
 			const card = this._getFeatureCard(meta);
-			if (card) list.appendChild(card);
+			if (!card) return;
+			const body = card.querySelector(".cs__feat-body");
+			const {feature, isSubclassFeature} = meta;
+			const {name} = CharacterSheetClassData.getFeatureNameMeta(feature);
+			let unmet = false;
+
+			if (!isSubclassFeature && feature.gainSubclassFeature && ctx.gainLevel != null) {
+				this._renderSubclassChooser(this._makeChoiceBox(body), {entry, cls});
+				unmet = unmet || (!entry.subclass && entry.level >= ctx.gainLevel);
+			}
+			if (name === "Ability Score Improvement" && ctx.asiTotal) {
+				const slotIndex = asiOrdinal++;
+				this._renderAsiSlot(this._makeChoiceBox(body), {entry, slotIndex});
+				unmet = unmet || !((entry.asiFeatChoices || [])[slotIndex]);
+			}
+			if (name === "Expertise" && ctx.expertiseTotal && !done.expertise) {
+				this._renderExpertiseChooser(this._makeChoiceBox(body), {entry, cls});
+				done.expertise = true;
+				const nExp = CHAR_SHEET_SKILLS.filter(({key}) => Number(this._comp._state[`skill_${key}`]) === PROF_STATE_EXPERTISE).length;
+				unmet = unmet || nExp < ctx.expertiseTotal;
+			}
+			if (name === "Weapon Mastery" && ctx.wmTotal && !done.wm) {
+				this._renderWeaponMasteryChooser(this._makeChoiceBox(body), {entry, cls});
+				done.wm = true;
+				unmet = unmet || (this._comp._state.weaponMasteries || []).length < ctx.wmTotal;
+			}
+			const prog = ctx.optionalProgs.get(name);
+			if (prog && !done.opt.has(name)) {
+				this._renderOptionalFeatureChooser(this._makeChoiceBox(body), {entry, prog});
+				done.opt.add(name);
+				unmet = unmet || (entry.optionalFeatures || []).filter(f => f.progressionName === prog.name).length < prog.count;
+			}
+
+			if (unmet) card.open = true;
+			list.appendChild(card);
 		});
+
 		outer.appendChild(list);
+
+		// Fallbacks: choosers with no matching feature card still need somewhere to live.
+		const fallback = document.createElement("div");
+		fallback.className = "ve-mt-1";
+		if (ctx.gainLevel != null && !entry.subclass && entry.level < ctx.gainLevel) {
+			const title = cls.subclassTitle || "Subclass";
+			fallback.insertAdjacentHTML("beforeend", `<div class="ve-small ve-muted">${title.qq()} unlocks at level ${ctx.gainLevel}.</div>`);
+		}
+		if (ctx.expertiseTotal && !done.expertise) this._renderExpertiseChooser(this._makeFallbackBox(fallback), {entry, cls});
+		if (ctx.wmTotal && !done.wm) this._renderWeaponMasteryChooser(this._makeFallbackBox(fallback), {entry, cls});
+		ctx.optionalProgs.forEach((prog, nm) => { if (!done.opt.has(nm)) this._renderOptionalFeatureChooser(this._makeFallbackBox(fallback), {entry, prog}); });
+		for (let i = asiOrdinal; i < ctx.asiTotal; ++i) this._renderAsiSlot(this._makeFallbackBox(fallback), {entry, slotIndex: i});
+		if (fallback.childNodes.length) outer.appendChild(fallback);
 
 		wrp.appendChild(outer);
 	}
