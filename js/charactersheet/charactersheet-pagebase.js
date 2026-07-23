@@ -1,11 +1,11 @@
-import {CHAR_SHEET_ABILITIES} from "./charactersheet-consts.js";
+import {CHAR_SHEET_ABILITIES, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
 import {CharacterModel} from "./charactersheet-model.js";
 import {getCharacterLabel, getMigratedStore, getNewStore} from "./charactersheet-charstore.js";
 import {getLevelUpHp} from "./charactersheet-levelengine.js";
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {CharacterWizard} from "./charactersheet-wizard.js";
-import {getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats} from "./charactersheet-choices.js";
-import {pResolveFeat} from "./charactersheet-featgrant.js";
+import {CHOICE_TYPE_ABILITY, CHOICE_TYPE_LANGUAGE, CHOICE_TYPE_SKILL, CHOICE_TYPE_TOOL, getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats, getPendingChoices} from "./charactersheet-choices.js";
+import {pPickList, pResolveFeat} from "./charactersheet-featgrant.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -211,18 +211,47 @@ export class CharacterPageBase {
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
 		this._comp.applyPickedRace({doc, ent});
-		if (ent) await this._pOfferAbilityBonuses(ent, doc.n);
+		if (ent) {
+			await this._pOfferAbilityBonuses(ent, doc.n);
+			await this._pResolveProficiencyChoices({ent, kind: "race"});
+		}
 	}
 
 	async _onPickBackground () {
 		const doc = await SearchWidget.pGetUserBackgroundSearch();
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
-		this._comp.applyPickedBackground({doc, ent});
+		// Fixed proficiencies apply directly; the "N of your choice" ones are resolved interactively below.
+		this._comp.applyPickedBackground({doc, ent, isFixedOnly: true});
 		if (ent) {
 			await this._pOfferAbilityBonuses(ent, doc.n);
+			await this._pResolveProficiencyChoices({ent, kind: "background"});
 			await this._pGrantBackgroundFeats(ent);
 		}
+	}
+
+	/**
+	 * Resolve the choice-based skill/language/tool proficiencies a species or background grants
+	 * (e.g. "choose 2 skills", "one tool of your choice") — the same choices the wizard's Choices
+	 * step surfaces. Skills apply to the sheet; tools/languages have no structured store, so they
+	 * become proficiency notes. Ability-score choices are handled separately by `_pOfferAbilityBonuses`.
+	 */
+	async _pResolveProficiencyChoices ({ent, kind}) {
+		const choices = getPendingChoices({[kind]: ent}).filter(c => c.type !== CHOICE_TYPE_ABILITY);
+		if (!choices.length) return;
+
+		const langs = [];
+		const tools = [];
+		for (const choice of choices) {
+			const picked = await pPickList({count: choice.count, from: choice.from, title: `${ent.name}: ${choice.label}`});
+			(picked || []).forEach(name => {
+				if (choice.type === CHOICE_TYPE_SKILL) this._comp.setSkillProfByName(name, PROF_STATE_PROFICIENT);
+				else if (choice.type === CHOICE_TYPE_LANGUAGE) langs.push(name);
+				else if (choice.type === CHOICE_TYPE_TOOL) tools.push(name);
+			});
+		}
+		if (tools.length) this._comp.appendToTextProp("proficienciesText", `Tools (${ent.name}): ${tools.join(", ")}`);
+		if (langs.length) this._comp.appendToTextProp("proficienciesText", `Languages (${ent.name}): ${langs.join(", ")}`);
 	}
 
 	/**
