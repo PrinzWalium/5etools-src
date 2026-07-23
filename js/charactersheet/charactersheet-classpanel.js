@@ -37,6 +37,8 @@ export class CharacterClassPanel {
 		this._comp._addHookBase("weaponMasteries", () => this._refreshWeaponMastery());
 		// Expended class resources (Rages, Ki, Wild Shape, ...) re-render the timeline's resource rows.
 		this._comp._addHookBase("resourcesUsed", () => this._pRender());
+		// Feats granted by a feature (Fighting Style, Epic Boon, ...) re-render the timeline.
+		this._comp._addHookBase("featureFeats", () => this._pRender());
 		this._pRender();
 	}
 
@@ -467,6 +469,72 @@ export class CharacterClassPanel {
 		this._comp.addOptionalFeatureForClass(entry.id, {name: feat.name, source: feat.source, progressionName: prog.name});
 	}
 
+	/* -------------------------------------------- Feature-granted feats (Fighting Style, ...) -------------------------------------------- */
+
+	static _FEAT_CATEGORY_LABELS = {FS: "Fighting Style", EB: "Epic Boon", G: "General Feat", O: "Origin Feat"};
+
+	static _featMatchesCategory (feat, category) {
+		const c = String(feat.category || "");
+		return c === category || c.split(":")[0] === category;
+	}
+
+	/** Chooser for a feat a feature grants by category (2024 Fighting Style, Epic Boon, ...), hosted in its card. */
+	_renderFeatureFeatChooser (box, {entry, featureKey, grant}) {
+		const label = CharacterClassPanel._FEAT_CATEGORY_LABELS[grant.category] || "Feat";
+		const count = grant.count || 1;
+		const chosen = (this._comp._state.featureFeats || []).filter(it => it.entryId === entry.id && it.featureKey === featureKey && it.category === grant.category);
+
+		const lbl = document.createElement("span");
+		lbl.className = chosen.length < count ? "ve-text-danger bold" : "ve-muted";
+		lbl.textContent = `${label} (${chosen.length}/${count}): `;
+		box.appendChild(lbl);
+
+		chosen.forEach(f => {
+			const spn = document.createElement("span");
+			spn.className = "ve-mr-1";
+			spn.innerHTML = Renderer.get().render(`{@feat ${f.name}${f.source !== Parser.SRC_PHB ? `|${f.source}` : ""}}`);
+			const btnRm = document.createElement("button");
+			btnRm.type = "button";
+			btnRm.className = "ve-btn ve-btn-xxs ve-btn-default no-print ve-ml-1";
+			btnRm.title = `Remove ${f.name}`;
+			btnRm.textContent = "×";
+			btnRm.addEventListener("click", () => this._comp.removeFeatureFeat(f.id));
+			spn.appendChild(btnRm);
+			box.appendChild(spn);
+		});
+
+		if (chosen.length < count) {
+			const btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = "ve-btn ve-btn-xxs ve-btn-primary no-print";
+			btn.textContent = `Choose ${label}...`;
+			btn.addEventListener("click", () => this._pOnChooseFeatureFeat({entry, featureKey, grant}));
+			box.appendChild(btn);
+		}
+	}
+
+	async _pOnChooseFeatureFeat ({entry, featureKey, grant}) {
+		const label = CharacterClassPanel._FEAT_CATEGORY_LABELS[grant.category] || "Feat";
+		const chosenUids = new Set((this._comp._state.featureFeats || [])
+			.filter(it => it.entryId === entry.id && it.featureKey === featureKey)
+			.map(it => `${it.name}|${it.source}`));
+		const pool = (await CharacterSheetClassData.pGetAllFeats())
+			.filter(f => CharacterClassPanel._featMatchesCategory(f, grant.category))
+			.filter(f => !chosenUids.has(`${f.name}|${f.source}`));
+		if (!pool.length) return;
+		const feat = await InputUiUtil.pGetUserEnum({
+			values: pool,
+			isResolveItem: true,
+			fnDisplay: f => `${f.name} (${Parser.sourceJsonToAbv(f.source)})`,
+			title: `Select ${label}`,
+			placeholder: "Select...",
+		});
+		if (feat == null) return;
+		const bonuses = await pResolveFeat(this._comp, feat);
+		if (bonuses == null) return;
+		this._comp.addFeatureFeat({entryId: entry.id, featureKey, category: grant.category, name: feat.name, source: feat.source, bonuses});
+	}
+
 	/* -------------------------------------------- ASI / feats -------------------------------------------- */
 
 	/** One ASI-or-feat slot, hosted inside an "Ability Score Improvement" feature card. */
@@ -660,6 +728,13 @@ export class CharacterClassPanel {
 				done.opt.add(name);
 				unmet = unmet || (entry.optionalFeatures || []).filter(f => f.progressionName === prog.name).length < prog.count;
 			}
+			// Feats a feature grants by category (2024 Fighting Style, Epic Boon, ...)
+			CharacterSheetClassData.getFeatureFeatGrants(feature).forEach(grant => {
+				const featureKey = `${name}@${meta.level}`;
+				this._renderFeatureFeatChooser(this._makeChoiceBox(body), {entry, featureKey, grant});
+				const chosenN = (this._comp._state.featureFeats || []).filter(it => it.entryId === entry.id && it.featureKey === featureKey && it.category === grant.category).length;
+				unmet = unmet || chosenN < (grant.count || 1);
+			});
 
 			if (unmet) card.open = true;
 			list.appendChild(card);

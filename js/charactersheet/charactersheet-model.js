@@ -93,6 +93,7 @@ export class CharacterModel extends BaseComponent {
 			inventory: [], // [{id, name, source, quantity, weightLb}]
 			weaponMasteries: [], // inventory weapon names whose mastery property is active
 			originFeats: [], // [{id, name, source, bonuses}] — feats granted by a 2024 background
+			featureFeats: [], // [{id, entryId, featureKey, category, name, source, bonuses}] — feats a class feature grants (Fighting Style, Epic Boon, ...)
 
 			spellAbility: "",
 			spellsText: "",
@@ -235,6 +236,21 @@ export class CharacterModel extends BaseComponent {
 		if (!feat) return;
 		if (feat.bonuses) this.applyAbilityBonuses(feat.bonuses, {isRevert: true});
 		this._state.originFeats = this._state.originFeats.filter(it => it.id !== id);
+	}
+
+	/** Record a feat granted by a class feature (Fighting Style, Epic Boon, ...), scoped to that feature occurrence. */
+	addFeatureFeat ({entryId, featureKey, category, name, source, bonuses = null}) {
+		if (this._state.featureFeats.some(it => it.entryId === entryId && it.featureKey === featureKey && it.name === name && it.source === source)) return false;
+		this._state.featureFeats = [...this._state.featureFeats, {id: CryptUtil.uid(), entryId, featureKey, category, name, source, bonuses}];
+		if (bonuses) this.applyAbilityBonuses(bonuses);
+		return true;
+	}
+
+	removeFeatureFeat (id) {
+		const feat = this._state.featureFeats.find(it => it.id === id);
+		if (!feat) return;
+		if (feat.bonuses) this.applyAbilityBonuses(feat.bonuses, {isRevert: true});
+		this._state.featureFeats = this._state.featureFeats.filter(it => it.id !== id);
 	}
 
 	/** Toggle an owned weapon's mastery as active. */

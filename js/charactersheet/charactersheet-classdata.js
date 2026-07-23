@@ -205,6 +205,27 @@ export class CharacterSheetClassData {
 	}
 
 	/**
+	 * Feat categories a feature grants by choice (e.g. 2024 Fighting Style / Epic Boon), read from
+	 * `{@filter ...|feats|category=FS}` references in its prose. Returns distinct `{category}` grants.
+	 */
+	static getFeatureFeatGrants (feature) {
+		const cats = new Set();
+		const walk = node => {
+			if (Array.isArray(node)) return node.forEach(walk);
+			if (node && typeof node === "object") return walk(node.entries);
+			if (typeof node !== "string") return;
+			const re = /\{@filter [^|}]*\|feats\|([^}]*)\}/g;
+			let m;
+			while ((m = re.exec(node))) {
+				const cat = /category=([^|}]+)/.exec(m[1]);
+				if (cat) cats.add(cat[1].trim());
+			}
+		};
+		walk(feature?.entries);
+		return [...cats].map(category => ({category}));
+	}
+
+	/**
 	 * Resolved class feature entries gained at exactly `level`.
 	 * Entries flagged `gainSubclassFeature: true` mark where subclass features slot into the timeline.
 	 */
