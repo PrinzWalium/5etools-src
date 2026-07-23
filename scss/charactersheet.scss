@@ -128,6 +128,20 @@
 		font-size: 0.9em;
 	}
 
+	// Marker on a card that holds inline choices (pencil): amber while unmet, muted once chosen.
+	.cs__feat-mark {
+		flex: 0 0 auto;
+		font-size: 0.85em;
+	}
+
+	.cs__feat-mark--unmet {
+		color: #d9822b;
+	}
+
+	.cs__feat-mark--done {
+		opacity: 0.4;
+	}
+
 	// The inline chooser inside a feature card (subclass pick, ASI slot, Expertise, Weapon Mastery, ...).
 	.cs__feat-choice {
 		margin-top: 6px;

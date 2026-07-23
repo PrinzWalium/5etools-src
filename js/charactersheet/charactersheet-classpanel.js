@@ -695,11 +695,17 @@ export class CharacterClassPanel {
 		let asiOrdinal = 0;
 
 		timeline.forEach(meta => {
+			const {feature, isSubclassFeature} = meta;
+			const {name} = CharacterSheetClassData.getFeatureNameMeta(feature);
+
+			// Skip the generic "you gain a Subclass feature" marker features above the subclass-gain
+			// level — they add nothing beyond the actual granted subclass feature, which is its own card.
+			// (The subclass picker lives on the gain-level card.)
+			if (!isSubclassFeature && feature.gainSubclassFeature && ctx.gainLevel != null && meta.level > ctx.gainLevel) return;
+
 			const card = this._getFeatureCard(meta);
 			if (!card) return;
 			const body = card.querySelector(".cs__feat-body");
-			const {feature, isSubclassFeature} = meta;
-			const {name} = CharacterSheetClassData.getFeatureNameMeta(feature);
 			let unmet = false;
 
 			if (!isSubclassFeature && feature.gainSubclassFeature && ctx.gainLevel != null) {
@@ -736,7 +742,8 @@ export class CharacterClassPanel {
 				unmet = unmet || chosenN < (grant.count || 1);
 			});
 
-			if (unmet) card.open = true;
+			// Cards stay closed by default; a marker flags those that hold choices (amber = still to pick).
+			if (body.querySelector(".cs__feat-choice")) this._addChoiceMark(card, unmet);
 			list.appendChild(card);
 		});
 
@@ -795,6 +802,15 @@ export class CharacterClassPanel {
 		let cur = feature;
 		while (cur && cur.name == null && Array.isArray(cur.entries) && cur.entries.length === 1 && typeof cur.entries[0] === "object") cur = cur.entries[0];
 		return (cur?.entries || feature.entries || []).filter(Boolean);
+	}
+
+	/** Flag a card that holds choices: amber pencil while a choice is unmet, muted once all are made. */
+	_addChoiceMark (card, unmet) {
+		const mark = document.createElement("span");
+		mark.className = `cs__feat-mark ${unmet ? "cs__feat-mark--unmet" : "cs__feat-mark--done"}`;
+		mark.title = unmet ? "Options to choose" : "Options chosen";
+		mark.innerHTML = `<span class="glyphicon glyphicon-pencil"></span>`;
+		card.querySelector("summary").appendChild(mark);
 	}
 
 	/* -------------------------------------------- Spellcasting -------------------------------------------- */
