@@ -128,11 +128,12 @@ export class CharacterSpellsPanel {
 	}
 
 	async _pOnChooseGrantedSpell (grant) {
+		// Exclude by name, not name+source: the same spell reprinted in two books is still one spell.
 		const chosenKeys = new Set((this._comp._state.grantedSpellChoices || [])
 			.filter(it => it.grantKey === grant.grantKey)
-			.map(it => `${it.name.toLowerCase()}|${it.source.toLowerCase()}`));
+			.map(it => it.name.toLowerCase()));
 		const pool = (await this._pGetSpellsForGrant(grant))
-			.filter(sp => !chosenKeys.has(`${sp.name.toLowerCase()}|${sp.source.toLowerCase()}`))
+			.filter(sp => !chosenKeys.has(sp.name.toLowerCase()))
 			.sort((a, b) => (a.level - b.level) || SortUtil.ascSortLower(a.name, b.name));
 		if (!pool.length) return;
 

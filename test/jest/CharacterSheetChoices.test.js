@@ -1,5 +1,6 @@
 import "../../js/parser.js";
 import {
+	getResistChoices,
 	CHOICE_TYPE_ABILITY,
 	CHOICE_TYPE_EXPERTISE,
 	CHOICE_TYPE_LANGUAGE,
@@ -181,5 +182,27 @@ describe("Ability score methods", () => {
 		expect(isValidStandardArrayAssignment({str: 15, dex: 15, con: 13, int: 12, wis: 10, cha: 8})).toBe(false);
 		expect(isValidStandardArrayAssignment({str: 15, dex: 14, con: 13, int: 12, wis: 10, cha: null})).toBe(false);
 		expect(STANDARD_ARRAY).toHaveLength(6);
+	});
+});
+
+describe("Choices: damage-resistance picks", () => {
+	it("Extracts a Dragonborn-style draconic ancestry choice", () => {
+		const groups = [{choose: {from: ["acid", "lightning", "fire", "poison", "cold"]}}];
+		const [choice] = getResistChoices({groups, sourceName: "Dragonborn"});
+		expect(choice).toMatchObject({type: "resist", sourceName: "Dragonborn", count: 1});
+		expect(choice.from).toEqual(["Acid", "Lightning", "Fire", "Poison", "Cold"]);
+		expect(choice.label).toBe("Choose 1 damage resistance");
+	});
+
+	it("Honours a count above one", () => {
+		const [choice] = getResistChoices({groups: [{choose: {from: ["fire", "cold"], count: 2}}], sourceName: "X"});
+		expect(choice.count).toBe(2);
+		expect(choice.label).toBe("Choose 2 damage resistances");
+	});
+
+	it("Ignores fixed resistances and empty input", () => {
+		expect(getResistChoices({groups: ["fire"], sourceName: "X"})).toEqual([]);
+		expect(getResistChoices({groups: [], sourceName: "X"})).toEqual([]);
+		expect(getResistChoices({groups: null, sourceName: "X"})).toEqual([]);
 	});
 });

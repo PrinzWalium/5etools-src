@@ -283,7 +283,7 @@ export function getGrantedSpellUids (clsOrSc, level) {
  * @return {{levels: number[], classes: string[]}}
  */
 export function parseSpellFilter (str) {
-	const out = {levels: [], classes: []};
+	const out = {levels: [], classes: [], schools: []};
 	String(str || "").split("|").forEach(part => {
 		const ix = part.indexOf("=");
 		if (ix < 0) return;
@@ -291,6 +291,7 @@ export function parseSpellFilter (str) {
 		const vals = part.slice(ix + 1).split(";").map(v => v.trim()).filter(Boolean);
 		if (key === "level") out.levels.push(...vals.map(Number).filter(n => !isNaN(n)));
 		else if (key === "class") out.classes.push(...vals.map(v => v.toLowerCase()));
+		else if (key === "school") out.schools.push(...vals.map(v => v.toUpperCase()));
 	});
 	return out;
 }
@@ -299,6 +300,7 @@ export function parseSpellFilter (str) {
 export function isSpellMatchingFilter (spell, filter) {
 	if (!spell || !filter) return false;
 	if (filter.levels?.length && !filter.levels.includes(Number(spell.level))) return false;
+	if (filter.schools?.length && !filter.schools.includes(String(spell.school || "").toUpperCase())) return false;
 	if (filter.classes?.length) {
 		const spellClasses = (spell._csClassNames || []).map(c => String(c).toLowerCase());
 		if (!filter.classes.some(c => spellClasses.includes(c))) return false;
@@ -327,30 +329,46 @@ export function getDynamicSpellGrants (clsOrSc, level) {
 			const byLevel = grp[bucket];
 			if (!byLevel || typeof byLevel !== "object") return;
 			Object.entries(byLevel).forEach(([lk, spells]) => {
-				const atLevel = Number(lk);
+				// `_` means "always", used by feats and other level-less sources; `s6`-style
+				// spell-slot keys are not class levels and are skipped.
+				const atLevel = lk === "_" ? 0 : Number(lk);
 				if (isNaN(atLevel) || atLevel > level) return;
 				_flattenSpellEntries(spells).forEach((sp, ixSp) => {
 					if (!sp || typeof sp !== "object") return;
-					const id = `${ixGrp}:${bucket}:${atLevel}:${ixSp}`;
+					const base = {
+						id: `${ixGrp}:${bucket}:${lk}:${ixSp}`,
+						bucket,
+						atLevel,
+						// Alternative grant groups are distinguished by name (Magic Initiate's
+						// "Bard Spells" / "Cleric Spells" / ...): the player picks one group.
+						groupIndex: ixGrp,
+						groupName: grp.name || null,
+					};
 					if (sp.choose != null) {
 						const isList = typeof sp.choose === "object";
 						out.push({
-							id,
+							...base,
 							type: "choose",
-							bucket,
-							atLevel,
 							count: Number(sp.count ?? (isList ? sp.choose.count : null)) || 1,
 							filter: isList ? null : parseSpellFilter(sp.choose),
 							from: isList ? (sp.choose.from || []).map(uid => String(uid).split("#")[0].toLowerCase()) : null,
 						});
 					} else if (sp.all != null) {
-						out.push({id, type: "expanded", bucket, atLevel, count: 0, filter: parseSpellFilter(sp.all), from: null});
+						out.push({...base, type: "expanded", count: 0, filter: parseSpellFilter(sp.all), from: null});
 					}
 				});
 			});
 		});
 	});
 	return out;
+}
+
+/** The distinct named alternative groups in an `additionalSpells` array (empty when there is no choice). */
+export function getSpellGrantGroups (ent) {
+	const groups = (ent?.additionalSpells || [])
+		.map((grp, ix) => ({index: ix, name: grp.name || null}))
+		.filter(it => it.name);
+	return groups.length > 1 ? groups : [];
 }
 
 /** Flatten an `additionalSpells` level value, unwrapping the `_`/frequency wrappers around lists. */

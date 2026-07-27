@@ -9,6 +9,7 @@ import {
 	getDynamicSpellGrants,
 	parseSpellFilter,
 	isSpellMatchingFilter,
+	getSpellGrantGroups,
 	getPreparedSpellCount,
 	getCantripsKnown,
 	getCasterLevelContribution,
@@ -214,10 +215,10 @@ describe("Leveling engine: granted spells (additionalSpells)", () => {
 
 describe("Leveling engine: dynamic spell grants", () => {
 	it("Should parse filter strings into levels and classes", () => {
-		expect(parseSpellFilter("level=0;1;2")).toEqual({levels: [0, 1, 2], classes: []});
-		expect(parseSpellFilter("level=6|class=Cleric;Druid")).toEqual({levels: [6], classes: ["cleric", "druid"]});
-		expect(parseSpellFilter("")).toEqual({levels: [], classes: []});
-		expect(parseSpellFilter(null)).toEqual({levels: [], classes: []});
+		expect(parseSpellFilter("level=0;1;2")).toEqual({levels: [0, 1, 2], classes: [], schools: []});
+		expect(parseSpellFilter("level=6|class=Cleric;Druid")).toEqual({levels: [6], classes: ["cleric", "druid"], schools: []});
+		expect(parseSpellFilter("")).toEqual({levels: [], classes: [], schools: []});
+		expect(parseSpellFilter(null)).toEqual({levels: [], classes: [], schools: []});
 	});
 
 	it("Should match spells against a parsed filter", () => {
@@ -237,7 +238,7 @@ describe("Leveling engine: dynamic spell grants", () => {
 		const at3 = getDynamicSpellGrants(sc, 3);
 		expect(at3).toHaveLength(1);
 		expect(at3[0]).toMatchObject({type: "choose", bucket: "prepared", atLevel: 3, count: 1});
-		expect(at3[0].filter).toEqual({levels: [0, 1], classes: ["wizard"]});
+		expect(at3[0].filter).toEqual({levels: [0, 1], classes: ["wizard"], schools: []});
 		// The level-9 grant only appears once the character is high enough
 		expect(getDynamicSpellGrants(sc, 9)).toHaveLength(2);
 	});
@@ -254,7 +255,7 @@ describe("Leveling engine: dynamic spell grants", () => {
 		const cls = {additionalSpells: [{expanded: {"10": [{all: "level=1;2|class=Cleric;Druid;Wizard"}]}}]};
 		const [grant] = getDynamicSpellGrants(cls, 10);
 		expect(grant).toMatchObject({type: "expanded", bucket: "expanded", count: 0});
-		expect(grant.filter).toEqual({levels: [1, 2], classes: ["cleric", "druid", "wizard"]});
+		expect(grant.filter).toEqual({levels: [1, 2], classes: ["cleric", "druid", "wizard"], schools: []});
 		// ...and they stay out of the auto-granted uid list
 		expect(getGrantedSpellUids(cls, 10)).toEqual([]);
 	});
@@ -273,6 +274,38 @@ describe("Leveling engine: dynamic spell grants", () => {
 	it("Should return [] with no additionalSpells", () => {
 		expect(getDynamicSpellGrants({}, 5)).toEqual([]);
 		expect(getDynamicSpellGrants(null, 5)).toEqual([]);
+	});
+
+	it("Should treat the `_` level key as always-granted (feats have no class level)", () => {
+		const feat = {additionalSpells: [{known: {_: [{choose: "level=0|class=Bard", count: 2}]}}]};
+		const grants = getDynamicSpellGrants(feat, 1);
+		expect(grants).toHaveLength(1);
+		expect(grants[0]).toMatchObject({type: "choose", atLevel: 0, count: 2});
+	});
+
+	it("Should parse school criteria", () => {
+		const filter = parseSpellFilter("level=2|school=E;N");
+		expect(filter.schools).toEqual(["E", "N"]);
+		expect(isSpellMatchingFilter({level: 2, school: "E"}, filter)).toBe(true);
+		expect(isSpellMatchingFilter({level: 2, school: "A"}, filter)).toBe(false);
+	});
+
+	it("Should expose named alternative groups (Magic Initiate's spell lists)", () => {
+		const feat = JSON.parse(fs.readFileSync("./data/feats.json", "utf8")).feat
+			.find(f => f.name === "Magic Initiate" && f.source === "XPHB");
+		const groups = getSpellGrantGroups(feat);
+		expect(groups.map(g => g.name)).toEqual(["Cleric Spells", "Druid Spells", "Wizard Spells"]);
+
+		// Each group offers its own picks: 2 cantrips (known) + 1 first-level spell (innate)
+		const wizardGrants = getDynamicSpellGrants(feat, 20).filter(g => g.groupIndex === 2 && g.type === "choose");
+		expect(wizardGrants.find(g => g.bucket === "known")).toMatchObject({count: 2});
+		expect(wizardGrants.find(g => g.bucket === "known").filter).toEqual({levels: [0], classes: ["wizard"], schools: []});
+		expect(wizardGrants.find(g => g.bucket === "innate").filter).toEqual({levels: [1], classes: ["wizard"], schools: []});
+	});
+
+	it("Should report no alternative groups when there is nothing to choose between", () => {
+		expect(getSpellGrantGroups({additionalSpells: [{known: {_: ["bless"]}}]})).toEqual([]);
+		expect(getSpellGrantGroups(null)).toEqual([]);
 	});
 });
 

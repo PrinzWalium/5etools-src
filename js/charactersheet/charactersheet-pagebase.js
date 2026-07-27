@@ -4,8 +4,8 @@ import {getCharacterLabel, getMigratedStore, getNewStore} from "./charactersheet
 import {getLevelUpHp} from "./charactersheet-levelengine.js";
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {CharacterWizard} from "./charactersheet-wizard.js";
-import {CHOICE_TYPE_ABILITY, CHOICE_TYPE_LANGUAGE, CHOICE_TYPE_SKILL, CHOICE_TYPE_TOOL, getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats, getPendingChoices} from "./charactersheet-choices.js";
-import {pPickAbilities, pPickList, pResolveFeat} from "./charactersheet-featgrant.js";
+import {CHOICE_TYPE_ABILITY, CHOICE_TYPE_LANGUAGE, CHOICE_TYPE_SKILL, CHOICE_TYPE_TOOL, getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats, getPendingChoices, getResistChoices} from "./charactersheet-choices.js";
+import {pPickAbilities, pPickList, pResolveEntitySpellGrants, pResolveFeat} from "./charactersheet-featgrant.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -214,6 +214,20 @@ export class CharacterPageBase {
 		if (ent) {
 			await this._pOfferAbilityBonuses(ent, doc.n);
 			await this._pResolveProficiencyChoices({ent, kind: "race"});
+			await this._pResolveResistChoices(ent);
+			// A species' lineage spells (Elf, Tiefling, ...) use the same `additionalSpells` shape as feats
+			await pResolveEntitySpellGrants(this._comp, ent, {grantKeyPrefix: `race:${ent.name}|${ent.source}`});
+		}
+	}
+
+	/**
+	 * Resolve a species' damage-resistance choice — a Dragonborn's draconic ancestry and the few
+	 * species built the same way. Resistances have no structured store, so they become notes.
+	 */
+	async _pResolveResistChoices (ent) {
+		for (const choice of getResistChoices({groups: ent.resist, sourceName: ent.name})) {
+			const picked = await pPickList({count: choice.count, from: choice.from, title: `${ent.name}: ${choice.label}`});
+			if (picked?.length) this._comp.appendToTextProp("proficienciesText", `Resistances (${ent.name}): ${picked.join(", ")}`);
 		}
 	}
 

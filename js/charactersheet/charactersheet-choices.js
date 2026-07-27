@@ -237,6 +237,30 @@ export function getAbilityChoices ({ability, sourceName}) {
 	}];
 }
 
+export const CHOICE_TYPE_RESIST = "resist";
+
+/**
+ * Damage-resistance choices from a `resist`-style group array — a Dragonborn's draconic ancestry
+ * ("choose acid, cold, fire, lightning or poison") and the handful of species built the same way.
+ * Fixed resistances are applied directly elsewhere; only the picks are queued.
+ */
+export function getResistChoices ({groups, sourceName}) {
+	const out = [];
+	(groups || []).forEach(grp => {
+		if (typeof grp !== "object" || !grp.choose?.from) return;
+		const count = grp.choose.count || 1;
+		out.push({
+			id: _nextId(),
+			type: CHOICE_TYPE_RESIST,
+			sourceName,
+			count,
+			from: grp.choose.from.map(it => _titleCase(String(it))),
+			label: `Choose ${count} damage resistance${count > 1 ? "s" : ""}`,
+		});
+	});
+	return out;
+}
+
 /** Granted-feat entries (`feats` on 2024-style backgrounds/races) are `{"name|source": true}` maps. */
 export function getGrantedFeats (feats) {
 	const out = [];
