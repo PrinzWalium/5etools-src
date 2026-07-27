@@ -1,4 +1,5 @@
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS, PROF_STATE_EXPERTISE, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
+import {getChosenFeatureEffects} from "./charactersheet-features.js";
 
 /**
  * Pure derivation of renderable stats from character state.
@@ -127,8 +128,11 @@ export function deriveArmorClass (state) {
 		.filter(it => !it.isArmor && it.type !== "S" && it.bonusAc)
 		.reduce((acc, it) => acc + (Number(it.bonusAc) || 0), 0);
 	const misc = Number(state.acMisc) || 0;
+	// The Defense fighting style applies only while wearing armor
+	const feature = armor ? getChosenFeatureEffects(state).acArmored : 0;
+	if (feature) note = `${note} + Defense`;
 
-	return {ac: base + shield + otherMagic + misc, mode, note};
+	return {ac: base + shield + otherMagic + misc + feature, mode, note};
 }
 
 /**
@@ -160,11 +164,20 @@ export function getWeaponAttack (state, item) {
 	const props = item.properties || [];
 	const isRanged = type === "R";
 	const isFinesse = props.includes("F");
+	const isTwoHanded = props.includes("2H");
+	const isThrown = props.includes("T");
 
 	let abv = "str";
 	if (isRanged) abv = "dex";
 	else if (isFinesse) abv = getAbilityModifier(state, "dex") > getAbilityModifier(state, "str") ? "dex" : "str";
 	const abilMod = getAbilityModifier(state, abv);
+
+	// Fighting-style effects. Dueling's "no other weapon" clause can't be known from the item alone,
+	// so it is applied to any one-handed melee weapon.
+	const effects = getChosenFeatureEffects(state);
+	const featureAttack = isRanged ? effects.rangedAttack : 0;
+	const featureDamage = (!isRanged && !isTwoHanded ? effects.meleeOneHandedDamage : 0)
+		+ (isThrown ? effects.thrownDamage : 0);
 
 	const bonusAttack = Number(item.bonusAttack) || 0;
 	const bonusDamage = Number(item.bonusDamage) || 0;
@@ -172,12 +185,12 @@ export function getWeaponAttack (state, item) {
 	let damage = "";
 	if (item.dmg1) {
 		const dmgTypeFull = item.dmgType ? ` ${Parser.dmgTypeToFull(item.dmgType, {styleHint: "classic"})}` : "";
-		const dmgMod = abilMod + bonusDamage;
+		const dmgMod = abilMod + bonusDamage + featureDamage;
 		const modStr = dmgMod === 0 ? "" : (dmgMod > 0 ? `+${dmgMod}` : `${dmgMod}`);
 		damage = `${item.dmg1}${modStr}${dmgTypeFull}`;
 	}
 
-	return {name: item.name || "", atkBonus: abilMod + pb + bonusAttack, damage};
+	return {name: item.name || "", atkBonus: abilMod + pb + bonusAttack + featureAttack, damage};
 }
 
 /** The always-available Unarmed Strike: 1 + Strength modifier bludgeoning, with proficiency. */

@@ -1,4 +1,4 @@
-import {getFeatureInitiativeBonus} from "../../js/charactersheet/charactersheet-features.js";
+import {getChosenFeatureEffects, getChosenFeatureNames, getFeatureEffects, getFeatureInitiativeBonus} from "../../js/charactersheet/charactersheet-features.js";
 
 describe("Feature effects: initiative", () => {
 	const ctx = {abilities: {cha: 3, dex: 2}, pb: 3};
@@ -19,5 +19,59 @@ describe("Feature effects: initiative", () => {
 		expect(getFeatureInitiativeBonus(["Sneak Attack"], ctx)).toBe(0);
 		expect(getFeatureInitiativeBonus([], ctx)).toBe(0);
 		expect(getFeatureInitiativeBonus(null, ctx)).toBe(0);
+	});
+});
+
+describe("Feature effects: chosen-feature collection", () => {
+	it("Should collect names from optional features, ASI feats, feature feats and origin feats", () => {
+		const state = {
+			classes: [{
+				optionalFeatures: [{name: "Archery"}, {name: "Trip Attack"}],
+				asiFeatChoices: [{type: "feat", name: "Resilient"}, {type: "asi", bonuses: {str: 2}}],
+			}],
+			featureFeats: [{name: "Defense"}],
+			originFeats: [{name: "Savage Attacker"}],
+		};
+		expect(getChosenFeatureNames(state).sort())
+			.toEqual(["Archery", "Defense", "Resilient", "Savage Attacker", "Trip Attack"]);
+	});
+
+	it("Should not collect ASI (non-feat) entries, and tolerate empty state", () => {
+		expect(getChosenFeatureNames({classes: [{asiFeatChoices: [{type: "asi", bonuses: {str: 2}}]}]})).toEqual([]);
+		expect(getChosenFeatureNames({})).toEqual([]);
+		expect(getChosenFeatureNames(null)).toEqual([]);
+	});
+});
+
+describe("Feature effects: fighting styles", () => {
+	it("Should aggregate numeric fighting-style effects", () => {
+		const eff = getFeatureEffects(["Archery", "Defense", "Dueling", "Thrown Weapon Fighting"]);
+		expect(eff.rangedAttack).toBe(2);
+		expect(eff.acArmored).toBe(1);
+		expect(eff.meleeOneHandedDamage).toBe(2);
+		expect(eff.thrownDamage).toBe(2);
+	});
+
+	it("Should surface conditional styles as notes rather than numbers", () => {
+		const eff = getFeatureEffects(["Great Weapon Fighting", "Two-Weapon Fighting"]);
+		expect(eff.rangedAttack).toBe(0);
+		expect(eff.meleeOneHandedDamage).toBe(0);
+		expect(eff.notes.map(n => n.name).sort()).toEqual(["Great Weapon Fighting", "Two-Weapon Fighting"]);
+		expect(eff.notes.every(n => n.desc)).toBe(true);
+	});
+
+	it("Should ignore unknown features and de-duplicate", () => {
+		const eff = getFeatureEffects(["Archery", "Archery", "Some Unmapped Feature"]);
+		expect(eff.rangedAttack).toBe(2); // not doubled
+		expect(eff.notes).toHaveLength(1);
+		expect(getFeatureEffects([]).notes).toEqual([]);
+		expect(getFeatureEffects(null).rangedAttack).toBe(0);
+	});
+
+	it("Should read effects straight from character state", () => {
+		const state = {classes: [{optionalFeatures: [{name: "Archery"}]}], featureFeats: [{name: "Defense"}]};
+		const eff = getChosenFeatureEffects(state);
+		expect(eff.rangedAttack).toBe(2);
+		expect(eff.acArmored).toBe(1);
 	});
 });

@@ -187,3 +187,49 @@ describe("Character sheet derivation", () => {
 		});
 	});
 });
+
+describe("Derive: fighting-style effects", () => {
+	const withStyle = (name, overrides = {}) => getBaseState({
+		classes: [{optionalFeatures: [{name}]}],
+		...overrides,
+	});
+
+	it("Archery adds +2 to ranged weapon attacks only", () => {
+		const bow = {name: "Longbow", type: "R", dmg1: "1d8", dmgType: "P", properties: ["A", "2H"]};
+		const sword = {name: "Longsword", type: "M", dmg1: "1d8", dmgType: "S", properties: []};
+		const state = withStyle("Archery", {abil_dex: 14, abil_str: 14});
+		expect(getWeaponAttack(state, bow).atkBonus).toBe(2 + 2 + 2); // Dex +2, PB +2, Archery +2
+		expect(getWeaponAttack(state, sword).atkBonus).toBe(2 + 2); // melee: unaffected
+	});
+
+	it("Defense adds +1 AC only while wearing armor", () => {
+		const armor = {name: "Chain Shirt", isArmor: true, type: "MA", baseAc: 13, dexterityMax: 2, equipped: true};
+		expect(deriveArmorClass(withStyle("Defense", {inventory: [armor]})).ac).toBe(14); // 13 + 1
+		expect(deriveArmorClass(withStyle("Defense", {inventory: []})).ac).toBe(10); // unarmored: no bonus
+	});
+
+	it("Dueling adds +2 damage to one-handed melee weapons only", () => {
+		const sword = {name: "Longsword", type: "M", dmg1: "1d8", dmgType: "S", properties: []};
+		const greatsword = {name: "Greatsword", type: "M", dmg1: "2d6", dmgType: "S", properties: ["2H", "H"]};
+		const state = withStyle("Dueling", {abil_str: 14});
+		expect(getWeaponAttack(state, sword).damage).toBe("1d8+4 slashing"); // Str +2, Dueling +2
+		expect(getWeaponAttack(state, greatsword).damage).toBe("2d6+2 slashing"); // two-handed: unaffected
+	});
+
+	it("Thrown Weapon Fighting adds +2 damage to thrown weapons", () => {
+		const javelin = {name: "Javelin", type: "M", dmg1: "1d6", dmgType: "P", properties: ["T"]};
+		const state = withStyle("Thrown Weapon Fighting", {abil_str: 14});
+		expect(getWeaponAttack(state, javelin).damage).toBe("1d6+4 piercing"); // Str +2, TWF +2
+	});
+
+	it("Styles chosen as 2024 feats apply the same way", () => {
+		const bow = {name: "Shortbow", type: "R", dmg1: "1d6", dmgType: "P", properties: ["A", "2H"]};
+		const state = getBaseState({abil_dex: 14, featureFeats: [{name: "Archery"}]});
+		expect(getWeaponAttack(state, bow).atkBonus).toBe(2 + 2 + 2);
+	});
+
+	it("Leaves characters without a style untouched", () => {
+		const bow = {name: "Longbow", type: "R", dmg1: "1d8", dmgType: "P", properties: ["A", "2H"]};
+		expect(getWeaponAttack(getBaseState({abil_dex: 14}), bow).atkBonus).toBe(2 + 2);
+	});
+});

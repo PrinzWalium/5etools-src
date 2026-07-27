@@ -1,7 +1,7 @@
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_CONDITIONS, CHAR_SHEET_SKILLS} from "./charactersheet/charactersheet-consts.js";
 import {deriveCharacterSheet, getWeaponAttack} from "./charactersheet/charactersheet-derive.js";
 import {getInventoryItemMeta} from "./charactersheet/charactersheet-equipment.js";
-import {getFeatureInitiativeBonus} from "./charactersheet/charactersheet-features.js";
+import {getChosenFeatureEffects, getFeatureInitiativeBonus} from "./charactersheet/charactersheet-features.js";
 import {CharacterSheetClassData} from "./charactersheet/charactersheet-classdata.js";
 import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js";
 import {CharacterInventoryPanel} from "./charactersheet/charactersheet-inventorypanel.js";
@@ -139,6 +139,8 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._comp._addHookBase("inventory", () => this._renderDerived());
 		// Some features add to derived stats (e.g. Rakish Audacity → initiative); reload on class changes
 		this._comp._addHookBase("classes", () => this._pRefreshFeatureEffects());
+		// Chosen feats/masteries feed AC, attack rows, and the combat notes
+		["featureFeats", "originFeats", "weaponMasteries"].forEach(prop => this._comp._addHookBase(prop, () => this._renderDerived()));
 	}
 
 	/** Load the character's feature names (async) so derived stats can include curated feature effects. */
@@ -283,6 +285,39 @@ class CharacterSheetPage extends CharacterPageBase {
 		eleComputed.classList.toggle("ve-hidden", isManual);
 	}
 
+	/**
+	 * What the character's build choices mean in play: the fighting-style/feature effects that are
+	 * conditional or player-decided (the numeric ones are already folded into AC and the attack rows),
+	 * and the weapon masteries they know, as hoverable rules links.
+	 */
+	_renderCombatNotes () {
+		const ele = document.getElementById("cs-combat-notes");
+		if (!ele) return;
+
+		const state = this._comp._getState();
+		const parts = [];
+
+		const notes = getChosenFeatureEffects(state).notes;
+		if (notes.length) {
+			parts.push(`<div><span class="ve-muted">Style:</span> ${notes
+				.map(n => `<span title="${n.desc.qq()}"><b>${n.name.qq()}</b> <span class="ve-muted">(${n.desc.qq()})</span></span>`)
+				.join(`<span class="ve-muted"> &middot; </span>`)}</div>`);
+		}
+
+		const masteries = state.weaponMasteries || [];
+		if (masteries.length) {
+			// The mastery property a weapon confers is on the item; link each for its rules text.
+			const byWeapon = masteries.map(name => {
+				const item = (state.inventory || []).find(it => it.name === name);
+				const props = (item?.mastery || []).map(m => Renderer.get().render(`{@itemMastery ${m}}`)).join(", ");
+				return `<b>${name.qq()}</b>${props ? ` <span class="ve-muted">(${props})</span>` : ""}`;
+			});
+			parts.push(`<div><span class="ve-muted">Mastery:</span> ${byWeapon.join(`<span class="ve-muted"> &middot; </span>`)}</div>`);
+		}
+
+		ele.innerHTML = parts.join("");
+	}
+
 	_renderDerived () {
 		const derived = deriveCharacterSheet(this._comp._getState());
 
@@ -312,6 +347,8 @@ class CharacterSheetPage extends CharacterPageBase {
 			const hitRoll = Renderer.get().render(`{@d20 ${u.atkBonus}|${CharacterPageBase.fmtBonus(u.atkBonus)}|Unarmed Strike}`);
 			eleUnarmed.innerHTML = `<span class="ve-muted">Unarmed Strike:</span> ${hitRoll} <span class="ve-muted">to hit,</span> ${u.damage.qq()}`;
 		}
+
+		this._renderCombatNotes();
 
 		const abilMods = Object.fromEntries(CHAR_SHEET_ABILITIES.map(([abv]) => [abv, derived.abilities[abv].mod]));
 		const initiative = derived.initiative + getFeatureInitiativeBonus(this._featureNames, {abilities: abilMods, pb: derived.pb});
