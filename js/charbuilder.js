@@ -19,9 +19,25 @@ class CharacterBuilderPage extends CharacterPageBase {
 		this._buildAbilities();
 	}
 
+	/**
+	 * Flag picks that fall outside the character's source filter. They are never hidden — the filter
+	 * governs the pickers only — so this just explains why they can no longer be re-picked.
+	 */
+	_renderOutOfFilterNote () {
+		const ele = document.getElementById("cs-sources-note");
+		if (!ele) return;
+		const out = this._getOutOfFilterPicks();
+		if (!out.length) return ele.innerHTML = "";
+		const pts = out.map(it => `<b>${Parser.sourceJsonToAbv(it.source).qq()}</b>${it.labels.length ? ` <span class="ve-muted">(${it.labels.slice(0, 3).join(", ").qq()}${it.labels.length > 3 ? ", …" : ""})</span>` : ""}`);
+		ele.innerHTML = `<span class="ve-text-danger">&#9888;</span> <span class="ve-muted">This character uses content outside its source filter: ${pts.join(", ")}. It still works — but those books are no longer offered when picking.</span>`;
+	}
+
 	_bindDom () {
 		this._bindClick("cs-btn-wizard", () => this._pOnWizard());
 		this._bindBuildPickers();
+		this._bindSourceFilter();
+		// A filter change can leave existing picks outside it; surface that without hiding anything
+		this._comp._addHookBase("sourceFilter", () => this._renderOutOfFilterNote());
 
 		this._classPanel = new CharacterClassPanel({comp: this._comp, wrp: document.getElementById("cs-class-panel")});
 		this._classPanel.init();
@@ -41,6 +57,8 @@ class CharacterBuilderPage extends CharacterPageBase {
 		this._syncAllInputs();
 		this._renderPickLinks();
 		this._renderDerived();
+		this._renderSourceFilterLabel();
+		this._renderOutOfFilterNote();
 		this._lastLevel = this._comp.getLevelNumber();
 	}
 

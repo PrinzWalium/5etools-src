@@ -101,6 +101,7 @@ export class CharacterModel extends BaseComponent {
 			grantedSpellChoices: [], // [{id, grantKey, name, source, level}] — picks for `additionalSpells` {choose} grants
 			slotsUsed: {}, // {"1": n, ..., "9": n, pact: n}
 			resourcesUsed: {}, // {resourceLabel: n} — expended class resources (Rages, Ki, Wild Shape, ...)
+			sourceFilter: {mode: "all", sources: {}}, // which books this character may pick content from
 
 			featuresText: "",
 			equipmentText: "",
@@ -306,6 +307,11 @@ export class CharacterModel extends BaseComponent {
 		const used = {...this._state.resourcesUsed};
 		Object.keys(used).forEach(label => { if (EXPENDABLE_RESOURCES[label] === "short") used[label] = 0; });
 		this._state.resourcesUsed = used;
+	}
+
+	/** Replace this character's source filter (which books its pickers offer). */
+	setSourceFilter (filter) {
+		this._state.sourceFilter = {mode: filter?.mode || "all", sources: {...(filter?.sources || {})}};
 	}
 
 	/** Set expended uses of a named class resource (Rages, Ki Points, Wild Shape, ...). */

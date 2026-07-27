@@ -39,7 +39,8 @@ export class CharacterSpellsPanel {
 	/** Cache spell entities by "name|source" (lowercased) for enriching the known list with cast details. */
 	async _pEnsureSpellData () {
 		if (this._spellByKey) return this._spellByKey;
-		const all = await CharacterSheetClassData.pGetAllSpells().catch(() => []);
+		// Unfiltered: this index resolves spells the character already knows, which a source filter must never hide.
+		const all = await CharacterSheetClassData.pGetAllSpellsUnfiltered().catch(() => []);
 		this._spellByKey = new Map();
 		this._spellByName = new Map();
 		all.forEach(sp => {

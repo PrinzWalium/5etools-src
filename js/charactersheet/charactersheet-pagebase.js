@@ -6,6 +6,7 @@ import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {CharacterWizard} from "./charactersheet-wizard.js";
 import {CHOICE_TYPE_ABILITY, CHOICE_TYPE_LANGUAGE, CHOICE_TYPE_SKILL, CHOICE_TYPE_TOOL, getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats, getPendingChoices, getResistChoices} from "./charactersheet-choices.js";
 import {pPickAbilities, pPickList, pResolveEntitySpellGrants, pResolveFeat} from "./charactersheet-featgrant.js";
+import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterPredicate, getOutOfFilterSources, isSourceAllowed, isSourceFilterInactive} from "./charactersheet-sources.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -206,8 +207,43 @@ export class CharacterPageBase {
 		["species", "background", "class"].forEach(w => this._renderPickLink(w));
 	}
 
+	/**
+	 * The upstream `pGetUserRaceSearch`/`pGetUserBackgroundSearch` helpers take no options, so there is
+	 * no way to pass a source filter into them. Rather than edit an upstream file (which would add an
+	 * upstream-merge conflict point), load the same index and drive the lower-level entity search — it
+	 * does accept `fnFilterResults`. Search docs carry their source as `.s`.
+	 */
+	async _pSearchEntity ({fnLoad, indexName, title, fnTransform = null}) {
+		await fnLoad();
+		const opts = {};
+		if (fnTransform) opts.fnTransform = fnTransform;
+		if (!isSourceFilterInactive(this._comp._state.sourceFilter)) {
+			opts.fnFilterResults = doc => this._isSourceAllowed(doc.s);
+		}
+		return SearchWidget.pGetUserEntitySearch(title, indexName, opts);
+	}
+
 	async _onPickSpecies () {
-		const doc = await SearchWidget.pGetUserRaceSearch();
+		const doc = await this._pSearchEntity({
+			fnLoad: () => SearchWidget.pLoadCustomIndex({
+				contentIndexName: "entity_Races",
+				errorName: "species",
+				customIndexSubSpecs: [new SearchWidget.CustomIndexSubSpec({
+					dataSource: () => DataUtil.race.loadJSON(),
+					prop: "race",
+					catId: Parser.CAT_ID_RACE,
+					page: UrlUtil.PG_RACES,
+				})],
+			}),
+			indexName: "entity_Races",
+			title: "Select Species",
+			fnTransform: doc => {
+				const cpy = MiscUtil.copyFast(doc);
+				Object.assign(cpy, SearchWidget.docToPageSourceHash(cpy));
+				cpy.tag = `{@race ${doc.n}${doc.s !== Parser.SRC_PHB ? `|${doc.s}` : ""}}`;
+				return cpy;
+			},
+		});
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
 		this._comp.applyPickedRace({doc, ent});
@@ -232,7 +268,26 @@ export class CharacterPageBase {
 	}
 
 	async _onPickBackground () {
-		const doc = await SearchWidget.pGetUserBackgroundSearch();
+		const doc = await this._pSearchEntity({
+			fnLoad: () => SearchWidget.pLoadCustomIndex({
+				contentIndexName: "entity_Backgrounds",
+				errorName: "backgrounds",
+				customIndexSubSpecs: [new SearchWidget.CustomIndexSubSpec({
+					dataSource: `${Renderer.get().baseUrl}data/backgrounds.json`,
+					prop: "background",
+					catId: Parser.CAT_ID_BACKGROUND,
+					page: UrlUtil.PG_BACKGROUNDS,
+				})],
+			}),
+			indexName: "entity_Backgrounds",
+			title: "Select Background",
+			fnTransform: doc => {
+				const cpy = MiscUtil.copyFast(doc);
+				Object.assign(cpy, SearchWidget.docToPageSourceHash(cpy));
+				cpy.tag = `{@background ${doc.n}${doc.s !== Parser.SRC_PHB ? `|${doc.s}` : ""}}`;
+				return cpy;
+			},
+		});
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
 		// Fixed proficiencies apply directly; the "N of your choice" ones are resolved interactively below.
@@ -451,7 +506,199 @@ export class CharacterPageBase {
 		} finally {
 			this._isLoading = false;
 		}
+		this._applySourceFilter();
 		this._doRenderAll();
+	}
+
+	/**
+	 * Push this character's source filter into the data layer, so the pickers only offer content from
+	 * the books it allows. Lookups of content the character already has stay unfiltered.
+	 */
+	_applySourceFilter () {
+		const filter = this._comp._state.sourceFilter;
+		CharacterSheetClassData.setSourceFilter(
+			getSourceFilterPredicate(filter, {isClassic: src => SourceUtil.isClassicSource(src)}),
+		);
+	}
+
+	/** Whether a source may be picked under this character's filter. */
+	_isSourceAllowed (source) {
+		return isSourceAllowed(source, this._comp._state.sourceFilter, {isClassic: src => SourceUtil.isClassicSource(src)});
+	}
+
+	/* -------------------------------------------- Source filter UI -------------------------------------------- */
+
+	_bindSourceFilter () {
+		this._bindClick("cs-btn-sources", () => this._pOnEditSources());
+		this._comp._addHookBase("sourceFilter", () => {
+			this._applySourceFilter();
+			this._renderSourceFilterLabel();
+		});
+		this._renderSourceFilterLabel();
+	}
+
+	_renderSourceFilterLabel () {
+		const ele = document.getElementById("cs-sources-label");
+		if (ele) ele.textContent = getSourceFilterLabel(this._comp._state.sourceFilter);
+	}
+
+	/** Every source that actually has character-relevant content, grouped for the picker. */
+	async _pGetSelectableSources () {
+		const [classes, subclasses, feats, spells, optFeatures] = await Promise.all([
+			CharacterSheetClassData.pGetAllClassesUnfiltered(),
+			CharacterSheetClassData.pGetAllSubclassesUnfiltered(),
+			CharacterSheetClassData.pGetAllFeatsUnfiltered(),
+			CharacterSheetClassData.pGetAllSpellsUnfiltered(),
+			CharacterSheetClassData.pGetAllOptionalFeaturesUnfiltered(),
+		]);
+		const counts = new Map();
+		[classes, subclasses, feats, spells, optFeatures]
+			.flat()
+			.forEach(it => { if (it?.source) counts.set(it.source, (counts.get(it.source) || 0) + 1); });
+
+		return [...counts.entries()]
+			.map(([source, count]) => ({
+				source,
+				count,
+				name: Parser.sourceJsonToFull(source),
+				abv: Parser.sourceJsonToAbv(source),
+				group: SourceUtil.getFilterGroup(source),
+				isClassic: SourceUtil.isClassicSource(source),
+			}))
+			.sort((a, b) => (a.group - b.group) || SortUtil.ascSortLower(a.name, b.name));
+	}
+
+	async _pOnEditSources () {
+		const sources = await this._pGetSelectableSources();
+		const cur = this._comp._state.sourceFilter || {mode: "all", sources: {}};
+		// Working copy; only committed on Save
+		const draft = {mode: cur.mode || "all", sources: {...(cur.sources || {})}};
+
+		const {eleModalInner, doClose} = UiUtil.getShowModal({
+			title: "Sources",
+			isMinHeight0: true,
+		});
+		const wrp = document.createElement("div");
+		wrp.className = "ve-flex-col";
+		eleModalInner.appendChild(wrp);
+
+		wrp.insertAdjacentHTML("beforeend", `<p class="ve-muted ve-small">Choose which books this character may pick content from. Anything already on the character keeps working, whatever you pick here.</p>`);
+
+		// --- Presets ---
+		const wrpModes = document.createElement("div");
+		wrpModes.className = "ve-flex ve-flex-wrap ve-mb-2";
+		wrp.appendChild(wrpModes);
+
+		// --- Per-source checkboxes, grouped ---
+		const wrpSources = document.createElement("div");
+		wrpSources.className = "ve-flex-col";
+		wrpSources.style.maxHeight = "45vh";
+		wrpSources.style.overflowY = "auto";
+		wrp.appendChild(wrpSources);
+
+		const renderSources = () => {
+			const isCustom = draft.mode === SOURCE_MODE_CUSTOM;
+			wrpSources.innerHTML = "";
+			if (!isCustom) {
+				const allowed = sources.filter(it => isSourceAllowed(it.source, draft, {isClassic: s => SourceUtil.isClassicSource(s)}));
+				wrpSources.innerHTML = `<div class="ve-muted ve-small">This preset allows <b>${allowed.length}</b> of ${sources.length} books. Switch to <b>Custom</b> to pick individual books.</div>`;
+				return;
+			}
+
+			let lastGroup = null;
+			sources.forEach(it => {
+				if (it.group !== lastGroup) {
+					lastGroup = it.group;
+					const groupName = SourceUtil.getFilterGroupName(it.group) || "Standard";
+					const hdr = document.createElement("div");
+					hdr.className = "ve-flex-v-center ve-mt-1 ve-mb-1";
+					hdr.innerHTML = `<span class="bold ve-small">${groupName.qq()}</span>`;
+					const btnAll = document.createElement("button");
+					btnAll.type = "button";
+					btnAll.className = "ve-btn ve-btn-xxs ve-btn-default ve-ml-2";
+					btnAll.textContent = "All";
+					btnAll.addEventListener("click", () => {
+						sources.filter(s => s.group === it.group).forEach(s => draft.sources[s.source] = true);
+						renderSources();
+					});
+					const btnNone = document.createElement("button");
+					btnNone.type = "button";
+					btnNone.className = "ve-btn ve-btn-xxs ve-btn-default ve-ml-1";
+					btnNone.textContent = "None";
+					btnNone.addEventListener("click", () => {
+						sources.filter(s => s.group === it.group).forEach(s => delete draft.sources[s.source]);
+						renderSources();
+					});
+					hdr.append(btnAll, btnNone);
+					wrpSources.appendChild(hdr);
+				}
+
+				const lbl = document.createElement("label");
+				lbl.className = "ve-flex-v-center ve-small ve-mb-1";
+				const cb = document.createElement("input");
+				cb.type = "checkbox";
+				cb.className = "ve-mr-2";
+				cb.checked = !!draft.sources[it.source];
+				cb.addEventListener("change", () => {
+					if (cb.checked) draft.sources[it.source] = true;
+					else delete draft.sources[it.source];
+				});
+				const spn = document.createElement("span");
+				spn.innerHTML = `${it.name.qq()} <span class="ve-muted">(${it.abv.qq()}${it.isClassic ? ", 2014" : ""}; ${it.count} entries)</span>`;
+				lbl.append(cb, spn);
+				wrpSources.appendChild(lbl);
+			});
+		};
+
+		SOURCE_MODES.forEach(({mode, name, desc}) => {
+			const btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = `ve-btn ve-btn-xs ve-mr-1 ve-mb-1 ${draft.mode === mode ? "ve-btn-primary" : "ve-btn-default"}`;
+			btn.textContent = name;
+			btn.title = desc;
+			btn.addEventListener("click", () => {
+				// Switching to Custom seeds the boxes from whatever the current preset allows
+				if (mode === SOURCE_MODE_CUSTOM && draft.mode !== SOURCE_MODE_CUSTOM) {
+					draft.sources = {};
+					sources
+						.filter(it => isSourceAllowed(it.source, draft, {isClassic: s => SourceUtil.isClassicSource(s)}))
+						.forEach(it => draft.sources[it.source] = true);
+				}
+				draft.mode = mode;
+				[...wrpModes.children].forEach((el, ix) => {
+					el.className = `ve-btn ve-btn-xs ve-mr-1 ve-mb-1 ${SOURCE_MODES[ix].mode === mode ? "ve-btn-primary" : "ve-btn-default"}`;
+				});
+				renderSources();
+			});
+			wrpModes.appendChild(btn);
+		});
+
+		renderSources();
+
+		const wrpBtns = document.createElement("div");
+		wrpBtns.className = "ve-flex-v-center ve-flex-h-right ve-mt-2";
+		const btnSave = document.createElement("button");
+		btnSave.type = "button";
+		btnSave.className = "ve-btn ve-btn-sm ve-btn-primary";
+		btnSave.textContent = "Save";
+		btnSave.addEventListener("click", () => {
+			this._comp.setSourceFilter(draft);
+			doClose(true);
+		});
+		const btnCancel = document.createElement("button");
+		btnCancel.type = "button";
+		btnCancel.className = "ve-btn ve-btn-sm ve-btn-default ve-mr-2";
+		btnCancel.textContent = "Cancel";
+		btnCancel.addEventListener("click", () => doClose(false));
+		wrpBtns.append(btnCancel, btnSave);
+		wrp.appendChild(wrpBtns);
+	}
+
+	/** Picks the character already has that fall outside its current filter (never hidden, just flagged). */
+	_getOutOfFilterPicks () {
+		return getOutOfFilterSources(this._comp._getState(), this._comp._state.sourceFilter, {
+			isClassic: src => SourceUtil.isClassicSource(src),
+		});
 	}
 
 	_saveStateDebounced () {

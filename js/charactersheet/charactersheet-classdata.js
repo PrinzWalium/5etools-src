@@ -7,13 +7,31 @@
  * preserved). Everything here builds on that, rather than re-implementing uid parsing.
  */
 export class CharacterSheetClassData {
+	/**
+	 * Active source-filter predicate (`source => boolean`), or null for "everything".
+	 * The underlying entity caches stay unfiltered, so the filter can change at any time; it is
+	 * applied on read, and only to the *pickers* — rendering and derivation never consult it.
+	 */
+	static _fnSourceFilter = null;
+
+	static setSourceFilter (fn) { this._fnSourceFilter = fn || null; }
+
+	static _filterBySource (arr) {
+		if (!this._fnSourceFilter) return arr;
+		return arr.filter(it => this._fnSourceFilter(it.source));
+	}
+
 	static _pAllClasses = null;
 
 	/**
 	 * All base classes (site + prerelease + brew), dereferenced, blocklist-filtered, and sorted.
 	 * Subclass entities (which lack `hd`) are excluded.
 	 */
-	static pGetAllClasses () {
+	static async pGetAllClasses () {
+		return this._filterBySource(await this.pGetAllClassesUnfiltered());
+	}
+
+	static pGetAllClassesUnfiltered () {
 		return this._pAllClasses ||= (async () => {
 			const page = UrlUtil.PG_CLASSES;
 			const all = [
@@ -39,7 +57,11 @@ export class CharacterSheetClassData {
 	static _pAllSubclasses = null;
 
 	/** All subclasses (site + prerelease + brew), dereferenced and blocklist-filtered. */
-	static pGetAllSubclasses () {
+	static async pGetAllSubclasses () {
+		return this._filterBySource(await this.pGetAllSubclassesUnfiltered());
+	}
+
+	static pGetAllSubclassesUnfiltered () {
 		return this._pAllSubclasses ||= (async () => {
 			const page = UrlUtil.PG_CLASSES;
 			return [
@@ -57,15 +79,20 @@ export class CharacterSheetClassData {
 			.sort((a, b) => SortUtil.ascSortLower(a.name, b.name) || SortUtil.ascSortLower(a.source, b.source));
 	}
 
+	/** Look up a subclass the character already has — unfiltered, so a source filter never hides it. */
 	static async pGetSubclass ({className, classSource, shortName, source}) {
-		return (await this.pGetAllSubclasses())
+		return (await this.pGetAllSubclassesUnfiltered())
 			.find(it => it.className === className && it.classSource === classSource && it.shortName === shortName && it.source === source);
 	}
 
 	static _pAllOptionalFeatures = null;
 
 	/** All optional features (fighting styles, invocations, maneuvers, ...; site + prerelease + brew). */
-	static pGetAllOptionalFeatures () {
+	static async pGetAllOptionalFeatures () {
+		return this._filterBySource(await this.pGetAllOptionalFeaturesUnfiltered());
+	}
+
+	static pGetAllOptionalFeaturesUnfiltered () {
 		return this._pAllOptionalFeatures ||= (async () => {
 			const page = UrlUtil.PG_OPT_FEATURES;
 			return [
@@ -82,7 +109,11 @@ export class CharacterSheetClassData {
 	static _pAllFeats = null;
 
 	/** All feats (site + prerelease + brew), blocklist-filtered and sorted. */
-	static pGetAllFeats () {
+	static async pGetAllFeats () {
+		return this._filterBySource(await this.pGetAllFeatsUnfiltered());
+	}
+
+	static pGetAllFeatsUnfiltered () {
 		return this._pAllFeats ||= (async () => {
 			const page = UrlUtil.PG_FEATS;
 			const all = [
@@ -98,11 +129,14 @@ export class CharacterSheetClassData {
 		})();
 	}
 
-	/** A single feat by name/source; the `; subtype` suffix in background feat uids is stripped for lookup. */
+	/**
+	 * A single feat by name/source; the `; subtype` suffix in background feat uids is stripped for
+	 * lookup. Unfiltered: a feat named by a background the character already has is always resolvable.
+	 */
 	static async pGetFeat ({name, source}) {
 		const baseName = String(name || "").split(";")[0].trim().toLowerCase();
 		if (!baseName) return null;
-		const feats = await this.pGetAllFeats();
+		const feats = await this.pGetAllFeatsUnfiltered();
 		const src = String(source || "").toLowerCase();
 		return feats.find(f => f.name.toLowerCase() === baseName && f.source.toLowerCase() === src)
 			|| feats.find(f => f.name.toLowerCase() === baseName)
@@ -110,7 +144,11 @@ export class CharacterSheetClassData {
 	}
 
 	/** All spells from site + prerelease + brew, excluded entries removed. Cached. */
-	static pGetAllSpells () {
+	static async pGetAllSpells () {
+		return this._filterBySource(await this.pGetAllSpellsUnfiltered());
+	}
+
+	static pGetAllSpellsUnfiltered () {
 		return this._pAllSpells ||= (async () => {
 			const page = UrlUtil.PG_SPELLS;
 			return [
