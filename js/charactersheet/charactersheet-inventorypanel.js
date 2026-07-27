@@ -1,5 +1,6 @@
 import {getEncumbrance, getWeaponAttack} from "./charactersheet-derive.js";
 import {getInventoryItemMeta} from "./charactersheet-equipment.js";
+import {pGetUserItemSearchFiltered} from "./charactersheet-sources.js";
 
 const _isEquippable = it => it.isArmor || it.isWeapon
 	|| it.bonusAc != null || it.bonusSavingThrow != null || it.bonusSpellSaveDc != null || it.bonusSpellAttack != null
@@ -123,7 +124,7 @@ export class CharacterInventoryPanel {
 	}
 
 	async _pOnAddItem () {
-		const doc = await SearchWidget.pGetUserItemSearch();
+		const doc = await pGetUserItemSearchFiltered(this._comp._getState());
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
 		this._comp.addInventoryItem({

@@ -65,6 +65,63 @@ export function getSourceFilterLabel (filter) {
 	return SOURCE_MODES.find(it => it.mode === filter.mode)?.name || "All sources";
 }
 
+/* -------------------------------------------- Browser bindings -------------------------------------------- */
+/*
+ * The functions above are pure and injectable so they can be unit-tested. The two below bind the
+ * 2014/2024 classification to `SourceUtil` (a browser global), and are the only entry points UI code
+ * needs — so the binding lives in exactly one place.
+ */
+
+/** Whether `source` may be picked by the character in `state`. */
+export function isSourceAllowedForState (state, source) {
+	return isSourceAllowed(source, state?.sourceFilter, {isClassic: src => SourceUtil.isClassicSource(src)});
+}
+
+/** A `source => boolean` predicate for the character in `state`, or null when everything is allowed. */
+export function getStateSourcePredicate (state) {
+	return getSourceFilterPredicate(state?.sourceFilter, {isClassic: src => SourceUtil.isClassicSource(src)});
+}
+
+/**
+ * The item picker, restricted to the character's allowed sources.
+ *
+ * Upstream's `SearchWidget.pGetUserItemSearch()` takes no options, so there is no way to pass a
+ * filter into it; this rebuilds the same index and transform over the lower-level entity search,
+ * which does accept `fnFilterResults`. Keeping it here avoids editing an upstream file.
+ */
+export async function pGetUserItemSearchFiltered (state) {
+	await SearchWidget.pLoadCustomIndex({
+		contentIndexName: "entity_Items",
+		errorName: "items",
+		customIndexSubSpecs: [
+			new SearchWidget.CustomIndexSubSpec({
+				dataSource: async () => {
+					const allItems = (await Renderer.item.pBuildList()).filter(it => !it._isItemGroup);
+					return {
+						item: allItems.filter(it => !(it.type && DataUtil.itemType.unpackUid(it.type).abbreviation === Parser.ITM_TYP_ABV__GENERIC_VARIANT)),
+					};
+				},
+				prop: "item",
+				catId: Parser.CAT_ID_ITEM,
+				page: UrlUtil.PG_ITEMS,
+			}),
+		],
+	});
+
+	const opts = {
+		fnTransform: doc => {
+			const cpy = MiscUtil.copyFast(doc);
+			Object.assign(cpy, SearchWidget.docToPageSourceHash(cpy));
+			cpy.tag = `{@item ${doc.n}${doc.s !== Parser.SRC_DMG ? `|${doc.s}` : ""}}`;
+			return cpy;
+		},
+	};
+	const fnAllowed = getStateSourcePredicate(state);
+	if (fnAllowed) opts.fnFilterResults = doc => fnAllowed(doc.s);
+
+	return SearchWidget.pGetUserEntitySearch("Select Item", "entity_Items", opts);
+}
+
 /**
  * The sources a character actually uses, as `{source, label}` — so picks made outside the current
  * filter can be flagged without hiding them.

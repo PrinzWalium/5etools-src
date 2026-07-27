@@ -15,6 +15,7 @@ import {
 } from "./charactersheet-levelengine.js";
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS, EXPENDABLE_RESOURCES, PROF_STATE_EXPERTISE, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
 import {pPickAbilities, pResolveFeat} from "./charactersheet-featgrant.js";
+import {getStateSourcePredicate} from "./charactersheet-sources.js";
 
 /**
  * The "Class & Leveling" sheet panel: renders the derived feature timeline, subclass and
@@ -39,6 +40,8 @@ export class CharacterClassPanel {
 		this._comp._addHookBase("resourcesUsed", () => this._pRender());
 		// Feats granted by a feature (Fighting Style, Epic Boon, ...) re-render the timeline.
 		this._comp._addHookBase("featureFeats", () => this._pRender());
+		// The source filter narrows what the in-card choosers offer.
+		this._comp._addHookBase("sourceFilter", () => this._pRender());
 		this._pRender();
 	}
 
@@ -318,18 +321,29 @@ export class CharacterClassPanel {
 
 	/* -------------------------------------------- Weapon Mastery (2024) -------------------------------------------- */
 
-	/** All weapons that have a mastery property, from item data (cached). Mastery is by weapon *type*, not ownership. */
-	_pGetMasteryWeapons () {
+	/** Every printing of every weapon with a mastery property (cached unfiltered, so the source filter can change). */
+	_pGetMasteryWeaponsRaw () {
 		return this._pMasteryWeapons ||= (async () => {
 			const all = await Renderer.item.pBuildList();
-			const seen = new Set();
 			return all
 				// Base weapon *types* only (Longsword, Shortbow, ...) — not the thousands of magic variants.
 				.filter(it => it.mastery?.length && it.weapon && it._isBaseItem)
-				.map(it => ({name: it.name, source: it.source, mastery: it.mastery.map(m => String(m).split("|")[0])}))
-				.filter(it => { const k = it.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
-				.sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+				.map(it => ({name: it.name, source: it.source, mastery: it.mastery.map(m => String(m).split("|")[0])}));
 		})();
+	}
+
+	/**
+	 * Weapons with a mastery property, restricted to the character's allowed sources. Mastery is by
+	 * weapon *type*, not ownership. Filtering happens before the de-duplication by name, so a weapon
+	 * still appears when a printing other than the first one is allowed.
+	 */
+	async _pGetMasteryWeapons () {
+		const fnAllowed = getStateSourcePredicate(this._comp._getState());
+		const seen = new Set();
+		return (await this._pGetMasteryWeaponsRaw())
+			.filter(it => !fnAllowed || fnAllowed(it.source))
+			.filter(it => { const k = it.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
+			.sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 	}
 
 	/** Weapon-mastery chooser for one class, hosted inside its "Weapon Mastery" feature card. */
@@ -387,7 +401,17 @@ export class CharacterClassPanel {
 	async _pOnChooseWeaponMastery () {
 		const chosen = this._comp._state.weaponMasteries || [];
 		const weapons = (await this._pGetMasteryWeapons()).filter(w => !chosen.includes(w.name));
-		if (!weapons.length) return;
+		if (!weapons.length) {
+			// Most often the source filter excludes every mastery weapon (they are all 2024 content)
+			const isFiltered = !!getStateSourcePredicate(this._comp._getState());
+			JqueryUtil.doToast({
+				type: "warning",
+				content: isFiltered
+					? "No weapons with a mastery property are available from this character's sources. Widen its source filter to pick one."
+					: "No weapons with a mastery property are available.",
+			});
+			return;
+		}
 		const picked = await InputUiUtil.pGetUserEnum({
 			values: weapons,
 			isResolveItem: true,

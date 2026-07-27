@@ -2,6 +2,7 @@ import {CHAR_SHEET_ABILITIES, CHAR_SHEET_CONDITIONS, CHAR_SHEET_SKILLS} from "./
 import {deriveCharacterSheet, getWeaponAttack} from "./charactersheet/charactersheet-derive.js";
 import {getInventoryItemMeta} from "./charactersheet/charactersheet-equipment.js";
 import {getChosenFeatureEffects, getFeatureInitiativeBonus} from "./charactersheet/charactersheet-features.js";
+import {pGetUserItemSearchFiltered} from "./charactersheet/charactersheet-sources.js";
 import {CharacterSheetClassData} from "./charactersheet/charactersheet-classdata.js";
 import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js";
 import {CharacterInventoryPanel} from "./charactersheet/charactersheet-inventorypanel.js";
@@ -265,7 +266,7 @@ class CharacterSheetPage extends CharacterPageBase {
 	}
 
 	async _onPickWeapon () {
-		const doc = await SearchWidget.pGetUserItemSearch();
+		const doc = await pGetUserItemSearchFiltered(this._comp._getState());
 		if (!doc) return;
 		const ent = await DataLoader.pCacheAndGet(doc.page, doc.source, doc.hash, {isCopy: true});
 		this._comp.addAttack(getWeaponAttack(this._comp._getState(), {...getInventoryItemMeta(ent), name: doc.n}));
