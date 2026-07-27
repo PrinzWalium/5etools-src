@@ -278,6 +278,97 @@ export function getGrantedSpellUids (clsOrSc, level) {
 }
 
 /**
+ * Parse an `additionalSpells` filter string ("level=0;1;2|class=Cleric;Druid") into a matcher spec.
+ * Unknown keys are preserved but unused; `levels`/`classes` are what the sheet can match on.
+ * @return {{levels: number[], classes: string[]}}
+ */
+export function parseSpellFilter (str) {
+	const out = {levels: [], classes: []};
+	String(str || "").split("|").forEach(part => {
+		const ix = part.indexOf("=");
+		if (ix < 0) return;
+		const key = part.slice(0, ix).trim().toLowerCase();
+		const vals = part.slice(ix + 1).split(";").map(v => v.trim()).filter(Boolean);
+		if (key === "level") out.levels.push(...vals.map(Number).filter(n => !isNaN(n)));
+		else if (key === "class") out.classes.push(...vals.map(v => v.toLowerCase()));
+	});
+	return out;
+}
+
+/** Whether a spell entity satisfies a parsed spell filter (empty criteria match everything). */
+export function isSpellMatchingFilter (spell, filter) {
+	if (!spell || !filter) return false;
+	if (filter.levels?.length && !filter.levels.includes(Number(spell.level))) return false;
+	if (filter.classes?.length) {
+		const spellClasses = (spell._csClassNames || []).map(c => String(c).toLowerCase());
+		if (!filter.classes.some(c => spellClasses.includes(c))) return false;
+	}
+	return true;
+}
+
+/**
+ * Dynamic (non-plain-uid) `additionalSpells` grants up to `level` — the `{choose}` entries a player
+ * must resolve (a domain/patron "choose a spell of level ≤ X") and the `{all}` entries that widen
+ * the learnable pool rather than granting spells outright.
+ *
+ * `choose` grants (found in the prepared/known/innate buckets) are picks: `count` spells matching
+ * `filter`, or chosen from an explicit `from` uid list. `all` grants appear only in the `expanded`
+ * bucket, where they mean "these spells become available to learn" (e.g. a Bard's Magical Secrets) —
+ * they are reported as `type: "expanded"` and must never be auto-added.
+ *
+ * @return {Array<{id: string, type: "choose"|"expanded", bucket: string, atLevel: number, count: number,
+ *                 filter: object|null, from: string[]|null}>}
+ */
+export function getDynamicSpellGrants (clsOrSc, level) {
+	level = _clampLevel(level);
+	const out = [];
+	(clsOrSc?.additionalSpells || []).forEach((grp, ixGrp) => {
+		["prepared", "known", "expanded", "innate"].forEach(bucket => {
+			const byLevel = grp[bucket];
+			if (!byLevel || typeof byLevel !== "object") return;
+			Object.entries(byLevel).forEach(([lk, spells]) => {
+				const atLevel = Number(lk);
+				if (isNaN(atLevel) || atLevel > level) return;
+				_flattenSpellEntries(spells).forEach((sp, ixSp) => {
+					if (!sp || typeof sp !== "object") return;
+					const id = `${ixGrp}:${bucket}:${atLevel}:${ixSp}`;
+					if (sp.choose != null) {
+						const isList = typeof sp.choose === "object";
+						out.push({
+							id,
+							type: "choose",
+							bucket,
+							atLevel,
+							count: Number(sp.count ?? (isList ? sp.choose.count : null)) || 1,
+							filter: isList ? null : parseSpellFilter(sp.choose),
+							from: isList ? (sp.choose.from || []).map(uid => String(uid).split("#")[0].toLowerCase()) : null,
+						});
+					} else if (sp.all != null) {
+						out.push({id, type: "expanded", bucket, atLevel, count: 0, filter: parseSpellFilter(sp.all), from: null});
+					}
+				});
+			});
+		});
+	});
+	return out;
+}
+
+/** Flatten an `additionalSpells` level value, unwrapping the `_`/frequency wrappers around lists. */
+function _flattenSpellEntries (spells) {
+	const out = [];
+	const walk = node => {
+		if (node == null) return;
+		if (Array.isArray(node)) return node.forEach(walk);
+		if (typeof node !== "object") return out.push(node);
+		// Wrappers whose values are the real entries: `_`, and innate frequency keys (daily/rest/resource/ritual)
+		if (node.choose != null || node.all != null) return out.push(node);
+		Object.values(node).forEach(walk);
+	};
+	walk(spells);
+	return out;
+}
+
+/**
  * Per-level class resources read straight from the class/subclass table columns — e.g. Rages,
  * Rage Damage, Weapon Mastery count, Sneak Attack dice, Martial Arts die, Ki/Focus/Sorcery Points,
  * Channel Divinity, Wild Shape, Bardic Die, Invocations. Spell-slot/known/prepared columns are

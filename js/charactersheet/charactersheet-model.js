@@ -98,6 +98,7 @@ export class CharacterModel extends BaseComponent {
 			spellAbility: "",
 			spellsText: "",
 			spellsKnown: [], // [{id, name, source, level}]
+			grantedSpellChoices: [], // [{id, grantKey, name, source, level}] — picks for `additionalSpells` {choose} grants
 			slotsUsed: {}, // {"1": n, ..., "9": n, pact: n}
 			resourcesUsed: {}, // {resourceLabel: n} — expended class resources (Rages, Ki, Wild Shape, ...)
 
@@ -197,6 +198,18 @@ export class CharacterModel extends BaseComponent {
 
 	removeKnownSpell (id) {
 		this._state.spellsKnown = this._state.spellsKnown.filter(it => it.id !== id);
+	}
+
+	/** Record a pick for a dynamic `additionalSpells` {choose} grant, scoped to that grant. */
+	addGrantedSpellChoice ({grantKey, name, source, level, className = null}) {
+		const cur = this._state.grantedSpellChoices || [];
+		if (cur.some(it => it.grantKey === grantKey && it.name === name && it.source === source)) return false;
+		this._state.grantedSpellChoices = [...cur, {id: CryptUtil.uid(), grantKey, name, source, level: Number(level) || 0, className}];
+		return true;
+	}
+
+	removeGrantedSpellChoice (id) {
+		this._state.grantedSpellChoices = (this._state.grantedSpellChoices || []).filter(it => it.id !== id);
 	}
 
 	/**

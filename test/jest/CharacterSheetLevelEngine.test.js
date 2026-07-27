@@ -6,6 +6,9 @@ import {
 	getClassResources,
 	getExpertiseSkillCount,
 	getGrantedSpellUids,
+	getDynamicSpellGrants,
+	parseSpellFilter,
+	isSpellMatchingFilter,
 	getPreparedSpellCount,
 	getCantripsKnown,
 	getCasterLevelContribution,
@@ -206,6 +209,70 @@ describe("Leveling engine: granted spells (additionalSpells)", () => {
 		const sc = {additionalSpells: [{known: {"s6": ["wish|xphb"]}}]};
 		expect(getGrantedSpellUids(sc, 20)).toEqual([]);
 		expect(getGrantedSpellUids({}, 5)).toEqual([]);
+	});
+});
+
+describe("Leveling engine: dynamic spell grants", () => {
+	it("Should parse filter strings into levels and classes", () => {
+		expect(parseSpellFilter("level=0;1;2")).toEqual({levels: [0, 1, 2], classes: []});
+		expect(parseSpellFilter("level=6|class=Cleric;Druid")).toEqual({levels: [6], classes: ["cleric", "druid"]});
+		expect(parseSpellFilter("")).toEqual({levels: [], classes: []});
+		expect(parseSpellFilter(null)).toEqual({levels: [], classes: []});
+	});
+
+	it("Should match spells against a parsed filter", () => {
+		const filter = parseSpellFilter("level=1;2|class=Wizard");
+		expect(isSpellMatchingFilter({level: 1, _csClassNames: ["Wizard"]}, filter)).toBe(true);
+		expect(isSpellMatchingFilter({level: 3, _csClassNames: ["Wizard"]}, filter)).toBe(false); // wrong level
+		expect(isSpellMatchingFilter({level: 1, _csClassNames: ["Cleric"]}, filter)).toBe(false); // wrong class
+		// Empty criteria match everything
+		expect(isSpellMatchingFilter({level: 9, _csClassNames: []}, parseSpellFilter(""))).toBe(true);
+		expect(isSpellMatchingFilter(null, filter)).toBe(false);
+	});
+
+	it("Should extract {choose} grants as picks, up to the class level", () => {
+		const sc = {additionalSpells: [{
+			prepared: {"3": [{choose: "level=0;1|class=Wizard"}], "9": [{choose: "level=5"}]},
+		}]};
+		const at3 = getDynamicSpellGrants(sc, 3);
+		expect(at3).toHaveLength(1);
+		expect(at3[0]).toMatchObject({type: "choose", bucket: "prepared", atLevel: 3, count: 1});
+		expect(at3[0].filter).toEqual({levels: [0, 1], classes: ["wizard"]});
+		// The level-9 grant only appears once the character is high enough
+		expect(getDynamicSpellGrants(sc, 9)).toHaveLength(2);
+	});
+
+	it("Should honour an explicit `from` list and a count", () => {
+		const sc = {additionalSpells: [{innate: {"3": [{choose: {from: ["minor illusion|xphb#c", "blade ward|xphb#c"], count: 2}}]}}]};
+		const [grant] = getDynamicSpellGrants(sc, 3);
+		expect(grant).toMatchObject({type: "choose", count: 2, filter: null});
+		expect(grant.from).toEqual(["minor illusion|xphb", "blade ward|xphb"]); // `#c` suffix stripped
+	});
+
+	it("Should report {all} grants as pool-widening, never as picks", () => {
+		// A Bard's Magical Secrets: hundreds of spells become learnable — they must not be auto-granted
+		const cls = {additionalSpells: [{expanded: {"10": [{all: "level=1;2|class=Cleric;Druid;Wizard"}]}}]};
+		const [grant] = getDynamicSpellGrants(cls, 10);
+		expect(grant).toMatchObject({type: "expanded", bucket: "expanded", count: 0});
+		expect(grant.filter).toEqual({levels: [1, 2], classes: ["cleric", "druid", "wizard"]});
+		// ...and they stay out of the auto-granted uid list
+		expect(getGrantedSpellUids(cls, 10)).toEqual([]);
+	});
+
+	it("Should unwrap `_` and innate frequency wrappers, and ignore plain uids", () => {
+		const sc = {additionalSpells: [{
+			known: {"1": {_: [{choose: "level=0|class=Druid"}]}},
+			innate: {"3": {daily: {"1e": [{choose: "level=2"}]}}},
+			prepared: {"1": ["bless"]}, // plain uid → not a dynamic grant
+		}]};
+		const grants = getDynamicSpellGrants(sc, 3);
+		expect(grants).toHaveLength(2);
+		expect(grants.every(g => g.type === "choose")).toBe(true);
+	});
+
+	it("Should return [] with no additionalSpells", () => {
+		expect(getDynamicSpellGrants({}, 5)).toEqual([]);
+		expect(getDynamicSpellGrants(null, 5)).toEqual([]);
 	});
 });
 

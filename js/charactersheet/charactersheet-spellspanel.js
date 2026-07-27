@@ -1,5 +1,5 @@
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
-import {getCantripsKnown, getGrantedSpellUids, getPreparedSpellCount, getSpellcastingMeta, getSpellsKnown} from "./charactersheet-levelengine.js";
+import {getCantripsKnown, getDynamicSpellGrants, getGrantedSpellUids, getPreparedSpellCount, getSpellcastingMeta, getSpellsKnown, isSpellMatchingFilter} from "./charactersheet-levelengine.js";
 import {deriveCharacterSheet, getAbilityModifier} from "./charactersheet-derive.js";
 import {getSpellSummary, normaliseCastTime} from "./charactersheet-actions.js";
 
@@ -25,6 +25,7 @@ export class CharacterSpellsPanel {
 			this._pRenderKnown();
 			this._pRenderSlots(); // known counts live in the slots block
 		});
+		this._comp._addHookBase("grantedSpellChoices", () => this._pRenderKnown());
 		// The spell-summary numbers depend on the spellcasting ability score/level, so refresh on those too.
 		["spellAbility", "level", "abil_int", "abil_wis", "abil_cha"].forEach(prop => this._comp._addHookBase(prop, () => this._pRenderKnown()));
 		document.getElementById("cs-spell-add").addEventListener("click", () => this._pOnAddSpell());
@@ -75,6 +76,130 @@ export class CharacterSpellsPanel {
 			});
 		});
 		return out;
+	}
+
+	/**
+	 * The dynamic `additionalSpells` grants a character has: `{choose}` picks still to resolve
+	 * (a domain/patron "choose a spell of level ≤ X") and `{all}` entries that widen the learnable
+	 * pool. Each pick carries a stable `grantKey` so its selection survives re-renders.
+	 */
+	async _pGetDynamicGrants () {
+		const loaded = await this._pGetLoadedClasses();
+		const out = [];
+		loaded.forEach(({entry, cls, sc}) => {
+			[[cls, cls?.name], [sc, sc?.name]].forEach(([ent, entName]) => {
+				if (!ent) return;
+				getDynamicSpellGrants(ent, entry.level).forEach(grant => {
+					out.push({
+						...grant,
+						grantKey: `${entry.id}:${entName}:${grant.id}`,
+						sourceName: entName,
+						className: cls?.name || null,
+					});
+				});
+			});
+		});
+		return out;
+	}
+
+	/** Spell entities matching a dynamic grant's filter (or its explicit `from` list). */
+	async _pGetSpellsForGrant (grant) {
+		const byKey = await this._pEnsureSpellData();
+		if (grant.from?.length) {
+			return grant.from
+				.map(uid => {
+					const [name, source] = uid.split("|");
+					return byKey.get(`${name}|${(source || "phb").toLowerCase()}`) || this._spellByName.get(name);
+				})
+				.filter(Boolean);
+		}
+		const all = await CharacterSheetClassData.pGetAllSpells().catch(() => []);
+		return all.filter(sp => isSpellMatchingFilter(CharacterSpellsPanel._getSpellWithClasses(sp), grant.filter));
+	}
+
+	/** Annotate a spell entity with the class names it appears on, for filter matching. */
+	static _getSpellWithClasses (sp) {
+		if (sp._csClassNames) return sp;
+		sp._csClassNames = [
+			...Renderer.spell.getCombinedClasses(sp, "fromClassList"),
+			...Renderer.spell.getCombinedClasses(sp, "fromClassListVariant"),
+		].map(c => c.name).filter(Boolean);
+		return sp;
+	}
+
+	async _pOnChooseGrantedSpell (grant) {
+		const chosenKeys = new Set((this._comp._state.grantedSpellChoices || [])
+			.filter(it => it.grantKey === grant.grantKey)
+			.map(it => `${it.name.toLowerCase()}|${it.source.toLowerCase()}`));
+		const pool = (await this._pGetSpellsForGrant(grant))
+			.filter(sp => !chosenKeys.has(`${sp.name.toLowerCase()}|${sp.source.toLowerCase()}`))
+			.sort((a, b) => (a.level - b.level) || SortUtil.ascSortLower(a.name, b.name));
+		if (!pool.length) return;
+
+		const picked = await InputUiUtil.pGetUserEnum({
+			values: pool,
+			isResolveItem: true,
+			fnDisplay: sp => `${sp.name} (${sp.level === 0 ? "cantrip" : Parser.spLevelToFull(sp.level)}, ${Parser.sourceJsonToAbv(sp.source)})`,
+			title: `${grant.sourceName}: choose a spell`,
+			placeholder: "Select a spell...",
+		});
+		if (picked == null) return;
+		this._comp.addGrantedSpellChoice({
+			grantKey: grant.grantKey,
+			name: picked.name,
+			source: picked.source,
+			level: picked.level,
+			className: grant.className,
+		});
+	}
+
+	/** Pending/!resolved dynamic spell picks, rendered above the known list. */
+	_renderDynamicGrantChoosers (grants) {
+		const chooseGrants = grants.filter(g => g.type === "choose");
+		if (!chooseGrants.length) return;
+
+		const chosenAll = this._comp._state.grantedSpellChoices || [];
+		const wrp = document.createElement("div");
+		wrp.className = "ve-mb-1";
+
+		chooseGrants.forEach(grant => {
+			const chosen = chosenAll.filter(it => it.grantKey === grant.grantKey);
+			const row = document.createElement("div");
+			row.className = "ve-small ve-mb-1 ve-flex-v-center ve-flex-wrap";
+
+			const lbl = document.createElement("span");
+			const remaining = grant.count - chosen.length;
+			lbl.className = remaining > 0 ? "ve-text-danger bold ve-mr-1" : "ve-muted ve-mr-1";
+			lbl.textContent = `${grant.sourceName} spell (${chosen.length}/${grant.count}): `;
+			row.appendChild(lbl);
+
+			chosen.forEach(sp => {
+				const spn = document.createElement("span");
+				spn.className = "ve-mr-1";
+				spn.innerHTML = Renderer.get().render(`{@spell ${sp.name}|${sp.source}}`);
+				const btnRm = document.createElement("button");
+				btnRm.type = "button";
+				btnRm.className = "ve-btn ve-btn-xxs ve-btn-default no-print ve-ml-1";
+				btnRm.title = `Remove ${sp.name}`;
+				btnRm.textContent = "×";
+				btnRm.addEventListener("click", () => this._comp.removeGrantedSpellChoice(sp.id));
+				spn.appendChild(btnRm);
+				row.appendChild(spn);
+			});
+
+			if (remaining > 0) {
+				const btn = document.createElement("button");
+				btn.type = "button";
+				btn.className = "ve-btn ve-btn-xxs ve-btn-primary no-print";
+				btn.textContent = "Choose spell...";
+				btn.addEventListener("click", () => this._pOnChooseGrantedSpell(grant));
+				row.appendChild(btn);
+			}
+
+			wrp.appendChild(row);
+		});
+
+		this._wrpKnown.appendChild(wrp);
 	}
 
 	/* -------------------------------------------- Class-filtered spell manager -------------------------------------------- */
@@ -299,17 +424,33 @@ export class CharacterSpellsPanel {
 		if (token !== this._knownToken) return;
 		const granted = await this._pGetGrantedSpells();
 		if (token !== this._knownToken) return;
+		const dynamicGrants = await this._pGetDynamicGrants();
+		if (token !== this._knownToken) return;
+
+		// Spells picked for a {choose} grant are granted too, so show them with the always-prepared list.
+		const chosenGranted = (this._comp._state.grantedSpellChoices || [])
+			.map(it => ({name: it.name, source: it.source, level: it.level, className: it.className, granted: true}));
+
 		// A granted spell already chosen manually shouldn't appear twice.
 		const knownKeys = new Set(known.map(it => `${it.name.toLowerCase()}|${(it.source || "").toLowerCase()}`));
-		const grantedShown = granted.filter(sp => !knownKeys.has(`${sp.name.toLowerCase()}|${sp.source.toLowerCase()}`));
+		const grantedSeen = new Set();
+		const grantedShown = [...granted, ...chosenGranted].filter(sp => {
+			const key = `${sp.name.toLowerCase()}|${sp.source.toLowerCase()}`;
+			if (knownKeys.has(key) || grantedSeen.has(key)) return false;
+			grantedSeen.add(key);
+			return true;
+		});
 
-		if (!known.length && !grantedShown.length) return;
+		const hasChoosers = dynamicGrants.some(g => g.type === "choose");
+		if (!known.length && !grantedShown.length && !hasChoosers) return;
 		const derivedSpell = deriveCharacterSheet(this._comp._getState()).spell;
 
 		// Prominent counts right above the list, so players see how many they may pick (red when over)
 		const countItems = this._getSpellCountItems(await this._pGetLoadedClasses());
 		if (token !== this._knownToken) return;
 		if (countItems.length) this._wrpKnown.appendChild(this._getCountsLine(countItems, {isBold: true}));
+
+		this._renderDynamicGrantChoosers(dynamicGrants);
 
 		const renderGroup = (heading, spells, {isGranted = false} = {}) => {
 			if (heading) {

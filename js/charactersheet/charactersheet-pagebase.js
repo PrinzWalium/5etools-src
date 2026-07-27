@@ -5,7 +5,7 @@ import {getLevelUpHp} from "./charactersheet-levelengine.js";
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {CharacterWizard} from "./charactersheet-wizard.js";
 import {CHOICE_TYPE_ABILITY, CHOICE_TYPE_LANGUAGE, CHOICE_TYPE_SKILL, CHOICE_TYPE_TOOL, getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats, getPendingChoices} from "./charactersheet-choices.js";
-import {pPickList, pResolveFeat} from "./charactersheet-featgrant.js";
+import {pPickAbilities, pPickList, pResolveFeat} from "./charactersheet-featgrant.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -276,9 +276,9 @@ export class CharacterPageBase {
 	}
 
 	/**
-	 * After a standalone pick: offer to apply fixed ability bonuses (opt-in, since the sheet's
-	 * scores are final values), and note choose-based increases for manual resolution.
-	 * The wizard flow applies both automatically instead.
+	 * After a standalone pick: offer to apply the entity's ability score increases (opt-in, since the
+	 * sheet's scores are final values). Unambiguous fixed bonuses are a single confirm; choice-based
+	 * ones (a 2024 background's "+2/+1 among ..." or "choose 2 of ...") are resolved interactively.
 	 */
 	async _pOfferAbilityBonuses (ent, name) {
 		const fixed = getFixedAbilityBonuses(ent.ability);
@@ -293,13 +293,68 @@ export class CharacterPageBase {
 			if (isApply) this._comp.applyAbilityBonuses(fixed);
 		}
 
-		getAbilityChoices({ability: ent.ability, sourceName: name}).forEach(choice => {
-			const ptChoose = choice.packages.length === 1
-				? getAbilityPackageDisplay({...choice.packages[0], fixed: {}})
-				: choice.label.replace(/^Ability scores: choose /, "");
-			if (!ptChoose) return;
-			this._comp.appendToTextProp("proficienciesText", `Ability Scores (${name}): ${ptChoose} — assign manually`);
+		for (const choice of getAbilityChoices({ability: ent.ability, sourceName: name})) {
+			await this._pResolveAbilityChoice(choice, name);
+		}
+	}
+
+	/**
+	 * Walk one ability-score choice: pick the package (when a source offers alternatives, e.g. a 2024
+	 * background's "+2/+1" vs "+1/+1/+1"), then assign each increase to an ability. Declining leaves a
+	 * note so the grant isn't silently lost.
+	 */
+	async _pResolveAbilityChoice (choice, name) {
+		const ptOffer = choice.packages.map(pkg => getAbilityPackageDisplay(pkg)).join(" — or — ");
+		const isApply = await InputUiUtil.pGetUserBoolean({
+			title: "Apply Ability Score Increases?",
+			htmlDescription: `<div>${name.qq()} grants: <b>${ptOffer.qq()}</b>.<br>Assign this now?</div>`,
+			textYes: "Assign",
+			textNo: "Skip",
 		});
+		if (!isApply) {
+			this._comp.appendToTextProp("proficienciesText", `Ability Scores (${name}): ${ptOffer} — assign manually`);
+			return;
+		}
+
+		let pkg = choice.packages[0];
+		if (choice.packages.length > 1) {
+			pkg = await InputUiUtil.pGetUserEnum({
+				values: choice.packages,
+				isResolveItem: true,
+				fnDisplay: p => getAbilityPackageDisplay(p),
+				title: `${name}: which increases?`,
+				placeholder: "Select...",
+			});
+			if (pkg == null) return;
+		}
+
+		const allAbvs = CHAR_SHEET_ABILITIES.map(([abv]) => abv);
+		const bonuses = {...pkg.fixed};
+		const taken = new Set(Object.keys(bonuses));
+
+		// "+2/+1 among Dex, Int, Wis": assign each weight to a distinct ability, largest first
+		for (const weight of (pkg.weighted?.weights || [])) {
+			const from = (pkg.weighted.from.length ? pkg.weighted.from : allAbvs).filter(abv => !taken.has(abv));
+			if (!from.length) break;
+			const [abv] = await pPickAbilities({count: 1, from, title: `${name}: which ability gets ${weight >= 0 ? "+" : ""}${weight}?`}) || [];
+			if (abv == null) return this._noteUnassignedAbilities(name, ptOffer);
+			bonuses[abv] = (bonuses[abv] || 0) + weight;
+			taken.add(abv);
+		}
+
+		// "+1 to 2 of Str, Dex": pick `count` distinct abilities, each gaining `amount`
+		if (pkg.choose) {
+			const from = (pkg.choose.from.length ? pkg.choose.from : allAbvs).filter(abv => !taken.has(abv));
+			const picked = await pPickAbilities({count: pkg.choose.count, from, title: `${name}: increase which ability?`});
+			if (!picked) return this._noteUnassignedAbilities(name, ptOffer);
+			picked.forEach(abv => bonuses[abv] = (bonuses[abv] || 0) + pkg.choose.amount);
+		}
+
+		if (Object.keys(bonuses).length) this._comp.applyAbilityBonuses(bonuses);
+	}
+
+	_noteUnassignedAbilities (name, ptOffer) {
+		this._comp.appendToTextProp("proficienciesText", `Ability Scores (${name}): ${ptOffer} — assign manually`);
 	}
 
 	async _onPickClass () {
