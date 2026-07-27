@@ -88,6 +88,7 @@ export class CharacterClassPanel {
 
 		this._loaded = loaded;
 		this._wrp.innerHTML = "";
+		this._expertiseBoxes = []; // rebuilt as the Expertise cards render
 		this._renderOriginFeats();
 		loaded.forEach(meta => this._renderClassSection(meta));
 		this._renderSpellcasting(loaded);
@@ -230,23 +231,46 @@ export class CharacterClassPanel {
 
 	/* -------------------------------------------- Expertise -------------------------------------------- */
 
-	/** Expertise chooser for one class, hosted inside its "Expertise" feature card. */
+	/**
+	 * Expertise picks come from one character-wide pool: a Rogue 1 / Bard 3 has four picks over the
+	 * same skill list, not two separate pairs. So the chooser is rendered once — in the first
+	 * Expertise feature card — against the combined total, and any later Expertise card points at it.
+	 */
+	_getExpertiseTotal () {
+		return (this._loaded || []).reduce((acc, {entry, cls}) => acc + (cls ? getExpertiseSkillCount(cls, entry.level) : 0), 0);
+	}
+
+	/** Expertise chooser hosted inside an "Expertise" feature card. */
 	_renderExpertiseChooser (box, {entry, cls}) {
-		this._wrpExpertise = box;
-		this._expertiseCtx = {entry, cls};
-		this._fillExpertise();
+		this._expertiseBoxes = this._expertiseBoxes || [];
+		const meta = {box, entry, cls, isPrimary: !this._expertiseBoxes.length};
+		this._expertiseBoxes.push(meta);
+		// Fill now: the card is still being assembled, so the box is not in the document yet.
+		this._fillExpertiseBox(meta);
 	}
 
-	/** Re-fill just the Expertise chooser (called on skill-proficiency changes), preserving card state. */
+	/** Re-fill the Expertise chooser (called on skill-proficiency changes), preserving card state. */
 	_refreshExpertise () {
-		if (this._wrpExpertise?.isConnected && this._expertiseCtx) this._fillExpertise();
+		(this._expertiseBoxes || [])
+			.filter(it => it.box.isConnected)
+			.forEach(it => this._fillExpertiseBox(it));
 	}
 
-	_fillExpertise () {
-		const wrp = this._wrpExpertise;
-		if (!wrp || !this._expertiseCtx) return;
-		const {cls, entry} = this._expertiseCtx;
-		const total = getExpertiseSkillCount(cls, entry.level);
+	_fillExpertiseBox (meta) {
+		return meta.isPrimary ? this._fillExpertisePrimary(meta) : this._fillExpertiseSecondary(meta);
+	}
+
+	/** A non-first Expertise card: Expertise is shared, so point at the card that owns the chooser. */
+	_fillExpertiseSecondary ({box}) {
+		const primary = (this._expertiseBoxes || [])[0];
+		const where = primary?.cls?.name ? ` on the ${primary.cls.name} card above` : " above";
+		const total = this._getExpertiseTotal();
+		const nChosen = CHAR_SHEET_SKILLS.filter(({key}) => Number(this._comp._state[`skill_${key}`]) === PROF_STATE_EXPERTISE).length;
+		box.innerHTML = `<div class="ve-small"><span class="bold">Expertise</span> <span class="ve-muted">— shared across your classes (${nChosen}/${total} chosen); choose${where.qq()}.</span></div>`;
+	}
+
+	_fillExpertisePrimary ({box: wrp}) {
+		const total = this._getExpertiseTotal();
 		const proficient = CHAR_SHEET_SKILLS.filter(({key}) => (Number(this._comp._state[`skill_${key}`]) || 0) >= PROF_STATE_PROFICIENT);
 
 		wrp.innerHTML = `<div class="ve-flex-v-center ve-mb-1"><span class="bold">Expertise</span> <span class="ve-muted ve-small ve-ml-1 cs__exp-count"></span></div>`;
@@ -720,8 +744,9 @@ export class CharacterClassPanel {
 			if (name === "Expertise" && ctx.expertiseTotal && !done.expertise) {
 				this._renderExpertiseChooser(this._makeChoiceBox(body), {entry, cls});
 				done.expertise = true;
+				// Expertise is one character-wide pool, so measure against the combined total
 				const nExp = CHAR_SHEET_SKILLS.filter(({key}) => Number(this._comp._state[`skill_${key}`]) === PROF_STATE_EXPERTISE).length;
-				unmet = unmet || nExp < ctx.expertiseTotal;
+				unmet = unmet || nExp < this._getExpertiseTotal();
 			}
 			if (name === "Weapon Mastery" && ctx.wmTotal && !done.wm) {
 				this._renderWeaponMasteryChooser(this._makeChoiceBox(body), {entry, cls});

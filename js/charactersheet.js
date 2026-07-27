@@ -315,6 +315,20 @@ class CharacterSheetPage extends CharacterPageBase {
 			parts.push(`<div><span class="ve-muted">Mastery:</span> ${byWeapon.join(`<span class="ve-muted"> &middot; </span>`)}</div>`);
 		}
 
+		// Every feat the character has taken, from any route, as hoverable links
+		const feats = [
+			...(state.originFeats || []).map(f => ({name: f.name, source: f.source})),
+			...(state.featureFeats || []).map(f => ({name: f.name, source: f.source})),
+			...(state.classes || []).flatMap(c => (c.asiFeatChoices || []).filter(it => it.type === "feat")),
+		];
+		const seenFeats = new Set();
+		const featLinks = feats
+			.filter(f => f?.name && !seenFeats.has(f.name.toLowerCase()) && seenFeats.add(f.name.toLowerCase()))
+			.map(f => Renderer.get().render(`{@feat ${f.name}${f.source && f.source !== Parser.SRC_PHB ? `|${f.source}` : ""}}`));
+		if (featLinks.length) {
+			parts.push(`<div><span class="ve-muted">Feats:</span> ${featLinks.join(`<span class="ve-muted"> &middot; </span>`)}</div>`);
+		}
+
 		ele.innerHTML = parts.join("");
 	}
 
