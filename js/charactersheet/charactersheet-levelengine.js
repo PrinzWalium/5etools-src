@@ -535,6 +535,49 @@ export function getHitDieAverage (faces) {
  * @param [opts.fnRoll] If given, each level rolls `fnRoll(faces)`; otherwise the fixed average is used.
  * @return {{total: number, perLevel: Array<number>}} Each level contributes at least 1 HP.
  */
+/**
+ * The HP the rules would give a character, as a breakdown — the sheet's Max HP is a typed value
+ * (players roll, or a DM grants extras), so this is a reference to compare against rather than a
+ * replacement. The first level of the *first* class gets the full hit die; every later level gets
+ * the fixed average. Constitution applies once per level, and each level yields at least 1 HP.
+ * @return {{total: number, parts: Array<{label: string, value: number}>}}
+ */
+export function getExpectedHp ({classes = [], conMod = 0} = {}) {
+	const parts = [];
+	let total = 0;
+	let isFirstLevelOverall = true;
+
+	(classes || []).forEach(cls => {
+		const faces = Number(cls.hdFaces) || 0;
+		const level = Math.max(0, Number(cls.level) || 0);
+		if (!faces || !level) return;
+
+		if (isFirstLevelOverall) {
+			const first = Math.max(1, faces + conMod);
+			parts.push({label: `${cls.name} level 1 (d${faces} max)`, value: first, isRaw: true});
+			total += first;
+			isFirstLevelOverall = false;
+			if (level > 1) {
+				const rest = (level - 1) * Math.max(1, getHitDieAverage(faces) + conMod);
+				parts.push({label: `${cls.name} levels 2\u2013${level} (${level - 1} \u00d7 avg ${getHitDieAverage(faces)})`, value: rest});
+				total += rest;
+			}
+			return;
+		}
+
+		const gained = level * Math.max(1, getHitDieAverage(faces) + conMod);
+		parts.push({label: `${cls.name} ${level} (${level} \u00d7 avg ${getHitDieAverage(faces)})`, value: gained});
+		total += gained;
+	});
+
+	if (parts.length && conMod) {
+		const totalLevels = (classes || []).reduce((acc, c) => acc + (Number(c.level) || 0), 0);
+		parts.push({label: `Constitution ${conMod >= 0 ? "+" : "\u2212"}${Math.abs(conMod)} \u00d7 ${totalLevels} levels`, value: 0, isText: true});
+	}
+
+	return {total, parts};
+}
+
 export function getLevelUpHp ({faces, conMod = 0, numLevels = 1, fnRoll = null}) {
 	const perLevel = [];
 	for (let i = 0; i < numLevels; ++i) {

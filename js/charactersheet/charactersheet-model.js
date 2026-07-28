@@ -94,6 +94,7 @@ export class CharacterModel extends BaseComponent {
 			weaponMasteries: [], // inventory weapon names whose mastery property is active
 			originFeats: [], // [{id, name, source, bonuses}] — feats granted by a 2024 background
 			featureFeats: [], // [{id, entryId, featureKey, category, name, source, bonuses}] — feats a class feature grants (Fighting Style, Epic Boon, ...)
+			manualFeats: [], // [{id, name, source, note, bonuses}] — feats granted outside the rules (training, story rewards)
 
 			spellAbility: "",
 			spellsText: "",
@@ -271,6 +272,33 @@ export class CharacterModel extends BaseComponent {
 		if (!feat) return;
 		if (feat.bonuses) this.applyAbilityBonuses(feat.bonuses, {isRevert: true, logId: id});
 		this._state.featureFeats = this._state.featureFeats.filter(it => it.id !== id);
+	}
+
+	/**
+	 * Record a feat granted outside the normal progression — a DM award for training or a story
+	 * beat. Kept separate from ASI-slot feats so it never consumes a slot the character has earned.
+	 */
+	addManualFeat ({name, source, note = "", bonuses = null}) {
+		const cur = this._state.manualFeats || [];
+		if (cur.some(it => it.name === name && it.source === source)) return false;
+		const id = CryptUtil.uid();
+		this._state.manualFeats = [...cur, {id, name, source, note, bonuses}];
+		if (bonuses) this.applyAbilityBonuses(bonuses, {source: `${name} (feat)`, logId: id});
+		return true;
+	}
+
+	removeManualFeat (id) {
+		const feat = (this._state.manualFeats || []).find(it => it.id === id);
+		if (!feat) return;
+		if (feat.bonuses) this.applyAbilityBonuses(feat.bonuses, {isRevert: true, logId: id});
+		this._state.manualFeats = this._state.manualFeats.filter(it => it.id !== id);
+	}
+
+	setManualFeatNote (id, note) {
+		const feat = (this._state.manualFeats || []).find(it => it.id === id);
+		if (!feat) return;
+		feat.note = note;
+		this._triggerCollectionUpdate("manualFeats");
 	}
 
 	/** Toggle an owned weapon's mastery as active. */

@@ -44,6 +44,7 @@ export function getChosenFeatureNames (state) {
 	});
 	(state?.featureFeats || []).forEach(it => { if (it?.name) out.push(it.name); });
 	(state?.originFeats || []).forEach(it => { if (it?.name) out.push(it.name); });
+	(state?.manualFeats || []).forEach(it => { if (it?.name) out.push(it.name); });
 	return [...new Set(out)];
 }
 

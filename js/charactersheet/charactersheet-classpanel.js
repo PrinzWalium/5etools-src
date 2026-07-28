@@ -40,6 +40,7 @@ export class CharacterClassPanel {
 		this._comp._addHookBase("resourcesUsed", () => this._pRender());
 		// Feats granted by a feature (Fighting Style, Epic Boon, ...) re-render the timeline.
 		this._comp._addHookBase("featureFeats", () => this._pRender());
+		this._comp._addHookBase("manualFeats", () => this._pRender());
 		// The source filter narrows what the in-card choosers offer.
 		this._comp._addHookBase("sourceFilter", () => this._pRender());
 		this._pRender();
@@ -93,6 +94,7 @@ export class CharacterClassPanel {
 		this._wrp.innerHTML = "";
 		this._expertiseBoxes = []; // rebuilt as the Expertise cards render
 		this._renderOriginFeats();
+		this._renderManualFeats();
 		loaded.forEach(meta => this._renderClassSection(meta));
 		this._renderSpellcasting(loaded);
 		this._renderAddClass();
@@ -127,6 +129,79 @@ export class CharacterClassPanel {
 		});
 
 		this._wrp.appendChild(wrp);
+	}
+
+	/**
+	 * Feats granted outside the normal progression — DM awards for training or story reasons. Always
+	 * shown (with an add button), since a character with none still needs somewhere to add one.
+	 */
+	_renderManualFeats () {
+		const feats = this._comp._state.manualFeats || [];
+
+		const wrp = document.createElement("div");
+		wrp.className = "ve-mb-2";
+		const head = document.createElement("div");
+		head.className = "ve-flex-v-center ve-mb-1";
+		head.innerHTML = `<span class="bold">Other Feats</span> <span class="ve-muted ve-small ve-ml-1">granted outside your class progression</span>`;
+		const btnAdd = document.createElement("button");
+		btnAdd.type = "button";
+		btnAdd.className = "ve-btn ve-btn-xxs ve-btn-primary ve-ml-auto no-print";
+		btnAdd.innerHTML = `<span class="glyphicon glyphicon-plus"></span> Add Feat`;
+		btnAdd.addEventListener("click", () => this._pOnAddManualFeat());
+		head.appendChild(btnAdd);
+		wrp.appendChild(head);
+
+		if (!feats.length) {
+			wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">None. Use <b>Add Feat</b> for feats earned through training or the story &mdash; these do not use an Ability Score Improvement slot.</div>`);
+		}
+
+		feats.forEach(feat => {
+			const row = document.createElement("div");
+			row.className = "ve-small ve-mb-1 ve-flex-v-center";
+			const lbl = document.createElement("span");
+			lbl.className = "ve-mr-2";
+			lbl.innerHTML = Renderer.get().render(`{@feat ${feat.name}${feat.source && feat.source !== Parser.SRC_PHB ? `|${feat.source}` : ""}}`);
+			row.appendChild(lbl);
+
+			const iptNote = document.createElement("input");
+			iptNote.type = "text";
+			iptNote.className = "ve-form-control ve-input-xs ve-mr-1";
+			iptNote.style.maxWidth = "16em";
+			iptNote.placeholder = "Why? (optional)";
+			iptNote.value = feat.note || "";
+			iptNote.addEventListener("change", () => this._comp.setManualFeatNote(feat.id, iptNote.value));
+			row.appendChild(iptNote);
+
+			const btnRm = document.createElement("button");
+			btnRm.type = "button";
+			btnRm.className = "ve-btn ve-btn-xxs ve-btn-danger no-print";
+			btnRm.title = "Remove; ability score bonuses are reverted";
+			btnRm.innerHTML = `<span class="glyphicon glyphicon-trash"></span>`;
+			btnRm.addEventListener("click", () => this._comp.removeManualFeat(feat.id));
+			row.appendChild(btnRm);
+
+			wrp.appendChild(row);
+		});
+
+		this._wrp.appendChild(wrp);
+	}
+
+	async _pOnAddManualFeat () {
+		const taken = new Set((this._comp._state.manualFeats || []).map(it => `${it.name}|${it.source}`));
+		const pool = (await CharacterSheetClassData.pGetAllFeats()).filter(f => !taken.has(`${f.name}|${f.source}`));
+		if (!pool.length) return;
+		const feat = await InputUiUtil.pGetUserEnum({
+			values: pool,
+			isResolveItem: true,
+			fnDisplay: f => `${f.name} (${Parser.sourceJsonToAbv(f.source)})`,
+			title: "Add a feat",
+			placeholder: "Select a feat...",
+		});
+		if (feat == null) return;
+		// Granted by the DM, so prerequisites are deliberately not enforced here
+		const bonuses = await pResolveFeat(this._comp, feat);
+		if (bonuses == null) return;
+		this._comp.addManualFeat({name: feat.name, source: feat.source, bonuses});
 	}
 
 	_renderClassSection ({entry, cls, sc}) {

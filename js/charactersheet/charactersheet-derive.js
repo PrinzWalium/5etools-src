@@ -1,5 +1,6 @@
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS, PROF_STATE_EXPERTISE, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
 import {getChosenFeatureEffects} from "./charactersheet-features.js";
+import {getExpectedHp} from "./charactersheet-levelengine.js";
 
 /**
  * Pure derivation of renderable stats from character state.
@@ -152,6 +153,8 @@ export function deriveCharacterSheet (state) {
 		),
 		spell,
 		armorClass: deriveArmorClass(state),
+		// Max HP is a typed value (players roll, DMs grant extras); this is what the rules would give
+		hpExpected: getExpectedHp({classes: state.classes || [], conMod: abilities.con.mod}),
 		unarmedStrike: getUnarmedStrike(state),
 		encumbrance: getEncumbrance(state),
 	};

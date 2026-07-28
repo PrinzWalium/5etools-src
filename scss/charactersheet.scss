@@ -161,6 +161,43 @@
 		font-size: 0.9em;
 	}
 
+	// "Where does this number come from" — a dotted underline hints the value is explainable,
+	// and tapping it opens the breakdown (touch devices never show a `title`).
+	.cs__has-breakdown {
+		cursor: help;
+		text-decoration-line: underline;
+		text-decoration-style: dotted;
+		text-underline-offset: 2px;
+		text-decoration-color: rgb(0 0 0 / 25%);
+	}
+
+	.ve-night-mode .cs__has-breakdown {
+		text-decoration-color: rgb(255 255 255 / 30%);
+	}
+
+	input.cs__has-breakdown {
+		text-decoration: none;
+	}
+
+	.cs__breakdown-pop {
+		position: absolute;
+		z-index: 1080;
+		max-width: min(320px, calc(100vw - 12px));
+		padding: 7px 10px;
+		border: 1px solid rgb(0 0 0 / 20%);
+		border-radius: 5px;
+		background: #fff;
+		box-shadow: 0 3px 10px rgb(0 0 0 / 20%);
+		font-size: 0.85em;
+		line-height: 1.35;
+	}
+
+	.ve-night-mode .cs__breakdown-pop {
+		border-color: rgb(255 255 255 / 25%);
+		background: #2a2a2a;
+		color: #ddd;
+	}
+
 	.cs__hdr-name .cs__ipt-name {
 		font-size: 1.4em;
 		font-weight: bold;
@@ -505,7 +542,41 @@
 
 	/* -------------------------------------------- Responsive -------------------------------------------- */
 
+	/* -------------------------------------------- Narrow screens -------------------------------------------- */
+
+	@media screen and (width <= 640px) {
+		// Two header fields per row rather than three, so labels and inputs stay legible
+		.cs__hdr-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+
+		// Wide content scrolls inside its own box rather than widening the page
+		.cs__attacks-wrp,
+		.cs__table-scroll {
+			overflow-x: auto;
+		}
+
+		// Comfortable tap targets
+		.cs__prof,
+		.cs__death-dot {
+			width: 18px;
+			height: 18px;
+		}
+
+		.cs__has-breakdown {
+			// A tap opens the breakdown popover, so make the hit area a little taller
+			padding: 2px 0;
+		}
+	}
+
 	@media screen and (width <= 991px) {
+		// The column rows are plain (non-wrapping) flex containers, so full-width columns would
+		// otherwise sit side by side and push the page several screens wide. Stack them instead.
+		.cs__body,
+		.cs__hdr {
+			flex-direction: column;
+		}
+
 		.cs__body .cs__col {
 			width: 100%;
 			flex: 0 0 100%;

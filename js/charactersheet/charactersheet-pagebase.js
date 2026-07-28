@@ -85,6 +85,7 @@ export class CharacterPageBase {
 		this._comp._addHookBase("level", () => this._pMaybePromptLevelUp());
 		this._comp._addHookAllBase(() => this._onStateChange());
 
+		this._bindBreakdownPopovers();
 		this._initStore();
 
 		this._doRenderAll();
@@ -457,20 +458,78 @@ export class CharacterPageBase {
 	 * Render a rollable modifier. When `parts` is supplied, the element also carries a breakdown
 	 * tooltip explaining where the number came from ("Dexterity +3, Proficiency +2 = +5").
 	 */
-	_renderRoll (id, mod, name, parts = null) {
+	_renderRoll (id, mod, name, parts = null, {isTapTarget = true} = {}) {
 		const ele = document.getElementById(id);
 		if (!ele) return;
 		ele.innerHTML = Renderer.get().render(`{@d20 ${mod}|${CharacterPageBase.fmtBonus(mod)}|${name}}`);
-		CharacterPageBase.setBreakdownTitle(ele, name, parts, mod);
+		// A rollable value swallows clicks (that is the roll), so its explanation is hover-only and
+		// the tap target lives on the neighbouring label instead.
+		CharacterPageBase.setBreakdownTitle(ele, name, parts, mod, {isTapTarget});
 	}
 
-	/** Attach a "where this comes from" tooltip to an element (cleared when there is nothing to say). */
-	static setBreakdownTitle (ele, name, parts, total = null, {isTotalValue = false} = {}) {
+	/**
+	 * Attach a "where this comes from" explanation to an element: a `title` for desktop hover, and a
+	 * tap/click popover for touch devices, where `title` never appears. Cleared when there is nothing
+	 * to say.
+	 */
+	static setBreakdownTitle (ele, name, parts, total = null, {isTotalValue = false, isTapTarget = true} = {}) {
 		if (!ele) return;
-		if (!parts?.length) return ele.removeAttribute("title");
-		ele.setAttribute("title", `${name}: ${formatBreakdown(parts, total, {isTotalValue})}`);
+		if (!parts?.length) {
+			ele.removeAttribute("title");
+			ele.classList.remove("cs__has-breakdown");
+			delete ele.dataset.csBreakdown;
+			return;
+		}
+
+		const text = `${name}: ${formatBreakdown(parts, total, {isTotalValue})}`;
+		ele.setAttribute("title", text);
 		// The roll link is rendered inside, and would otherwise show its own tooltip instead
 		ele.querySelectorAll("[title]").forEach(child => child.removeAttribute("title"));
+
+		if (!isTapTarget) return;
+		ele.classList.add("cs__has-breakdown");
+		ele.dataset.csBreakdown = text;
+	}
+
+	/**
+	 * One delegated listener for the whole page: tapping anything carrying a breakdown shows it in a
+	 * dismissible popover. Delegation means it keeps working across the many re-renders, and costs
+	 * nothing on elements that have no breakdown.
+	 */
+	_bindBreakdownPopovers () {
+		document.addEventListener("click", evt => {
+			const ele = evt.target.closest?.("[data-cs-breakdown]");
+			if (!ele) return CharacterPageBase._closeBreakdownPopover();
+			// Let rollable links roll; the popover is for the surrounding value
+			if (evt.target.closest("a, button, input, select, textarea")) return;
+			evt.preventDefault();
+			CharacterPageBase._showBreakdownPopover(ele);
+		});
+		window.addEventListener("scroll", () => CharacterPageBase._closeBreakdownPopover(), {passive: true});
+	}
+
+	static _closeBreakdownPopover () {
+		document.getElementById("cs-breakdown-popover")?.remove();
+	}
+
+	static _showBreakdownPopover (ele) {
+		CharacterPageBase._closeBreakdownPopover();
+
+		const pop = document.createElement("div");
+		pop.id = "cs-breakdown-popover";
+		pop.className = "cs__breakdown-pop";
+		pop.textContent = ele.dataset.csBreakdown;
+		document.body.appendChild(pop);
+
+		const rect = ele.getBoundingClientRect();
+		const popRect = pop.getBoundingClientRect();
+		// Keep it on-screen: prefer below, flip above when there is no room
+		const top = rect.bottom + popRect.height + 8 > window.innerHeight && rect.top > popRect.height + 8
+			? rect.top - popRect.height - 6
+			: rect.bottom + 6;
+		const left = Math.max(6, Math.min(rect.left, window.innerWidth - popRect.width - 6));
+		pop.style.top = `${top + window.scrollY}px`;
+		pop.style.left = `${left + window.scrollX}px`;
 	}
 
 	/* -------------------------------------------- Store controls (toolbar) -------------------------------------------- */

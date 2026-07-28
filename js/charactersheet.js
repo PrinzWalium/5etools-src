@@ -143,7 +143,7 @@ class CharacterSheetPage extends CharacterPageBase {
 		// Some features add to derived stats (e.g. Rakish Audacity → initiative); reload on class changes
 		this._comp._addHookBase("classes", () => this._pRefreshFeatureEffects());
 		// Chosen feats/masteries feed AC, attack rows, and the combat notes
-		["featureFeats", "originFeats", "weaponMasteries"].forEach(prop => this._comp._addHookBase(prop, () => this._renderDerived()));
+		["featureFeats", "originFeats", "manualFeats", "weaponMasteries"].forEach(prop => this._comp._addHookBase(prop, () => this._renderDerived()));
 	}
 
 	/** Load the character's feature names (async) so derived stats can include curated feature effects. */
@@ -176,7 +176,7 @@ class CharacterSheetPage extends CharacterPageBase {
 				<label class="cs__list-row" title="Toggle proficiency in ${name} saving throws">
 					<input type="checkbox" id="cs-save-${abv}" class="cs__list-cb">
 					<span class="cs__roll cs__list-mod" id="cs-saveroll-${abv}">+0</span>
-					<span class="cs__list-name">${name}</span>
+					<span class="cs__list-name" id="cs-savename-${abv}">${name}</span>
 				</label>
 			`)
 			.join("");
@@ -191,7 +191,7 @@ class CharacterSheetPage extends CharacterPageBase {
 				<div class="cs__list-row" data-cs-skill="${skill.key}">
 					<button type="button" class="cs__prof" id="cs-skillprof-${skill.key}" title="Click to cycle: not proficient → proficient → expertise"></button>
 					<span class="cs__roll cs__list-mod" id="cs-skillroll-${skill.key}">+0</span>
-					<span class="cs__list-name">${skill.name} <span class="cs__list-abil ve-muted">(${Parser.attAbvToFull(skill.ability).slice(0, 3)})</span></span>
+					<span class="cs__list-name" id="cs-skillname-${skill.key}">${skill.name} <span class="cs__list-abil ve-muted">(${Parser.attAbvToFull(skill.ability).slice(0, 3)})</span></span>
 				</div>
 			`)
 			.join("");
@@ -324,6 +324,7 @@ class CharacterSheetPage extends CharacterPageBase {
 		const feats = [
 			...(state.originFeats || []).map(f => ({name: f.name, source: f.source})),
 			...(state.featureFeats || []).map(f => ({name: f.name, source: f.source})),
+			...(state.manualFeats || []).map(f => ({name: f.name, source: f.source})),
 			...(state.classes || []).flatMap(c => (c.asiFeatChoices || []).filter(it => it.type === "feat")),
 		];
 		const seenFeats = new Set();
@@ -346,14 +347,16 @@ class CharacterSheetPage extends CharacterPageBase {
 			const abil = derived.abilities[abv];
 			// The modifier comes from the score; the score itself is explained on its input
 			this._renderRoll(`cs-mod-${abv}`, abil.mod, `${name} check`,
-				[{label: `Score ${abil.score}`, isText: true}, ...abil.scoreParts.slice(1)]);
+				[{label: `Score ${abil.score}`, isText: true}, ...abil.scoreParts.slice(1)], {isTapTarget: false});
 			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-abil-${abv}`), name, abil.scoreParts);
-			this._renderRoll(`cs-saveroll-${abv}`, derived.saves[abv].mod, `${name} save`, derived.saves[abv].parts);
+			this._renderRoll(`cs-saveroll-${abv}`, derived.saves[abv].mod, `${name} save`, derived.saves[abv].parts, {isTapTarget: false});
+			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-savename-${abv}`), `${name} save`, derived.saves[abv].parts, derived.saves[abv].mod);
 		});
 
 		CHAR_SHEET_SKILLS.forEach(skill => {
 			const {mod, profState} = derived.skills[skill.key];
-			this._renderRoll(`cs-skillroll-${skill.key}`, mod, skill.name, derived.skills[skill.key].parts);
+			this._renderRoll(`cs-skillroll-${skill.key}`, mod, skill.name, derived.skills[skill.key].parts, {isTapTarget: false});
+			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-skillname-${skill.key}`), skill.name, derived.skills[skill.key].parts, mod);
 
 			const btn = document.getElementById(`cs-skillprof-${skill.key}`);
 			btn.classList.toggle("cs__prof--1", profState === 1);
@@ -375,6 +378,15 @@ class CharacterSheetPage extends CharacterPageBase {
 		}
 
 		this._renderCombatNotes();
+
+		// Max HP is typed, so explain what the rules would give and flag a mismatch
+		const eleHpMax = document.getElementById("cs-hp-max");
+		if (eleHpMax && derived.hpExpected.parts.length) {
+			const typed = Number(this._comp._state.hpMax) || 0;
+			const exp = derived.hpExpected;
+			const ptDiff = typed && typed !== exp.total ? ` \u2014 yours is ${typed}` : "";
+			eleHpMax.title = `Expected Max HP: ${formatBreakdown(exp.parts, exp.total, {isTotalValue: true})}${ptDiff}`;
+		}
 
 		const abilMods = Object.fromEntries(CHAR_SHEET_ABILITIES.map(([abv]) => [abv, derived.abilities[abv].mod]));
 		const initiative = derived.initiative + getFeatureInitiativeBonus(this._featureNames, {abilities: abilMods, pb: derived.pb});

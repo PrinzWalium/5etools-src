@@ -142,6 +142,7 @@ export function getUsedSources (state) {
 	});
 	(state?.featureFeats || []).forEach(it => add(it.source, it.name));
 	(state?.originFeats || []).forEach(it => add(it.source, it.name));
+	(state?.manualFeats || []).forEach(it => add(it.source, it.name));
 	(state?.spellsKnown || []).forEach(it => add(it.source, it.name));
 	(state?.grantedSpellChoices || []).forEach(it => add(it.source, it.name));
 	add(state?.refSpecies?.source, state?.refSpecies?.name);
