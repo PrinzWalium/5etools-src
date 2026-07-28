@@ -11,6 +11,46 @@ import {getChosenFeatureEffects} from "./charactersheet-features.js";
 
 const _MAX_LEVEL = 20;
 
+/**
+ * A breakdown is the list of contributions behind a derived number, so the sheet can explain where
+ * a value came from ("Dexterity +3, Proficiency +2, Archery +2"). Zero-value parts are dropped
+ * unless they carry an explanatory note.
+ */
+function _mkParts (...parts) {
+	return parts.filter(p => p && (p.value || p.isKeep || p.isText));
+}
+
+/**
+ * Render a breakdown as a one-line explanation, e.g. "Dexterity +3, Proficiency +2 = +5".
+ * @param opts.isTotalValue the total is a value rather than a bonus (AC, a save DC, passive
+ *        Perception), so it is shown unsigned.
+ */
+export function formatBreakdown (parts, total, {isTotalValue = false} = {}) {
+	const fmtTotal = n => isTotalValue ? `${n}` : _fmtSigned(n);
+	if (!parts?.length) return total == null ? "" : fmtTotal(total);
+	const ptParts = parts
+		.map(p => p.isText ? p.label : `${p.label} ${p.isRaw ? p.value : _fmtSigned(p.value)}`)
+		.join(", ");
+	return total == null ? ptParts : `${ptParts} = ${fmtTotal(total)}`;
+}
+
+function _fmtSigned (n) { return `${n >= 0 ? "+" : "\u2212"}${Math.abs(n)}`; }
+
+/**
+ * Where an ability score came from: its base value plus every recorded increase.
+ * Increases are recorded in `abilityBonusLog` as they are applied, since scores are stored as
+ * final values; anything applied before that log existed simply folds into "base".
+ */
+export function getAbilityScoreParts (state, abv) {
+	const score = Number(state[`abil_${abv}`]) || 10;
+	const log = (state.abilityBonusLog || []).filter(it => (it.bonuses || {})[abv]);
+	const applied = log.reduce((acc, it) => acc + (Number(it.bonuses[abv]) || 0), 0);
+	return [
+		{label: "Base", value: score - applied, isRaw: true},
+		...log.map(it => ({label: it.source, value: Number(it.bonuses[abv]) || 0})),
+	];
+}
+
 /** Total character level: the sum of class levels when structured class data exists, else the manual level field. */
 export function getTotalLevel (state) {
 	const classes = state.classes || [];
@@ -37,15 +77,22 @@ export function deriveCharacterSheet (state) {
 		abilities[abv] = {
 			score: Number(state[`abil_${abv}`]) || 10,
 			mod: getAbilityModifier(state, abv),
+			scoreParts: getAbilityScoreParts(state, abv),
 		};
 	});
 
 	const saves = {};
 	CHAR_SHEET_ABILITIES.forEach(([abv]) => {
 		const isProf = !!state[`save_${abv}`];
+		const mod = abilities[abv].mod + (isProf ? pb : 0) + magic.savingThrow;
 		saves[abv] = {
 			isProf,
-			mod: abilities[abv].mod + (isProf ? pb : 0) + magic.savingThrow,
+			mod,
+			parts: _mkParts(
+				{label: Parser.attAbvToFull(abv), value: abilities[abv].mod, isKeep: true},
+				isProf ? {label: "Proficiency", value: pb} : null,
+				{label: "Magic items", value: magic.savingThrow},
+			),
 		};
 	});
 
@@ -53,10 +100,15 @@ export function deriveCharacterSheet (state) {
 	CHAR_SHEET_SKILLS.forEach(({key, ability}) => {
 		const profState = Number(state[`skill_${key}`]) || 0;
 		const profMult = profState === PROF_STATE_EXPERTISE ? 2 : profState === PROF_STATE_PROFICIENT ? 1 : 0;
+		const profLabel = profState === PROF_STATE_EXPERTISE ? "Expertise (2\u00d7 proficiency)" : "Proficiency";
 		skills[key] = {
 			profState,
 			ability,
 			mod: abilities[ability].mod + (pb * profMult),
+			parts: _mkParts(
+				{label: Parser.attAbvToFull(ability), value: abilities[ability].mod, isKeep: true},
+				profMult ? {label: profLabel, value: pb * profMult} : null,
+			),
 		};
 	});
 
@@ -66,8 +118,21 @@ export function deriveCharacterSheet (state) {
 			ability: spellAbility,
 			dc: 8 + pb + abilities[spellAbility].mod + magic.spellSaveDc,
 			atkMod: pb + abilities[spellAbility].mod + magic.spellAttack,
+			dcParts: _mkParts(
+				{label: "Base", value: 8, isRaw: true},
+				{label: "Proficiency", value: pb},
+				{label: Parser.attAbvToFull(spellAbility), value: abilities[spellAbility].mod, isKeep: true},
+				{label: "Magic items", value: magic.spellSaveDc},
+			),
+			atkParts: _mkParts(
+				{label: "Proficiency", value: pb},
+				{label: Parser.attAbvToFull(spellAbility), value: abilities[spellAbility].mod, isKeep: true},
+				{label: "Magic items", value: magic.spellAttack},
+			),
 		}
 		: null;
+
+	const initMisc = Number(state.initMisc) || 0;
 
 	return {
 		totalLevel,
@@ -76,7 +141,15 @@ export function deriveCharacterSheet (state) {
 		saves,
 		skills,
 		passivePerception: 10 + skills.perception.mod,
-		initiative: abilities.dex.mod + (Number(state.initMisc) || 0),
+		passivePerceptionParts: _mkParts(
+			{label: "Base", value: 10, isRaw: true},
+			...skills.perception.parts,
+		),
+		initiative: abilities.dex.mod + initMisc,
+		initiativeParts: _mkParts(
+			{label: "Dexterity", value: abilities.dex.mod, isKeep: true},
+			{label: "Misc", value: initMisc},
+		),
 		spell,
 		armorClass: deriveArmorClass(state),
 		unarmedStrike: getUnarmedStrike(state),
@@ -95,7 +168,7 @@ export function deriveCharacterSheet (state) {
  */
 export function deriveArmorClass (state) {
 	const mode = state.acMode || "auto";
-	if (mode === "manual") return {ac: Number(state.ac) || 10, mode, note: "manual"};
+	if (mode === "manual") return {ac: Number(state.ac) || 10, mode, note: "manual", parts: [{label: "Manual value", value: Number(state.ac) || 10, isRaw: true}]};
 
 	const dexMod = getAbilityModifier(state, "dex");
 	const equipped = (state.inventory || []).filter(it => it.equipped);
@@ -103,21 +176,38 @@ export function deriveArmorClass (state) {
 
 	let base;
 	let note;
+	const baseParts = [];
 	if (armor) {
 		const armorAc = Number(armor.baseAc) || 10;
 		const magic = Number(armor.bonusAc) || 0;
-		if (armor.type === "LA") base = armorAc + dexMod + magic;
-		else if (armor.type === "MA") base = armorAc + Math.min(dexMod, armor.dexterityMax ?? 2) + magic;
-		else base = armorAc + magic; // Heavy: no Dex
+		baseParts.push({label: armor.name, value: armorAc, isRaw: true});
+		if (armor.type === "LA") {
+			base = armorAc + dexMod + magic;
+			baseParts.push({label: "Dexterity", value: dexMod, isKeep: true});
+		} else if (armor.type === "MA") {
+			const capped = Math.min(dexMod, armor.dexterityMax ?? 2);
+			base = armorAc + capped + magic;
+			baseParts.push({label: `Dexterity (max +${armor.dexterityMax ?? 2})`, value: capped, isKeep: true});
+		} else {
+			base = armorAc + magic; // Heavy: no Dex
+		}
+		if (magic) baseParts.push({label: "Armor magic bonus", value: magic});
 		note = armor.name;
 	} else if (mode === "barbarian") {
 		base = 10 + dexMod + getAbilityModifier(state, "con");
+		baseParts.push({label: "Unarmored Defense (Barbarian)", value: 10, isRaw: true},
+			{label: "Dexterity", value: dexMod, isKeep: true},
+			{label: "Constitution", value: getAbilityModifier(state, "con"), isKeep: true});
 		note = "Unarmored Defense (Barbarian)";
 	} else if (mode === "monk") {
 		base = 10 + dexMod + getAbilityModifier(state, "wis");
+		baseParts.push({label: "Unarmored Defense (Monk)", value: 10, isRaw: true},
+			{label: "Dexterity", value: dexMod, isKeep: true},
+			{label: "Wisdom", value: getAbilityModifier(state, "wis"), isKeep: true});
 		note = "Unarmored Defense (Monk)";
 	} else {
 		base = 10 + dexMod;
+		baseParts.push({label: "Unarmored", value: 10, isRaw: true}, {label: "Dexterity", value: dexMod, isKeep: true});
 		note = "Unarmored";
 	}
 
@@ -132,7 +222,15 @@ export function deriveArmorClass (state) {
 	const feature = armor ? getChosenFeatureEffects(state).acArmored : 0;
 	if (feature) note = `${note} + Defense`;
 
-	return {ac: base + shield + otherMagic + misc + feature, mode, note};
+	const parts = _mkParts(
+		...baseParts,
+		{label: "Shield", value: shield},
+		{label: "Magic items", value: otherMagic},
+		{label: "Defense (fighting style)", value: feature},
+		{label: "Misc", value: misc},
+	);
+
+	return {ac: base + shield + otherMagic + misc + feature, mode, note, parts};
 }
 
 /**
@@ -190,14 +288,40 @@ export function getWeaponAttack (state, item) {
 		damage = `${item.dmg1}${modStr}${dmgTypeFull}`;
 	}
 
-	return {name: item.name || "", atkBonus: abilMod + pb + bonusAttack + featureAttack, damage};
+	const abilName = Parser.attAbvToFull(abv);
+	return {
+		name: item.name || "",
+		atkBonus: abilMod + pb + bonusAttack + featureAttack,
+		damage,
+		atkParts: _mkParts(
+			{label: abilName, value: abilMod, isKeep: true},
+			{label: "Proficiency", value: pb},
+			{label: "Magic weapon", value: bonusAttack},
+			{label: "Archery (fighting style)", value: featureAttack},
+		),
+		damageParts: _mkParts(
+			{label: item.dmg1 || "", isText: !!item.dmg1},
+			{label: abilName, value: abilMod, isKeep: true},
+			{label: "Magic weapon", value: bonusDamage},
+			{label: "Fighting style", value: featureDamage},
+		),
+	};
 }
 
 /** The always-available Unarmed Strike: 1 + Strength modifier bludgeoning, with proficiency. */
 export function getUnarmedStrike (state) {
 	const strMod = getAbilityModifier(state, "str");
 	const dmg = 1 + strMod;
-	return {name: "Unarmed Strike", atkBonus: strMod + getProfBonus(state), damage: `${Math.max(0, dmg)} bludgeoning`};
+	const pb = getProfBonus(state);
+	return {
+		name: "Unarmed Strike",
+		atkBonus: strMod + pb,
+		damage: `${Math.max(0, dmg)} bludgeoning`,
+		atkParts: _mkParts(
+			{label: "Strength", value: strMod, isKeep: true},
+			{label: "Proficiency", value: pb},
+		),
+	};
 }
 
 /** Carried weight from the inventory vs. the standard carrying capacity (Strength × 15). */

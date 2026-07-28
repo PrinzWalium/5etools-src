@@ -740,7 +740,7 @@ export class CharacterWizard {
 		}
 
 		const abilityBonuses = this._getCombinedAbilityBonuses();
-		if (Object.keys(abilityBonuses).length) comp.applyAbilityBonuses(abilityBonuses);
+		if (Object.keys(abilityBonuses).length) comp.applyAbilityBonuses(abilityBonuses, {source: "Species & Background"});
 
 		// Resolve queued choices
 		const langs = [];

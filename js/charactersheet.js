@@ -1,5 +1,5 @@
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_CONDITIONS, CHAR_SHEET_SKILLS} from "./charactersheet/charactersheet-consts.js";
-import {deriveCharacterSheet, getWeaponAttack} from "./charactersheet/charactersheet-derive.js";
+import {deriveCharacterSheet, formatBreakdown, getWeaponAttack} from "./charactersheet/charactersheet-derive.js";
 import {getInventoryItemMeta} from "./charactersheet/charactersheet-equipment.js";
 import {getChosenFeatureEffects, getFeatureInitiativeBonus} from "./charactersheet/charactersheet-features.js";
 import {pGetUserItemSearchFiltered} from "./charactersheet/charactersheet-sources.js";
@@ -82,9 +82,11 @@ class _AttacksRenderableCollection extends RenderableCollectionBase {
 		const dmg = (entity.damage || "").trim();
 
 		meta.dispHit.innerHTML = Renderer.get().render(`{@hit ${bonus}|${CharacterPageBase.fmtBonus(bonus)}|${name || "Attack"}}`);
+		CharacterPageBase.setBreakdownTitle(meta.dispHit, `${name || "Attack"} to hit`, entity.atkParts, bonus);
 
 		if (dmg && /\d\s*d\s*\d/i.test(dmg)) {
 			meta.dispDmg.innerHTML = Renderer.get().render(`{@dice ${dmg}|${dmg}|${name || "Damage"}}`);
+			CharacterPageBase.setBreakdownTitle(meta.dispDmg, `${name || "Damage"} damage`, entity.damageParts);
 			meta.dispDmg.classList.remove("ve-hidden");
 		} else {
 			meta.dispDmg.innerHTML = "";
@@ -278,7 +280,9 @@ class CharacterSheetPage extends CharacterPageBase {
 		const eleComputed = document.getElementById("cs-ac-computed");
 		if (!eleComputed) return;
 		eleComputed.textContent = `${armorClass.ac}`;
-		eleComputed.title = armorClass.note === "manual" ? "Manual AC" : `AC source: ${armorClass.note}`;
+		eleComputed.title = armorClass.note === "manual"
+			? "Manual AC"
+			: `Armor Class: ${formatBreakdown(armorClass.parts, armorClass.ac, {isTotalValue: true})}`;
 		// In manual mode the number is editable; otherwise it is computed from equipped gear.
 		const isManual = (this._comp._state.acMode || "auto") === "manual";
 		const eleManual = document.getElementById("cs-ac");
@@ -339,20 +343,26 @@ class CharacterSheetPage extends CharacterPageBase {
 		document.getElementById("cs-pb").textContent = CharacterPageBase.fmtBonus(derived.pb);
 
 		CHAR_SHEET_ABILITIES.forEach(([abv, name]) => {
-			this._renderRoll(`cs-mod-${abv}`, derived.abilities[abv].mod, `${name} check`);
-			this._renderRoll(`cs-saveroll-${abv}`, derived.saves[abv].mod, `${name} save`);
+			const abil = derived.abilities[abv];
+			// The modifier comes from the score; the score itself is explained on its input
+			this._renderRoll(`cs-mod-${abv}`, abil.mod, `${name} check`,
+				[{label: `Score ${abil.score}`, isText: true}, ...abil.scoreParts.slice(1)]);
+			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-abil-${abv}`), name, abil.scoreParts);
+			this._renderRoll(`cs-saveroll-${abv}`, derived.saves[abv].mod, `${name} save`, derived.saves[abv].parts);
 		});
 
 		CHAR_SHEET_SKILLS.forEach(skill => {
 			const {mod, profState} = derived.skills[skill.key];
-			this._renderRoll(`cs-skillroll-${skill.key}`, mod, skill.name);
+			this._renderRoll(`cs-skillroll-${skill.key}`, mod, skill.name, derived.skills[skill.key].parts);
 
 			const btn = document.getElementById(`cs-skillprof-${skill.key}`);
 			btn.classList.toggle("cs__prof--1", profState === 1);
 			btn.classList.toggle("cs__prof--2", profState === 2);
 		});
 
-		document.getElementById("cs-passive-perception").textContent = `${derived.passivePerception}`;
+		const elePassive = document.getElementById("cs-passive-perception");
+		elePassive.textContent = `${derived.passivePerception}`;
+		CharacterPageBase.setBreakdownTitle(elePassive, "Passive Perception", derived.passivePerceptionParts, derived.passivePerception, {isTotalValue: true});
 
 		this._renderArmorClass(derived.armorClass);
 
@@ -361,19 +371,28 @@ class CharacterSheetPage extends CharacterPageBase {
 			const u = derived.unarmedStrike;
 			const hitRoll = Renderer.get().render(`{@d20 ${u.atkBonus}|${CharacterPageBase.fmtBonus(u.atkBonus)}|Unarmed Strike}`);
 			eleUnarmed.innerHTML = `<span class="ve-muted">Unarmed Strike:</span> ${hitRoll} <span class="ve-muted">to hit,</span> ${u.damage.qq()}`;
+			CharacterPageBase.setBreakdownTitle(eleUnarmed, "Unarmed Strike", u.atkParts, u.atkBonus);
 		}
 
 		this._renderCombatNotes();
 
 		const abilMods = Object.fromEntries(CHAR_SHEET_ABILITIES.map(([abv]) => [abv, derived.abilities[abv].mod]));
 		const initiative = derived.initiative + getFeatureInitiativeBonus(this._featureNames, {abilities: abilMods, pb: derived.pb});
-		document.getElementById("cs-initiative-roll").innerHTML = Renderer.get().render(`{@initiative ${initiative}|${CharacterPageBase.fmtBonus(initiative)}}`);
+		const eleInit = document.getElementById("cs-initiative-roll");
+		eleInit.innerHTML = Renderer.get().render(`{@initiative ${initiative}|${CharacterPageBase.fmtBonus(initiative)}}`);
+		// Feature-driven initiative (Rakish Audacity, Jack of All Trades) is added on top of the derived parts
+		const initParts = [...derived.initiativeParts];
+		const featureInit = initiative - derived.initiative;
+		if (featureInit) initParts.push({label: "Features", value: featureInit});
+		CharacterPageBase.setBreakdownTitle(eleInit, "Initiative", initParts, initiative);
 
 		const eleDc = document.getElementById("cs-spell-dc");
 		const eleAtk = document.getElementById("cs-spell-atk");
 		if (derived.spell) {
 			eleDc.textContent = `${derived.spell.dc}`;
+			CharacterPageBase.setBreakdownTitle(eleDc, "Spell save DC", derived.spell.dcParts, derived.spell.dc, {isTotalValue: true});
 			eleAtk.innerHTML = Renderer.get().render(`{@d20 ${derived.spell.atkMod}|${CharacterPageBase.fmtBonus(derived.spell.atkMod)}|Spell attack}`);
+			CharacterPageBase.setBreakdownTitle(eleAtk, "Spell attack", derived.spell.atkParts, derived.spell.atkMod);
 		} else {
 			eleDc.textContent = "—";
 			eleAtk.textContent = "—";

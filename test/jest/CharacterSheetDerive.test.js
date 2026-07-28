@@ -1,5 +1,5 @@
 import "../../js/parser.js";
-import {deriveArmorClass, deriveCharacterSheet, getEquippedMagicBonuses, getProfBonus, getTotalLevel, getUnarmedStrike, getWeaponAttack} from "../../js/charactersheet/charactersheet-derive.js";
+import {deriveArmorClass, deriveCharacterSheet, formatBreakdown, getAbilityScoreParts, getEquippedMagicBonuses, getProfBonus, getTotalLevel, getUnarmedStrike, getWeaponAttack} from "../../js/charactersheet/charactersheet-derive.js";
 
 const getBaseState = (overrides = {}) => ({
 	level: 1,
@@ -158,7 +158,8 @@ describe("Character sheet derivation", () => {
 
 		it("Should build the Unarmed Strike from Strength", () => {
 			const state = getBaseState({abil_str: 14, level: 1}); // Str +2, PB +2
-			expect(getUnarmedStrike(state)).toEqual({name: "Unarmed Strike", atkBonus: 4, damage: "3 bludgeoning"});
+			expect(getUnarmedStrike(state)).toMatchObject({name: "Unarmed Strike", atkBonus: 4, damage: "3 bludgeoning"});
+			expect(getUnarmedStrike(state).atkParts.map(p => p.label)).toEqual(["Strength", "Proficiency"]);
 		});
 	});
 
@@ -231,5 +232,101 @@ describe("Derive: fighting-style effects", () => {
 	it("Leaves characters without a style untouched", () => {
 		const bow = {name: "Longbow", type: "R", dmg1: "1d8", dmgType: "P", properties: ["A", "2H"]};
 		expect(getWeaponAttack(getBaseState({abil_dex: 14}), bow).atkBonus).toBe(2 + 2);
+	});
+});
+
+
+describe("Derive: breakdowns (where a number comes from)", () => {
+	it("Explains a save: ability, proficiency and magic items", () => {
+		const cloak = {name: "Cloak of Protection", equipped: true, bonusSavingThrow: 1};
+		const state = getBaseState({level: 5, abil_dex: 16, save_dex: true, inventory: [cloak]});
+		const {saves} = deriveCharacterSheet(state);
+		expect(saves.dex.mod).toBe(3 + 3 + 1); // Dex +3, PB +3, cloak +1
+		expect(saves.dex.parts.map(p => p.label)).toEqual(["Dexterity", "Proficiency", "Magic items"]);
+		expect(formatBreakdown(saves.dex.parts, saves.dex.mod)).toBe("Dexterity +3, Proficiency +3, Magic items +1 = +7");
+	});
+
+	it("Explains a skill, and distinguishes Expertise", () => {
+		const state = getBaseState({level: 1, abil_dex: 14, skill_stealth: 2, skill_acrobatics: 1});
+		const {skills} = deriveCharacterSheet(state);
+		expect(formatBreakdown(skills.stealth.parts, skills.stealth.mod)).toBe("Dexterity +2, Expertise (2× proficiency) +4 = +6");
+		expect(formatBreakdown(skills.acrobatics.parts, skills.acrobatics.mod)).toBe("Dexterity +2, Proficiency +2 = +4");
+	});
+
+	it("Keeps a zero ability modifier visible but drops absent contributions", () => {
+		const {skills} = deriveCharacterSheet(getBaseState({skill_arcana: 0}));
+		// Int +0 is shown (it is a real contribution); there is no proficiency part
+		expect(skills.arcana.parts.map(p => p.label)).toEqual(["Intelligence"]);
+	});
+
+	it("Explains Armor Class from armor, shield, magic and fighting style", () => {
+		const state = getBaseState({
+			abil_dex: 14,
+			classes: [{optionalFeatures: [{name: "Defense"}]}],
+			inventory: [
+				{name: "Chain Shirt", isArmor: true, type: "MA", baseAc: 13, dexterityMax: 2, equipped: true},
+				{name: "Shield", type: "S", baseAc: 2, equipped: true},
+			],
+			acMisc: 1,
+		});
+		const ac = deriveArmorClass(state);
+		expect(ac.ac).toBe(13 + 2 + 2 + 1 + 1);
+		expect(ac.parts.map(p => p.label))
+			.toEqual(["Chain Shirt", "Dexterity (max +2)", "Shield", "Defense (fighting style)", "Misc"]);
+	});
+
+	it("Explains initiative and passive Perception", () => {
+		const state = getBaseState({abil_dex: 16, initMisc: 2, skill_perception: 1});
+		const d = deriveCharacterSheet(state);
+		expect(formatBreakdown(d.initiativeParts, d.initiative)).toBe("Dexterity +3, Misc +2 = +5");
+		expect(d.passivePerception).toBe(10 + d.skills.perception.mod);
+		expect(d.passivePerceptionParts[0]).toMatchObject({label: "Base", value: 10});
+	});
+
+	it("Explains spell save DC and spell attack", () => {
+		const rod = {name: "Rod of the Pact Keeper +1", equipped: true, bonusSpellSaveDc: 1, bonusSpellAttack: 1};
+		const state = getBaseState({level: 5, abil_cha: 18, spellAbility: "cha", inventory: [rod]});
+		const {spell} = deriveCharacterSheet(state);
+		expect(formatBreakdown(spell.dcParts, spell.dc - 0)).toContain("Base 8");
+		expect(spell.dc).toBe(8 + 3 + 4 + 1);
+		expect(spell.atkParts.map(p => p.label)).toEqual(["Proficiency", "Charisma", "Magic items"]);
+	});
+
+	it("Explains a weapon attack including its fighting style", () => {
+		const bow = {name: "Longbow +1", type: "R", dmg1: "1d8", dmgType: "P", properties: ["A", "2H"], bonusAttack: 1, bonusDamage: 1};
+		const state = getBaseState({abil_dex: 16, classes: [{optionalFeatures: [{name: "Archery"}]}]});
+		const atk = getWeaponAttack(state, bow);
+		expect(atk.atkBonus).toBe(3 + 2 + 1 + 2);
+		expect(atk.atkParts.map(p => p.label)).toEqual(["Dexterity", "Proficiency", "Magic weapon", "Archery (fighting style)"]);
+		expect(atk.damageParts[0]).toMatchObject({label: "1d8", isText: true});
+	});
+
+	it("Shows value-type totals unsigned (AC, DC, passive) but bonuses signed", () => {
+		const parts = [{label: "Base", value: 10, isRaw: true}, {label: "Dexterity", value: 3}];
+		expect(formatBreakdown(parts, 13, {isTotalValue: true})).toBe("Base 10, Dexterity +3 = 13");
+		expect(formatBreakdown(parts, 13)).toBe("Base 10, Dexterity +3 = +13");
+		expect(formatBreakdown([], null)).toBe("");
+		expect(formatBreakdown(null, -2)).toBe("−2");
+	});
+
+	it("Explains an ability score from its recorded increases", () => {
+		const state = getBaseState({
+			abil_str: 17,
+			abilityBonusLog: [
+				{id: "a", source: "Dragonborn", bonuses: {str: 2}},
+				{id: "b", source: "Ability Score Improvement", bonuses: {str: 2, con: 1}},
+			],
+		});
+		const parts = getAbilityScoreParts(state, "str");
+		expect(parts).toEqual([
+			{label: "Base", value: 13, isRaw: true},
+			{label: "Dragonborn", value: 2},
+			{label: "Ability Score Improvement", value: 2},
+		]);
+	});
+
+	it("Falls back to a plain base score with no recorded increases", () => {
+		expect(getAbilityScoreParts(getBaseState({abil_str: 15}), "str"))
+			.toEqual([{label: "Base", value: 15, isRaw: true}]);
 	});
 });

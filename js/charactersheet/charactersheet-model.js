@@ -102,6 +102,7 @@ export class CharacterModel extends BaseComponent {
 			slotsUsed: {}, // {"1": n, ..., "9": n, pact: n}
 			resourcesUsed: {}, // {resourceLabel: n} — expended class resources (Rages, Ki, Wild Shape, ...)
 			sourceFilter: {mode: "all", sources: {}}, // which books this character may pick content from
+			abilityBonusLog: [], // [{id, source, bonuses}] — provenance for ability-score increases
 
 			featuresText: "",
 			equipmentText: "",
@@ -138,6 +139,9 @@ export class CharacterModel extends BaseComponent {
 				name: data.name || "",
 				atkBonus: data.atkBonus != null ? Number(data.atkBonus) : 0,
 				damage: data.damage || "",
+				// Kept so a row derived from a weapon can explain where its numbers came from
+				atkParts: data.atkParts || null,
+				damageParts: data.damageParts || null,
 			},
 		];
 	}
@@ -240,30 +244,32 @@ export class CharacterModel extends BaseComponent {
 	/** Record a background-granted origin feat and apply its ability bonuses (no duplicates by name/source). */
 	addOriginFeat ({name, source, displayName = null, bonuses = null}) {
 		if (this._state.originFeats.some(it => it.name === name && it.source === source)) return false;
-		this._state.originFeats = [...this._state.originFeats, {id: CryptUtil.uid(), name, source, displayName: displayName || name, bonuses}];
-		if (bonuses) this.applyAbilityBonuses(bonuses);
+		const id = CryptUtil.uid();
+		this._state.originFeats = [...this._state.originFeats, {id, name, source, displayName: displayName || name, bonuses}];
+		if (bonuses) this.applyAbilityBonuses(bonuses, {source: `${displayName || name} (feat)`, logId: id});
 		return true;
 	}
 
 	removeOriginFeat (id) {
 		const feat = this._state.originFeats.find(it => it.id === id);
 		if (!feat) return;
-		if (feat.bonuses) this.applyAbilityBonuses(feat.bonuses, {isRevert: true});
+		if (feat.bonuses) this.applyAbilityBonuses(feat.bonuses, {isRevert: true, logId: id});
 		this._state.originFeats = this._state.originFeats.filter(it => it.id !== id);
 	}
 
 	/** Record a feat granted by a class feature (Fighting Style, Epic Boon, ...), scoped to that feature occurrence. */
 	addFeatureFeat ({entryId, featureKey, category, name, source, bonuses = null}) {
 		if (this._state.featureFeats.some(it => it.entryId === entryId && it.featureKey === featureKey && it.name === name && it.source === source)) return false;
-		this._state.featureFeats = [...this._state.featureFeats, {id: CryptUtil.uid(), entryId, featureKey, category, name, source, bonuses}];
-		if (bonuses) this.applyAbilityBonuses(bonuses);
+		const id = CryptUtil.uid();
+		this._state.featureFeats = [...this._state.featureFeats, {id, entryId, featureKey, category, name, source, bonuses}];
+		if (bonuses) this.applyAbilityBonuses(bonuses, {source: `${name} (feat)`, logId: id});
 		return true;
 	}
 
 	removeFeatureFeat (id) {
 		const feat = this._state.featureFeats.find(it => it.id === id);
 		if (!feat) return;
-		if (feat.bonuses) this.applyAbilityBonuses(feat.bonuses, {isRevert: true});
+		if (feat.bonuses) this.applyAbilityBonuses(feat.bonuses, {isRevert: true, logId: id});
 		this._state.featureFeats = this._state.featureFeats.filter(it => it.id !== id);
 	}
 
@@ -381,14 +387,28 @@ export class CharacterModel extends BaseComponent {
 		if (traitNames.length) this.appendToTextProp("featuresText", `${race.name} Traits: ${traitNames.join(", ")}`);
 	}
 
-	/** Add (or, with `isRevert`, subtract) a `{abv: n}` bonus map to the ability scores. */
-	applyAbilityBonuses (bonuses, {isRevert = false} = {}) {
+	/**
+	 * Add (or, with `isRevert`, subtract) a `{abv: n}` bonus map to the ability scores.
+	 *
+	 * Scores are stored as final values, so pass a `source` to record where an increase came from —
+	 * that log is what lets the sheet explain a score ("15 base, +2 Species, +1 Feat"). Reverting with
+	 * the same `logId` removes the entry again.
+	 */
+	applyAbilityBonuses (bonuses, {isRevert = false, source = null, logId = null} = {}) {
 		Object.entries(bonuses || {}).forEach(([abv, n]) => {
 			const prop = `abil_${abv}`;
 			if (!(prop in this.__state)) return;
 			const cur = Number(this._state[prop]) || 10;
 			this._state[prop] = cur + (isRevert ? -n : n);
 		});
+
+		const log = this._state.abilityBonusLog || [];
+		if (isRevert) {
+			if (logId) this._state.abilityBonusLog = log.filter(it => it.id !== logId);
+			return;
+		}
+		if (!source || !Object.keys(bonuses || {}).length) return;
+		this._state.abilityBonusLog = [...log, {id: logId || CryptUtil.uid(), source, bonuses: {...bonuses}}];
 	}
 
 	/** Apply a picked background: search doc bookkeeping + mechanical fields from the entity. */
@@ -507,8 +527,12 @@ export class CharacterModel extends BaseComponent {
 		const entry = this._state.classes.find(it => it.id === classId);
 		if (!entry) return;
 		entry.asiFeatChoices = entry.asiFeatChoices || [];
-		entry.asiFeatChoices.push({id: CryptUtil.uid(), ...choice});
-		if (choice.bonuses) this.applyAbilityBonuses(choice.bonuses);
+		const id = CryptUtil.uid();
+		entry.asiFeatChoices.push({id, ...choice});
+		if (choice.bonuses) {
+			const label = choice.type === "feat" ? `${choice.name} (feat)` : "Ability Score Improvement";
+			this.applyAbilityBonuses(choice.bonuses, {source: label, logId: id});
+		}
 		this._triggerCollectionUpdate("classes");
 	}
 
@@ -517,7 +541,7 @@ export class CharacterModel extends BaseComponent {
 		if (!entry?.asiFeatChoices) return;
 		const choice = entry.asiFeatChoices.find(it => it.id === choiceId);
 		if (!choice) return;
-		if (choice.bonuses) this.applyAbilityBonuses(choice.bonuses, {isRevert: true});
+		if (choice.bonuses) this.applyAbilityBonuses(choice.bonuses, {isRevert: true, logId: choiceId});
 		entry.asiFeatChoices = entry.asiFeatChoices.filter(it => it.id !== choiceId);
 		this._triggerCollectionUpdate("classes");
 	}

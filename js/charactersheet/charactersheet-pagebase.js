@@ -2,6 +2,7 @@ import {CHAR_SHEET_ABILITIES, PROF_STATE_PROFICIENT} from "./charactersheet-cons
 import {CharacterModel} from "./charactersheet-model.js";
 import {getCharacterLabel, getMigratedStore, getNewStore} from "./charactersheet-charstore.js";
 import {getLevelUpHp} from "./charactersheet-levelengine.js";
+import {formatBreakdown} from "./charactersheet-derive.js";
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {CharacterWizard} from "./charactersheet-wizard.js";
 import {CHOICE_TYPE_ABILITY, CHOICE_TYPE_LANGUAGE, CHOICE_TYPE_SKILL, CHOICE_TYPE_TOOL, getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats, getPendingChoices, getResistChoices} from "./charactersheet-choices.js";
@@ -359,7 +360,7 @@ export class CharacterPageBase {
 				textYes: "Apply",
 				textNo: "Skip",
 			});
-			if (isApply) this._comp.applyAbilityBonuses(fixed);
+			if (isApply) this._comp.applyAbilityBonuses(fixed, {source: name});
 		}
 
 		for (const choice of getAbilityChoices({ability: ent.ability, sourceName: name})) {
@@ -419,7 +420,7 @@ export class CharacterPageBase {
 			picked.forEach(abv => bonuses[abv] = (bonuses[abv] || 0) + pkg.choose.amount);
 		}
 
-		if (Object.keys(bonuses).length) this._comp.applyAbilityBonuses(bonuses);
+		if (Object.keys(bonuses).length) this._comp.applyAbilityBonuses(bonuses, {source: name});
 	}
 
 	_noteUnassignedAbilities (name, ptOffer) {
@@ -452,10 +453,24 @@ export class CharacterPageBase {
 		}
 	}
 
-	_renderRoll (id, mod, name) {
+	/**
+	 * Render a rollable modifier. When `parts` is supplied, the element also carries a breakdown
+	 * tooltip explaining where the number came from ("Dexterity +3, Proficiency +2 = +5").
+	 */
+	_renderRoll (id, mod, name, parts = null) {
 		const ele = document.getElementById(id);
 		if (!ele) return;
 		ele.innerHTML = Renderer.get().render(`{@d20 ${mod}|${CharacterPageBase.fmtBonus(mod)}|${name}}`);
+		CharacterPageBase.setBreakdownTitle(ele, name, parts, mod);
+	}
+
+	/** Attach a "where this comes from" tooltip to an element (cleared when there is nothing to say). */
+	static setBreakdownTitle (ele, name, parts, total = null, {isTotalValue = false} = {}) {
+		if (!ele) return;
+		if (!parts?.length) return ele.removeAttribute("title");
+		ele.setAttribute("title", `${name}: ${formatBreakdown(parts, total, {isTotalValue})}`);
+		// The roll link is rendered inside, and would otherwise show its own tooltip instead
+		ele.querySelectorAll("[title]").forEach(child => child.removeAttribute("title"));
 	}
 
 	/* -------------------------------------------- Store controls (toolbar) -------------------------------------------- */
