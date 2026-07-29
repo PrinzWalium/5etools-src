@@ -106,6 +106,7 @@ export class CharacterModel extends BaseComponent {
 			sourceFilter: {mode: "all", sources: {}}, // which books this character may pick content from
 			abilityBonusLog: [], // [{id, source, bonuses}] — provenance for ability-score increases
 			proficiencies: [], // [{id, kind, name, source}] — armor/weapon/tool/language, with what granted each
+			traitChoices: [], // [{id, source, trait, level, option, resist}] — "choose one" species traits
 
 			featuresText: "",
 			equipmentText: "",
@@ -331,6 +332,28 @@ export class CharacterModel extends BaseComponent {
 		this._state.proficiencies = (this._state.proficiencies || []).filter(it => it.id !== id);
 	}
 
+	/* -------------------------------------------- "Choose one" trait picks -------------------------------------------- */
+
+	/**
+	 * Record the option picked for a species trait such as Elven Lineage or Draconic Ancestry.
+	 * Picking again for the same trait replaces the earlier answer; `option` of `null` clears it.
+	 */
+	setTraitChoice ({source, trait, level = 1, option, resist = null}) {
+		const kept = (this._state.traitChoices || []).filter(it => !(it.source === source && it.trait === trait));
+		this._state.traitChoices = option
+			? [...kept, {id: CryptUtil.uid(), source, trait, level, option, resist}]
+			: kept;
+	}
+
+	getTraitChoice (source, trait) {
+		return (this._state.traitChoices || []).find(it => it.source === source && it.trait === trait) || null;
+	}
+
+	/** Drop every trait pick a source gave (when swapping species, say). */
+	clearTraitChoicesFromSource (source) {
+		this._state.traitChoices = (this._state.traitChoices || []).filter(it => it.source !== source);
+	}
+
 	/** Toggle an owned weapon's mastery as active. */
 	toggleWeaponMastery (name) {
 		const set = new Set(this._state.weaponMasteries || []);
@@ -406,6 +429,13 @@ export class CharacterModel extends BaseComponent {
 
 	/** Apply a picked species/race: search doc bookkeeping + mechanical fields from the entity. */
 	applyPickedRace ({doc, ent}) {
+		// Swapping species takes what the old one gave with it
+		const prev = this._state.refSpecies?.name;
+		if (prev && prev !== doc.n) {
+			this.clearTraitChoicesFromSource(prev);
+			this.setProficienciesFromSource(prev, []);
+		}
+
 		this._state.speciesText = doc.n;
 		this._state.refSpecies = {name: doc.n, source: doc.source, tag: doc.tag};
 		this.setPickTag("species", doc.tag);

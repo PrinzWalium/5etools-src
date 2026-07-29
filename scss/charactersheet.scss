@@ -346,6 +346,23 @@
 		font-size: 0.85em;
 	}
 
+	/* -------------------------------------------- "Choose one" species traits -------------------------------------------- */
+
+	.cs__trait-choice {
+		margin-bottom: 4px;
+		padding-bottom: 4px;
+		border-bottom: 1px solid rgb(0 0 0 / 8%);
+
+		select {
+			width: auto;
+			max-width: 14em;
+		}
+	}
+
+	.ve-night-mode .cs__trait-choice {
+		border-bottom-color: rgb(255 255 255 / 12%);
+	}
+
 	/* -------------------------------------------- Proficiency chips -------------------------------------------- */
 
 	.cs__prof-group {

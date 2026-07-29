@@ -8,6 +8,7 @@ import {CharacterWizard} from "./charactersheet-wizard.js";
 import {CHOICE_TYPE_ABILITY, CHOICE_TYPE_LANGUAGE, CHOICE_TYPE_SKILL, CHOICE_TYPE_TOOL, getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats, getPendingChoices, getResistChoices} from "./charactersheet-choices.js";
 import {pPickAbilities, pPickList, pResolveEntitySpellGrants, pResolveFeat} from "./charactersheet-featgrant.js";
 import {PROF_KIND_LANGUAGE, PROF_KIND_TOOL, PROF_KINDS, groupProficienciesByKind} from "./charactersheet-proficiencies.js";
+import {getTraitChoiceResist, getTraitChoices} from "./charactersheet-traitchoices.js";
 import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterPredicate, getOutOfFilterSources, isSourceAllowed, isSourceFilterInactive} from "./charactersheet-sources.js";
 
 /**
@@ -71,6 +72,8 @@ export class CharacterPageBase {
 		this._fnsSyncInput = []; // unconditional input-sync functions, for bulk state loads
 		this._lastLevel = 1;
 		this._suppressLevelPrompt = 0;
+		this._traitChoiceDefs = []; // the picked species' "choose one" traits
+		this._traitChoiceSource = null;
 	}
 
 	static fmtBonus (n) { return `${n >= 0 ? "+" : "−"}${Math.abs(n)}`; }
@@ -85,6 +88,10 @@ export class CharacterPageBase {
 
 		this._comp._addHookBase("level", () => this._pMaybePromptLevelUp());
 		this._comp._addHookBase("proficiencies", () => this._renderProficiencies());
+		this._comp._addHookBase("refSpecies", () => this._pRefreshTraitChoices());
+		this._comp._addHookBase("traitChoices", () => this._renderTraitChoices());
+		// Level gates the later picks (an Aasimar's Celestial Revelation, ...)
+		this._comp._addHookBase("level", () => this._renderTraitChoices());
 		this._comp._addHookAllBase(() => this._onStateChange());
 
 		this._bindBreakdownPopovers();
@@ -335,7 +342,9 @@ export class CharacterPageBase {
 		if (ent) {
 			await this._pOfferAbilityBonuses(ent, doc.n);
 			await this._pResolveProficiencyChoices({ent, kind: "race"});
-			await this._pResolveResistChoices(ent);
+			const isResistChosen = await this._pResolveTraitChoices(ent);
+			// A Draconic Ancestry pick already fixes the damage resistance; don't ask twice
+			if (!isResistChosen) await this._pResolveResistChoices(ent);
 			// A species' lineage spells (Elf, Tiefling, ...) use the same `additionalSpells` shape as feats
 			await pResolveEntitySpellGrants(this._comp, ent, {grantKeyPrefix: `race:${ent.name}|${ent.source}`});
 		}
@@ -350,6 +359,111 @@ export class CharacterPageBase {
 			const picked = await pPickList({count: choice.count, from: choice.from, title: `${ent.name}: ${choice.label}`});
 			if (picked?.length) this._comp.appendToTextProp("proficienciesText", `Resistances (${ent.name}): ${picked.join(", ")}`);
 		}
+	}
+
+	/* -------------------------------------------- "Choose one" trait picks -------------------------------------------- */
+
+	/**
+	 * Ask for each "choose one of the following" species trait the character already qualifies for
+	 * (Elven Lineage, Giant Ancestry, Draconic Ancestry, ...). Traits gained at a later level are
+	 * left for the panel, which offers them once that level is reached.
+	 * @return {boolean} Whether a pick also settled the species' damage resistance.
+	 */
+	async _pResolveTraitChoices (ent) {
+		let isResistChosen = false;
+		const level = this._comp.getLevelNumber();
+
+		for (const choice of getTraitChoices(ent)) {
+			if (choice.level > level) continue;
+			const option = await InputUiUtil.pGetUserEnum({
+				values: choice.options,
+				isResolveItem: true,
+				fnDisplay: opt => opt.name,
+				title: `${ent.name}: ${choice.trait}`,
+				placeholder: "Select an option...",
+			});
+			if (option == null) continue;
+			this._applyTraitChoice({source: ent.name, choice, optionName: option.name});
+			if (getTraitChoiceResist(choice, option.name)) isResistChosen = true;
+		}
+
+		return isResistChosen;
+	}
+
+	_applyTraitChoice ({source, choice, optionName}) {
+		this._comp.setTraitChoice({
+			source,
+			trait: choice.trait,
+			level: choice.level,
+			option: optionName,
+			resist: optionName ? getTraitChoiceResist(choice, optionName) : null,
+		});
+	}
+
+	/**
+	 * Load the picked species so its "choose one" traits can be offered. Held on the page rather
+	 * than in the character, since it is data rather than a decision.
+	 */
+	async _pRefreshTraitChoices () {
+		const ref = this._comp._state.refSpecies;
+		this._traitChoiceDefs = [];
+		this._traitChoiceSource = ref?.name || null;
+
+		if (ref?.name && ref?.source) {
+			const hash = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_RACES]({name: ref.name, source: ref.source});
+			const ent = await DataLoader.pCacheAndGet(UrlUtil.PG_RACES, ref.source, hash, {isCopy: true}).catch(() => null);
+			if (ent) this._traitChoiceDefs = getTraitChoices(ent);
+		}
+
+		this._renderTraitChoices();
+	}
+
+	/** Render the species' "choose one" traits, so a pick can be made or changed at any time. */
+	_renderTraitChoices () {
+		const wrp = document.getElementById("cs-trait-list");
+		if (!wrp) return;
+		wrp.innerHTML = "";
+
+		const defs = this._traitChoiceDefs || [];
+		if (!defs.length) return;
+
+		const source = this._traitChoiceSource;
+		const level = this._comp.getLevelNumber();
+
+		defs.forEach(choice => {
+			const cur = this._comp.getTraitChoice(source, choice.trait);
+			const isLocked = choice.level > level;
+
+			const row = document.createElement("div");
+			row.className = "cs__trait-choice";
+
+			const head = document.createElement("div");
+			head.className = "ve-flex-v-center";
+			const lbl = document.createElement("span");
+			lbl.className = "cs__lbl ve-mr-2";
+			lbl.textContent = choice.trait;
+			lbl.title = choice.prompt;
+			head.appendChild(lbl);
+
+			const sel = document.createElement("select");
+			sel.className = "ve-form-control ve-input-xs";
+			sel.disabled = isLocked;
+			sel.innerHTML = `<option value="">&mdash;</option>${choice.options.map(opt => `<option>${opt.name.qq()}</option>`).join("")}`;
+			sel.value = cur?.option || "";
+			sel.addEventListener("change", () => this._applyTraitChoice({source, choice, optionName: sel.value || null}));
+			head.appendChild(sel);
+			row.appendChild(head);
+
+			const note = document.createElement("div");
+			note.className = "ve-muted ve-small";
+			const picked = choice.options.find(opt => opt.name === cur?.option);
+			if (isLocked) note.textContent = `Chosen at level ${choice.level}.`;
+			else if (picked) note.textContent = [picked.desc, cur.resist ? `Resistance: ${cur.resist}` : null].filter(Boolean).join(" ");
+			else note.textContent = choice.prompt;
+			row.appendChild(note);
+
+			wrp.appendChild(row);
+		});
 	}
 
 	async _onPickBackground () {

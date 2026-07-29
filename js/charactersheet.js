@@ -163,6 +163,7 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._renderDeathSaves();
 		this._renderConditions();
 		this._renderProficiencies();
+		this._pRefreshTraitChoices();
 		this._renderDerived();
 		this._pRefreshFeatureEffects();
 		this._lastLevel = this._comp.getLevelNumber();
