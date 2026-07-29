@@ -30,6 +30,33 @@ git remote add upstream https://github.com/5etools-mirror-3/5etools-src.git
 
 ---
 
+## The automatic update (and the button that must never be pressed)
+
+`.github/workflows/sync-upstream.yml` runs the same update **every night**, and
+can also be started by hand from the repo's **Actions** tab. It merges upstream
+into `main`, regenerates the pages, and runs the Character Sheet's lint and
+tests. If all of that passes it pushes to `main`; if the merge conflicts, or a
+check fails, it pushes **nothing** and opens a pull request for you instead.
+
+> **Never use GitHub's "Sync fork → Discard commits" button.**
+>
+> That button does not merge — it *resets* `main` to upstream and throws every
+> commit this fork ever added away, the Character Sheet included. It has already
+> done so once. Upstream cannot touch your fork on its own; only that button (or
+> a `git push --force` to `main`) can.
+>
+> Two things make it a non-issue: the nightly sync above removes any reason to
+> press it, and **protecting `main`** stops it working even if someone does.
+> Turn that on once, in the repo's *Settings → Branches → Add branch ruleset*:
+> target `main`, and tick **Block force pushes**.
+
+If `main` is ever wiped again, nothing is lost as long as `beta` still has the
+work: merge upstream's `main` into `beta`, then push that merge to `main` (it
+fast-forwards, so no force push is needed and upstream's releases stay in the
+history).
+
+---
+
 ## Why conflicts are rare
 
 A merge conflict can only happen when **both** upstream **and** your fork change

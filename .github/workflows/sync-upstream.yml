@@ -1,0 +1,131 @@
+name: Sync from Upstream
+
+# Keeps this fork current with the original 5etools repo *by merging*, never by
+# resetting. The fork's Character Sheet lives on top of upstream's history, so a
+# merge keeps both; the "Sync fork → Discard commits" button in the GitHub UI
+# does not, and has wiped the fork's work before. Running this on a schedule
+# removes any reason to press it.
+#
+# On a clean merge the result is pushed straight to `main`. On a conflict (only
+# ever the few registration lines listed in docs/CHARACTER_SHEET_MAINTENANCE.md)
+# nothing is pushed: a branch is published and a pull request opened, so the
+# conflict is resolved in review rather than silently.
+
+on:
+   schedule:
+      # Daily, 04:17 UTC — off the hour so it doesn't queue behind everyone else's jobs
+      -  cron: '17 4 * * *'
+   # Allow running manually from the Actions tab
+   workflow_dispatch:
+
+env:
+   UPSTREAM_REPO: https://github.com/5etools-mirror-3/5etools-src.git
+   UPSTREAM_BRANCH: main
+   TARGET_BRANCH: main
+
+concurrency:
+   group: "sync-upstream"
+   cancel-in-progress: false
+
+jobs:
+   sync:
+      runs-on: ubuntu-latest
+      permissions:
+         contents: write
+         pull-requests: write
+      steps:
+         -  uses: actions/checkout@v4
+            with:
+               ref: ${{ env.TARGET_BRANCH }}
+               # Full history, so the merge base with upstream can be found
+               fetch-depth: 0
+
+         -  uses: actions/setup-node@v4
+            with:
+               node-version: 'lts/*'
+
+         -  name: Configure git
+            run: |
+               git config user.name "github-actions[bot]"
+               git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+         -  name: Fetch upstream
+            run: |
+               git remote add upstream "$UPSTREAM_REPO"
+               git fetch upstream "$UPSTREAM_BRANCH"
+
+         -  name: Check whether there is anything to merge
+            id: check
+            run: |
+               if git merge-base --is-ancestor "upstream/$UPSTREAM_BRANCH" HEAD; then
+                  echo "Already up to date with upstream."
+                  echo "has-changes=false" >> "$GITHUB_OUTPUT"
+               else
+                  echo "has-changes=true" >> "$GITHUB_OUTPUT"
+               fi
+
+         -  name: Merge upstream
+            id: merge
+            if: steps.check.outputs.has-changes == 'true'
+            run: |
+               if git merge --no-edit "upstream/$UPSTREAM_BRANCH"; then
+                  echo "clean=true" >> "$GITHUB_OUTPUT"
+               else
+                  echo "clean=false" >> "$GITHUB_OUTPUT"
+                  echo "Conflicts in:"
+                  git diff --name-only --diff-filter=U
+                  # Keep the conflict markers in the tree, and commit them onto a branch a
+                  # human resolves — see docs/CHARACTER_SHEET_MAINTENANCE.md
+                  git add -A
+                  git commit -m "chore: merge upstream (CONFLICTS — resolve before merging)" --no-verify
+               fi
+
+         -  name: Install dependencies
+            if: steps.merge.outputs.clean == 'true'
+            run: npm ci --engine-strict=false
+
+         # charactersheet.html/charbuilder.html are BUILT from templates: upstream changes to
+         # shared partials only take effect once the pages are regenerated.
+         -  name: Regenerate pages
+            if: steps.merge.outputs.clean == 'true'
+            run: |
+               node node/generate-pages.js
+               if [ -n "$(git status --porcelain)" ]; then
+                  git add -A
+                  git commit -m "chore: regenerate pages after upstream merge"
+               fi
+
+         -  name: Verify the Character Sheet still works
+            if: steps.merge.outputs.clean == 'true'
+            run: |
+               npx eslint js/charactersheet.js js/charbuilder.js js/charactersheet/
+               node --localstorage-file test/temp/localstorage.tmp --experimental-vm-modules \
+                  node_modules/jest/bin/jest.js test/jest/CharacterSheet
+
+         -  name: Push the merge
+            if: steps.merge.outputs.clean == 'true'
+            run: git push origin "HEAD:$TARGET_BRANCH"
+
+         # A conflict, or a failed check above, lands here instead of on `main`.
+         -  name: Open a pull request for manual resolution
+            if: failure() || (steps.check.outputs.has-changes == 'true' && steps.merge.outputs.clean == 'false')
+            env:
+               GH_TOKEN: ${{ github.token }}
+            run: |
+               BRANCH="chore/sync-upstream-$(date +%Y%m%d-%H%M%S)"
+               git push origin "HEAD:$BRANCH"
+               {
+                  echo "The scheduled upstream sync could not land on its own."
+                  echo ""
+                  echo "Either the merge conflicted, or the Character Sheet lint/tests failed afterwards."
+                  echo "This fork only ever conflicts in the few registration lines listed in"
+                  echo '`docs/CHARACTER_SHEET_MAINTENANCE.md` — keep **both** the fork'"'"'s lines and'
+                  echo "upstream's, then regenerate the pages with \`node node/generate-pages.js\`."
+                  echo ""
+                  echo "Nothing was pushed to \`$TARGET_BRANCH\`."
+               } > /tmp/pr-body.md
+               gh pr create \
+                  --base "$TARGET_BRANCH" \
+                  --head "$BRANCH" \
+                  --title "Sync from upstream (needs a human)" \
+                  --body-file /tmp/pr-body.md
