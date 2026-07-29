@@ -7,6 +7,7 @@ import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {CharacterWizard} from "./charactersheet-wizard.js";
 import {CHOICE_TYPE_ABILITY, CHOICE_TYPE_LANGUAGE, CHOICE_TYPE_SKILL, CHOICE_TYPE_TOOL, getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats, getPendingChoices, getResistChoices} from "./charactersheet-choices.js";
 import {pPickAbilities, pPickList, pResolveEntitySpellGrants, pResolveFeat} from "./charactersheet-featgrant.js";
+import {PROF_KIND_LANGUAGE, PROF_KIND_TOOL, PROF_KINDS, groupProficienciesByKind} from "./charactersheet-proficiencies.js";
 import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterPredicate, getOutOfFilterSources, isSourceAllowed, isSourceFilterInactive} from "./charactersheet-sources.js";
 
 /**
@@ -83,6 +84,7 @@ export class CharacterPageBase {
 		this._bindDom();
 
 		this._comp._addHookBase("level", () => this._pMaybePromptLevelUp());
+		this._comp._addHookBase("proficiencies", () => this._renderProficiencies());
 		this._comp._addHookAllBase(() => this._onStateChange());
 
 		this._bindBreakdownPopovers();
@@ -209,6 +211,87 @@ export class CharacterPageBase {
 		["species", "background", "class"].forEach(w => this._renderPickLink(w));
 	}
 
+	/* -------------------------------------------- Proficiencies -------------------------------------------- */
+
+	/**
+	 * Render the structured armor/weapon/tool/language proficiencies, grouped by kind. Each entry
+	 * carries the source(s) that granted it, so a player can see *why* they have it; the free-text
+	 * box below stays for anything the data cannot express.
+	 */
+	_renderProficiencies () {
+		const wrp = document.getElementById("cs-prof-list");
+		if (!wrp) return;
+		wrp.innerHTML = "";
+
+		const groups = groupProficienciesByKind(this._comp._state.proficiencies || []);
+		if (!groups.length) {
+			wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">None yet &mdash; picking a species, background or class fills these in.</div>`);
+		}
+
+		groups.forEach(grp => {
+			const row = document.createElement("div");
+			row.className = "cs__prof-group";
+
+			const lbl = document.createElement("span");
+			lbl.className = "cs__lbl cs__prof-group-lbl";
+			lbl.textContent = grp.label;
+			row.appendChild(lbl);
+
+			grp.items.forEach(it => {
+				const chip = document.createElement("span");
+				chip.className = "cs__prof-chip";
+				if (it.isOptional) chip.classList.add("cs__prof-chip--optional");
+
+				const from = it.sources.length ? `From: ${it.sources.join(", ")}` : "Added by hand";
+				const explanation = it.isOptional ? `${from} (optional in the rules)` : from;
+				chip.title = explanation;
+				chip.classList.add("cs__has-breakdown");
+				chip.dataset.csBreakdown = `${it.name} — ${explanation}`;
+
+				const name = document.createElement("span");
+				name.textContent = it.name;
+				chip.appendChild(name);
+
+				const btnRm = document.createElement("button");
+				btnRm.type = "button";
+				btnRm.className = "cs__prof-chip-rm no-print";
+				btnRm.title = "Remove";
+				btnRm.innerHTML = "&times;";
+				btnRm.addEventListener("click", () => it.ids.forEach(id => this._comp.removeProficiency(id)));
+				chip.appendChild(btnRm);
+
+				row.appendChild(chip);
+			});
+
+			wrp.appendChild(row);
+		});
+
+		const btnAdd = document.createElement("button");
+		btnAdd.type = "button";
+		btnAdd.className = "ve-btn ve-btn-xxs ve-btn-default no-print ve-mt-1";
+		btnAdd.id = "cs-prof-add";
+		btnAdd.title = "Add a proficiency earned through training or the story";
+		btnAdd.innerHTML = `<span class="glyphicon glyphicon-plus"></span> Add Proficiency`;
+		btnAdd.addEventListener("click", () => this._pOnAddProficiency());
+		wrp.appendChild(btnAdd);
+	}
+
+	async _pOnAddProficiency () {
+		const kind = await InputUiUtil.pGetUserEnum({
+			values: PROF_KINDS,
+			isResolveItem: true,
+			fnDisplay: it => it.label,
+			title: "Add a proficiency",
+			placeholder: "Which kind?",
+		});
+		if (kind == null) return;
+
+		const name = await InputUiUtil.pGetUserString({title: `Add ${kind.label} proficiency`});
+		if (!name?.trim()) return;
+
+		this._comp.addProficiency({kind: kind.kind, name: name.trim(), source: null});
+	}
+
 	/**
 	 * The upstream `pGetUserRaceSearch`/`pGetUserBackgroundSearch` helpers take no options, so there is
 	 * no way to pass a source filter into them. Rather than edit an upstream file (which would add an
@@ -311,18 +394,14 @@ export class CharacterPageBase {
 		const choices = getPendingChoices({[kind]: ent}).filter(c => c.type !== CHOICE_TYPE_ABILITY);
 		if (!choices.length) return;
 
-		const langs = [];
-		const tools = [];
 		for (const choice of choices) {
 			const picked = await pPickList({count: choice.count, from: choice.from, title: `${ent.name}: ${choice.label}`});
 			(picked || []).forEach(name => {
 				if (choice.type === CHOICE_TYPE_SKILL) this._comp.setSkillProfByName(name, PROF_STATE_PROFICIENT);
-				else if (choice.type === CHOICE_TYPE_LANGUAGE) langs.push(name);
-				else if (choice.type === CHOICE_TYPE_TOOL) tools.push(name);
+				else if (choice.type === CHOICE_TYPE_LANGUAGE) this._comp.addProficiency({kind: PROF_KIND_LANGUAGE, name, source: ent.name});
+				else if (choice.type === CHOICE_TYPE_TOOL) this._comp.addProficiency({kind: PROF_KIND_TOOL, name, source: ent.name});
 			});
 		}
-		if (tools.length) this._comp.appendToTextProp("proficienciesText", `Tools (${ent.name}): ${tools.join(", ")}`);
-		if (langs.length) this._comp.appendToTextProp("proficienciesText", `Languages (${ent.name}): ${langs.join(", ")}`);
 	}
 
 	/**

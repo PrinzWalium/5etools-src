@@ -346,6 +346,56 @@
 		font-size: 0.85em;
 	}
 
+	/* -------------------------------------------- Proficiency chips -------------------------------------------- */
+
+	.cs__prof-group {
+		display: flex;
+		align-items: baseline;
+		flex-wrap: wrap;
+		gap: 3px;
+		margin-bottom: 3px;
+	}
+
+	.cs__prof-group-lbl {
+		min-width: 4.5em;
+		flex: 0 0 auto;
+	}
+
+	.cs__prof-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		padding: 0 5px;
+		border: 1px solid rgb(0 0 0 / 20%);
+		border-radius: 999px;
+		font-size: 0.85em;
+		line-height: 1.6;
+		cursor: help;
+	}
+
+	.ve-night-mode .cs__prof-chip {
+		border-color: rgb(255 255 255 / 25%);
+	}
+
+	.cs__prof-chip--optional {
+		border-style: dashed;
+		opacity: 0.75;
+	}
+
+	.cs__prof-chip-rm {
+		padding: 0;
+		border: 0;
+		background: none;
+		color: inherit;
+		opacity: 0.4;
+		line-height: 1;
+
+		&:hover {
+			opacity: 1;
+			color: #a00;
+		}
+	}
+
 	.cs__prof {
 		width: 14px;
 		height: 14px;

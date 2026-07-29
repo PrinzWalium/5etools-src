@@ -2,6 +2,7 @@ import {getAbilityPackages, getExpertiseChoices, getFixedAbilityBonuses, getProf
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS, PROF_STATE_EXPERTISE, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
 import {getDynamicSpellGrants, getSpellGrantGroups, isSpellMatchingFilter} from "./charactersheet-levelengine.js";
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
+import {getEntityProficiencies} from "./charactersheet-proficiencies.js";
 
 /**
  * Shared, interactive resolution of a feat's grants — used by the class panel (ASI/feat slots) and
@@ -47,7 +48,7 @@ export async function pPickAbilities ({count, from, title}) {
 	return out;
 }
 
-/** Apply a feat's fixed skill/Expertise grants; note tools/languages (no structured store). */
+/** Apply a feat's fixed skill/Expertise/tool/language grants. */
 export function applyFeatFixedGrants (comp, feat) {
 	(feat.skillProficiencies || []).forEach(grp => {
 		Object.entries(grp).forEach(([k, v]) => { if (v === true) comp.setSkillProfByName(k, PROF_STATE_PROFICIENT); });
@@ -56,10 +57,13 @@ export function applyFeatFixedGrants (comp, feat) {
 		Object.entries(grp).forEach(([k, v]) => { if (v === true) comp.setSkillProfByName(k, PROF_STATE_EXPERTISE); });
 	});
 
+	comp.setProficienciesFromSource(feat.name, getEntityProficiencies(feat));
+
+	// The outright grants are stored structurally above; only the unresolved choices need a note
 	const pts = [];
-	const langs = getProfListDisplay(feat.languageProficiencies);
+	const langs = getProfListDisplay(feat.languageProficiencies, {isChoiceOnly: true});
 	if (langs) pts.push(`Languages: ${langs}`);
-	const tools = getProfListDisplay(feat.toolProficiencies);
+	const tools = getProfListDisplay(feat.toolProficiencies, {isChoiceOnly: true});
 	if (tools) pts.push(`Tools: ${tools}`);
 	if (pts.length) comp.appendToTextProp("proficienciesText", `${feat.name}: ${pts.join("; ")}`);
 }

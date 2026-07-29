@@ -59,6 +59,7 @@ class CharacterBuilderPage extends CharacterPageBase {
 		this._renderDerived();
 		this._renderSourceFilterLabel();
 		this._renderOutOfFilterNote();
+		this._renderProficiencies();
 		this._lastLevel = this._comp.getLevelNumber();
 	}
 

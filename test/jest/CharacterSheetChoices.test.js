@@ -14,6 +14,8 @@ import {
 	getGrantedFeats,
 	getPendingChoices,
 	getProfListDisplay,
+	getToolChoices,
+	ARTISANS_TOOLS,
 } from "../../js/charactersheet/charactersheet-choices.js";
 import {
 	POINT_BUY_BUDGET,
@@ -204,5 +206,26 @@ describe("Choices: damage-resistance picks", () => {
 		expect(getResistChoices({groups: ["fire"], sourceName: "X"})).toEqual([]);
 		expect(getResistChoices({groups: [], sourceName: "X"})).toEqual([]);
 		expect(getResistChoices({groups: null, sourceName: "X"})).toEqual([]);
+	});
+});
+
+describe("Choices: tool picks", () => {
+	it("Offers the artisan's tools for an `anyArtisansTool` grant", () => {
+		const [choice] = getToolChoices({groups: [{anyArtisansTool: 2}], sourceName: "Dwarf"});
+		expect(choice).toMatchObject({type: CHOICE_TYPE_TOOL, sourceName: "Dwarf", count: 2});
+		expect(choice.label).toBe("Choose 2 artisan's tools");
+		expect(choice.from).toEqual(ARTISANS_TOOLS);
+	});
+
+	it("Offers every tool for a bare `any` grant", () => {
+		const [choice] = getToolChoices({groups: [{any: 1}], sourceName: "Warforged"});
+		expect(choice.label).toBe("Choose 1 tool");
+		expect(choice.from).toEqual(expect.arrayContaining(["Smith's tools", "Thieves' tools", "Lute", "Dice set"]));
+	});
+
+	it("Reads an explicit list, and ignores fixed grants", () => {
+		const [choice] = getToolChoices({groups: [{choose: {from: ["smith's tools", "mason's tools"]}}], sourceName: "Dwarf"});
+		expect(choice.from).toEqual(["Smith's Tools", "Mason's Tools"]);
+		expect(getToolChoices({groups: [{"thieves' tools": true}], sourceName: "Rogue"})).toEqual([]);
 	});
 });

@@ -1,5 +1,6 @@
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SCHEMA_VERSION, CHAR_SHEET_SKILLS, EXPENDABLE_RESOURCES, getSkillKeyByName} from "./charactersheet-consts.js";
 import {getGrantedFeats, getProfListDisplay} from "./charactersheet-choices.js";
+import {getClassProficiencies, getEntityProficiencies, getMulticlassProficiencies} from "./charactersheet-proficiencies.js";
 
 /**
  * The character data model: single source of truth for the sheet.
@@ -104,6 +105,7 @@ export class CharacterModel extends BaseComponent {
 			resourcesUsed: {}, // {resourceLabel: n} — expended class resources (Rages, Ki, Wild Shape, ...)
 			sourceFilter: {mode: "all", sources: {}}, // which books this character may pick content from
 			abilityBonusLog: [], // [{id, source, bonuses}] — provenance for ability-score increases
+			proficiencies: [], // [{id, kind, name, source}] — armor/weapon/tool/language, with what granted each
 
 			featuresText: "",
 			equipmentText: "",
@@ -301,6 +303,34 @@ export class CharacterModel extends BaseComponent {
 		this._triggerCollectionUpdate("manualFeats");
 	}
 
+	/* -------------------------------------------- Proficiencies -------------------------------------------- */
+
+	/**
+	 * Record armor/weapon/tool/language proficiencies granted by a source. Re-applying the same
+	 * source replaces its previous grants, so re-picking a class or background does not duplicate
+	 * them and dropping one removes exactly what it gave.
+	 */
+	setProficienciesFromSource (source, entries) {
+		const kept = (this._state.proficiencies || []).filter(it => it.source !== source);
+		const added = (entries || [])
+			.filter(it => it?.name)
+			.map(it => ({id: CryptUtil.uid(), kind: it.kind, name: it.name, source, isOptional: !!it.isOptional}));
+		this._state.proficiencies = [...kept, ...added];
+	}
+
+	/** Add a single proficiency (a resolved choice, or one added by hand). */
+	addProficiency ({kind, name, source}) {
+		if (!name) return false;
+		const cur = this._state.proficiencies || [];
+		if (cur.some(it => it.kind === kind && it.name.toLowerCase() === name.toLowerCase() && it.source === source)) return false;
+		this._state.proficiencies = [...cur, {id: CryptUtil.uid(), kind, name, source, isOptional: false}];
+		return true;
+	}
+
+	removeProficiency (id) {
+		this._state.proficiencies = (this._state.proficiencies || []).filter(it => it.id !== id);
+	}
+
 	/** Toggle an owned weapon's mastery as active. */
 	toggleWeaponMastery (name) {
 		const set = new Set(this._state.weaponMasteries || []);
@@ -396,10 +426,7 @@ export class CharacterModel extends BaseComponent {
 			Object.entries(grp).forEach(([k, v]) => { if (v === true) this.setSkillProfByName(k, 1); });
 		});
 
-		const fixedLangs = (race.languageProficiencies || [])
-			.map(grp => Object.entries(grp).filter(([, v]) => v === true).map(([k]) => k))
-			.flat();
-		if (fixedLangs.length) this.appendToTextProp("proficienciesText", `Languages: ${getProfListDisplay([Object.fromEntries(fixedLangs.map(k => [k, true]))])}`);
+		this.setProficienciesFromSource(race.name, getEntityProficiencies(race));
 
 		if (race.darkvision) this.appendToTextProp("proficienciesText", `Senses: Darkvision ${race.darkvision} ft.`);
 
@@ -452,8 +479,12 @@ export class CharacterModel extends BaseComponent {
 		(bg.skillProficiencies || []).forEach(grp => {
 			Object.entries(grp).forEach(([k, v]) => { if (v === true) this.setSkillProfByName(k, 1); });
 		});
-		const tools = getProfListDisplay(bg.toolProficiencies, {isFixedOnly});
-		const langs = getProfListDisplay(bg.languageProficiencies, {isFixedOnly});
+		this.setProficienciesFromSource(bg.name, getEntityProficiencies(bg));
+
+		// Outright grants are stored structurally above; only the unresolved "N of your choice" ones
+		// need a note, and even those are skipped when the caller resolves them interactively.
+		const tools = isFixedOnly ? "" : getProfListDisplay(bg.toolProficiencies, {isChoiceOnly: true});
+		const langs = isFixedOnly ? "" : getProfListDisplay(bg.languageProficiencies, {isChoiceOnly: true});
 		const parts = [];
 		if (tools) parts.push(`Tools: ${tools}`);
 		if (langs) parts.push(`Languages: ${langs}`);
@@ -477,6 +508,12 @@ export class CharacterModel extends BaseComponent {
 
 	/** Set the (single) primary class from picked class data, replacing any existing classes. */
 	setSingleClass (cls) {
+		// Dropping the other classes drops the proficiencies they granted with them
+		this._state.classes
+			.filter(it => it.name !== cls.name)
+			.forEach(it => this.setProficienciesFromSource(it.name, []));
+		this.setProficienciesFromSource(cls.name, getClassProficiencies(cls));
+
 		const existing = this._state.classes.length === 1 ? this._state.classes[0] : null;
 		const isSameClass = existing && existing.name === cls.name && existing.source === cls.source;
 		this._state.classes = [{
@@ -494,6 +531,9 @@ export class CharacterModel extends BaseComponent {
 
 	/** Add an additional (multiclass) class entry. */
 	addClassEntry (cls, level) {
+		// Multiclassing grants only a subset of the class's starting proficiencies
+		this.setProficienciesFromSource(cls.name, getMulticlassProficiencies(cls));
+
 		this._state.classes = [
 			...this._state.classes,
 			{
@@ -511,6 +551,8 @@ export class CharacterModel extends BaseComponent {
 	}
 
 	removeClassEntry (id) {
+		const entry = this._state.classes.find(it => it.id === id);
+		if (entry) this.setProficienciesFromSource(entry.name, []);
 		this._state.classes = this._state.classes.filter(it => it.id !== id);
 		this._syncDisplayFromClasses();
 	}

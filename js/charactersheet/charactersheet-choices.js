@@ -6,9 +6,17 @@ import {CHAR_SHEET_SKILLS, getSkillKeyByName, getSkillNameByKey} from "./charact
  * Fixed (non-choice) proficiencies are not part of the queue; they are applied directly.
  */
 
-// Fixed core lists (PHB); referenced by `anyGamingSet`/`anyMusicalInstrument` choice keys
+// Fixed core lists (PHB); referenced by the `anyGamingSet`/`anyMusicalInstrument`/`anyArtisansTool` choice keys
 export const GAMING_SETS = ["Dice set", "Dragonchess set", "Playing card set", "Three-Dragon Ante set"];
 export const MUSICAL_INSTRUMENTS = ["Bagpipes", "Drum", "Dulcimer", "Flute", "Horn", "Lute", "Lyre", "Pan flute", "Shawm", "Viol"];
+export const ARTISANS_TOOLS = [
+	"Alchemist's supplies", "Brewer's supplies", "Calligrapher's supplies", "Carpenter's tools", "Cartographer's tools",
+	"Cobbler's tools", "Cook's utensils", "Glassblower's tools", "Jeweler's tools", "Leatherworker's tools",
+	"Mason's tools", "Painter's supplies", "Potter's tools", "Smith's tools", "Tinker's tools",
+	"Weaver's tools", "Woodcarver's tools",
+];
+/** Everything `{any: n}` may draw from — the artisan's tools plus the other tool groups and the loose tools. */
+export const OTHER_TOOLS = ["Disguise kit", "Forgery kit", "Herbalism kit", "Navigator's tools", "Poisoner's kit", "Thieves' tools", "Vehicles (land)", "Vehicles (water)"];
 
 export const CHOICE_TYPE_SKILL = "skill";
 export const CHOICE_TYPE_LANGUAGE = "language";
@@ -22,15 +30,17 @@ const _nextId = () => `csc-${_ID++}`;
 const _titleCase = str => String(str).replace(/\w\S*/g, txt => txt[0].toUpperCase() + txt.slice(1));
 
 /**
- * Human-readable summary of the *fixed* proficiencies in a proficiency group array
+ * Human-readable summary of a proficiency group array
  * (used for the "apply the structured fields, render the rest as text" path).
+ * @param [opts.isFixedOnly] Drop the "N of your choice" entries, keeping only outright grants.
+ * @param [opts.isChoiceOnly] The inverse: keep only the choices, for when the grants are stored structurally.
  */
-export function getProfListDisplay (arr, {isFixedOnly = false} = {}) {
+export function getProfListDisplay (arr, {isFixedOnly = false, isChoiceOnly = false} = {}) {
 	if (!arr || !arr.length) return "";
 	const out = [];
 	arr.forEach(grp => {
 		Object.entries(grp).forEach(([k, v]) => {
-			if (v === true) return out.push(_titleCase(k));
+			if (v === true) return isChoiceOnly ? undefined : out.push(_titleCase(k));
 			if (isFixedOnly) return;
 			if (k === "choose" && v && v.from) out.push(`${v.count || 1} of your choice`);
 			else if (typeof v === "number") out.push(/^any/i.test(k) ? `${v} of your choice` : `${v}× ${_titleCase(k)}`);
@@ -134,7 +144,17 @@ export function getLanguageChoices ({groups, sourceName}) {
 	return out;
 }
 
-/** Tool choices from a `toolProficiencies`-style group array; unsupported "any" keys are skipped (rendered as text elsewhere). */
+/** The `{anyX: n}` tool keys, and what each draws from. */
+const _ALL_TOOLS = [...ARTISANS_TOOLS, ...GAMING_SETS, ...MUSICAL_INSTRUMENTS, ...OTHER_TOOLS].sort();
+const _TOOL_ANY_KEYS = {
+	anyGamingSet: {from: GAMING_SETS, what: "gaming set"},
+	anyMusicalInstrument: {from: MUSICAL_INSTRUMENTS, what: "musical instrument"},
+	anyArtisansTool: {from: ARTISANS_TOOLS, what: "artisan's tool"},
+	any: {from: _ALL_TOOLS, what: "tool"},
+	anyTool: {from: _ALL_TOOLS, what: "tool"},
+};
+
+/** Tool choices from a `toolProficiencies`-style group array; unrecognised keys are skipped (rendered as text elsewhere). */
 export function getToolChoices ({groups, sourceName}) {
 	const out = [];
 	(groups || []).forEach(grp => {
@@ -152,16 +172,15 @@ export function getToolChoices ({groups, sourceName}) {
 				return;
 			}
 			if (typeof v !== "number") return;
-			if (k === "anyGamingSet") from = GAMING_SETS;
-			else if (k === "anyMusicalInstrument") from = MUSICAL_INSTRUMENTS;
-			if (!from) return;
+			const spec = _TOOL_ANY_KEYS[k];
+			if (!spec) return;
 			out.push({
 				id: _nextId(),
 				type: CHOICE_TYPE_TOOL,
 				sourceName,
 				count: v,
-				from,
-				label: `Choose ${v} ${k === "anyGamingSet" ? "gaming set" : "musical instrument"}${v > 1 ? "s" : ""}`,
+				from: spec.from,
+				label: `Choose ${v} ${spec.what}${v > 1 ? "s" : ""}`,
 			});
 		});
 	});

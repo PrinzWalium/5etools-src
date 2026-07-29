@@ -21,6 +21,7 @@ import {
 	isValidStandardArrayAssignment,
 } from "./charactersheet-abilityscores.js";
 import {EQUIPMENT_ALWAYS_KEY, getEquipmentChoiceGroups, getEquipmentOptionDisplay, getInventoryItemMeta} from "./charactersheet-equipment.js";
+import {PROF_KIND_LANGUAGE, PROF_KIND_TOOL} from "./charactersheet-proficiencies.js";
 
 /**
  * Guided character creation: a step-sequence wizard
@@ -743,17 +744,13 @@ export class CharacterWizard {
 		if (Object.keys(abilityBonuses).length) comp.applyAbilityBonuses(abilityBonuses, {source: "Species & Background"});
 
 		// Resolve queued choices
-		const langs = [];
-		const tools = [];
 		this._draft.choices.forEach(choice => {
 			const selections = this._draft.choiceSelections.get(CharacterWizard._getChoiceSig(choice));
 			if (!selections?.size) return;
 			if (choice.type === CHOICE_TYPE_SKILL) selections.forEach(name => comp.setSkillProfByName(name, 1));
-			else if (choice.type === CHOICE_TYPE_LANGUAGE) langs.push(...selections);
-			else if (choice.type === CHOICE_TYPE_TOOL) tools.push(...selections);
+			else if (choice.type === CHOICE_TYPE_LANGUAGE) selections.forEach(name => comp.addProficiency({kind: PROF_KIND_LANGUAGE, name, source: choice.sourceName}));
+			else if (choice.type === CHOICE_TYPE_TOOL) selections.forEach(name => comp.addProficiency({kind: PROF_KIND_TOOL, name, source: choice.sourceName}));
 		});
-		if (tools.length) comp.appendToTextProp("proficienciesText", `Tools: ${tools.join(", ")}`);
-		if (langs.length) comp.appendToTextProp("proficienciesText", `Languages: ${langs.join(", ")}`);
 
 		if (this._draft.isAddEquipment) await this._pApplyEquipment();
 
