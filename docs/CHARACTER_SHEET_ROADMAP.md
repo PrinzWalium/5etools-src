@@ -5,7 +5,7 @@ land; add new ones at the bottom of their tier.
 
 Done so far: the builder and sheet themselves, the choice engine, the leveling engine, structured
 proficiencies, "choose one" species traits, per-character source filtering, stat provenance,
-the UI rework, and the test/CI setup below.
+the UI rework, the sidekick builder, print/PDF export, and the test/CI setup below.
 
 ---
 
@@ -14,8 +14,16 @@ the UI rework, and the test/CI setup below.
 - [x] **CI that runs the tests.** `npm test` existed but nothing invoked it; a push ran nothing.
       Now `.github/workflows/charactersheet-ci.yml` lints, unit-tests, checks the generated pages
       match their templates, and runs the browser tests on every push and pull request.
-- [x] **Browser tests in the repo.** ~110 checks across seven suites in `test/e2e/`, promoted from
+- [x] **Browser tests in the repo.** 136 checks across eight suites in `test/e2e/`, promoted from
       throwaway scripts. They caught real regressions repeatedly while the sheet was being built.
+- [x] **Sidekick builder** (`sidekick.html`). Any bestiary stat block seeds a sheet; one of the
+      three TCE sidekick classes drives its features and spell slots; everything stays
+      hand-editable, and a "How Sidekicks Level" box carries the 20-level table and the book's
+      own rules. A sidekick is just a character with `isSidekick: true`, so it reuses the whole
+      engine.
+- [x] **Print / PDF output.** The *Print* button on every page. Character pages print as a plain
+      sheet, sidekicks as a stat-block card. `_bindPrintPrep` works around what browsers refuse
+      to print: textarea overflow, closed `<details>`, and panels with nothing in them.
 
 ---
 
@@ -36,8 +44,9 @@ the UI rework, and the test/CI setup below.
 
 ## Later — quality of life
 
-- [ ] **Print / PDF output.** The `no-print` classes exist but the printed result has never been
-      looked at. A clean one-or-two-page printable sheet is what many tables actually want.
+- [ ] **Print polish.** The print path now works and is tested by hand, but it has no automated
+      coverage, and a long character still spills onto a third page. Worth a pass once the layout
+      settles: tighter margins, a deliberate page break between play data and reference text.
 - [ ] **Accessibility.** Focus rings, labels on icon-only buttons, keyboard access to the feature
       cards. Noticed during the UI rework and deliberately left out of its scope.
 - [ ] **Character portrait and appearance fields.**
@@ -47,9 +56,9 @@ the UI rework, and the test/CI setup below.
 
 ## Housekeeping
 
-- [ ] **Protect `main`.** *Settings → Branches → Add branch ruleset*, target `main`, tick
-      **Block force pushes** — so the "Sync fork → Discard commits" button cannot wipe the fork
-      again. (It already did once; see `CHARACTER_SHEET_MAINTENANCE.md`.)
+- [x] **Protect `main`.** Branch rulesets are in place for `main` and `beta`, so the
+      "Sync fork → Discard commits" button can no longer wipe the fork.
+      (It already did once; see `CHARACTER_SHEET_MAINTENANCE.md`.)
 - [ ] **Prove the nightly upstream sync.** `.github/workflows/sync-upstream.yml` has never fired.
       Run it once by hand from the Actions tab.
 - [ ] **Port the remaining ad-hoc smokes** — magic-item bonuses, multiclass Expertise, origin

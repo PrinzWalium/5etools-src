@@ -139,7 +139,7 @@ export class CharacterClassPanel {
 		const feats = this._comp._state.manualFeats || [];
 
 		const wrp = document.createElement("div");
-		wrp.className = "ve-mb-2";
+		wrp.className = `ve-mb-2${feats.length ? "" : " no-print"}`;
 		// Title and action share a row; the caption sits below, so nothing collides in a narrow column
 		const head = document.createElement("div");
 		head.className = "cs__section-head ve-flex-v-center ve-flex-wrap";

@@ -9,42 +9,48 @@ the fork easy to update from upstream.
 
 ## Character Sheet: file map
 
-The feature is **two pages** that share one character store: a play-focused
-**sheet** (`charactersheet.html`) and a build-focused **builder**
-(`charbuilder.html`). Both subclass `CharacterPageBase`
+The feature is **three pages** that share one character store: a play-focused
+**sheet** (`charactersheet.html`), a build-focused **builder**
+(`charbuilder.html`), and a DM-focused **sidekick builder** (`sidekick.html`).
+All three subclass `CharacterPageBase`
 (`charactersheet-pagebase.js`), which owns the model, the multi-character
-store/switcher, autosave, file save/load, the null-safe input binding, and the
-shared build helpers (data pickers, wizard). Each page's controller keeps only
-its own DOM assembly + rendering.
+store/switcher, autosave, file save/load, the null-safe input binding, the
+print/PDF preparation, and the shared build helpers (data pickers, wizard).
+Each page's controller keeps only its own DOM assembly + rendering.
 
 **Fork-owned (upstream has no version → these never conflict on an upstream merge):**
-- `charactersheet.html`, `charbuilder.html` — **generated**, do not hand-edit (see below)
-- `js/charactersheet.js`, `js/charbuilder.js` — the two page entry points
+- `charactersheet.html`, `charbuilder.html`, `sidekick.html` — **generated**, do not hand-edit (see below)
+- `js/charactersheet.js`, `js/charbuilder.js`, `js/sidekick.js` — the three page entry points
 - `js/charactersheet/*.js` — the shared modules: pure rules (`derive`,
   `levelengine`, `choices`, `abilityscores`, `equipment`, `actions`, `charstore`,
-  `consts`), data access (`classdata`), the model (`model`), the page base
-  (`pagebase`), and the panel renderers (`classpanel`, `inventorypanel`,
+  `sidekick`, `consts`), data access (`classdata`), the model (`model`), the page
+  base (`pagebase`), and the panel renderers (`classpanel`, `inventorypanel`,
   `spellspanel`, `actionspanel`, `wizard`)
-- `css/charactersheet.css`, `scss/charactersheet.scss` (shared by both pages)
+- `css/charactersheet.css`, `scss/charactersheet.scss` (shared by all three pages)
 - `node/generate-pages/template/page/template-page-charactersheet.hbs`,
-  `.../template-page-charbuilder.hbs`
+  `.../template-page-charbuilder.hbs`, `.../template-page-sidekick.hbs`
 - `test/jest/CharacterSheet*.test.js` — unit tests for the pure modules
 - `test/e2e/` — browser tests driving the real pages (see `test/e2e/README.md`)
 - `.github/workflows/charactersheet-ci.yml`, `.github/workflows/sync-upstream.yml`
 
 **Shared upstream files the fork edits (the ONLY upstream-merge conflict points):**
-1. `js/navigation.js` — two `_addElement_li({... page: "char....html" ...})` lines
+1. `js/navigation.js` — three `_addElement_li({... page: "….html" ...})` lines
+   (`charbuilder.html`, `sidekick.html`, `charactersheet.html`)
 2. `index.html` — two `<a href="charactersheet.html">` home-page buttons
+   (the sidekick builder is navbar-only, deliberately: it is a DM tool, and
+   fewer home-page edits means fewer conflicts)
 3. `node/generate-pages/generate-pages-page-generator-config.js` — the
-   `_PageGeneratorCharactersheet` / `_PageGeneratorCharbuilder` classes + their two
+   `_PageGeneratorCharactersheet` / `_PageGeneratorCharbuilder` /
+   `_PageGeneratorSidekick` classes + their three
    `new _PageGenerator...(),` registration lines
 4. `package.json` — a `test:e2e` script and the `playwright-core` dev dependency (two lines)
 
 Exact snippets and resolution steps: `docs/CHARACTER_SHEET_MAINTENANCE.md`.
+The sidekick builder's own user-facing guide: `docs/SIDEKICK_BUILDER.md`.
 
 ## Critical gotcha: the page HTML is generated
 
-`charactersheet.html` and `charbuilder.html` are built from their
+`charactersheet.html`, `charbuilder.html` and `sidekick.html` are built from their
 `node/generate-pages/template/page/template-page-*.hbs` templates by
 `node node/generate-pages.js` (run in the Docker/Pages builds). **Editing the
 generated `.html` directly is silently overwritten by the build.** To change
@@ -60,7 +66,16 @@ template, run `node node/generate-pages.js` and commit both.
   not hardcoded — except the PHB multiclass spell-slot table, which is a fixed
   core rule in `charactersheet-levelengine.js`.
 - The pure rules modules (`derive`, `levelengine`, `choices`, `abilityscores`,
-  `equipment`, `actions`, `charstore`) are unit-tested; keep them DOM-free and tested.
+  `equipment`, `actions`, `charstore`, `sidekick`) are unit-tested; keep them
+  DOM-free and tested.
+- A sidekick is just a character with `isSidekick: true` and a `refCreature`, so
+  derivation, the feature timeline, spell slots, the store, autosave and
+  save/load all work unchanged. The store is shared but each page lists only its
+  own kind (`_isCharacterListed` / `_getNewCharacterState` in the page base).
+- The export is **print-to-PDF**, not a generated PDF. Browsers cannot print a
+  `textarea`'s overflow or a closed `<details>`, so `_bindPrintPrep` (page base)
+  mirrors textarea text into `.cs__print-text`, opens collapsed sections, and
+  flags empty panels for hiding before `window.print()`.
 
 ## What the feature covers (so you don't rebuild it)
 
@@ -75,10 +90,21 @@ template, run `node node/generate-pages.js` and commit both.
   attacks with a **Wield** button and an automatic **Unarmed Strike**, an
   **Actions** panel (action/bonus/reaction economy), spell slots, death saves,
   **rests** (short/long), and a **conditions & concentration** tracker.
+- **Sidekick builder** (`sidekick.html`): a DM tool. Pick any bestiary creature
+  and it seeds abilities, AC, HP, speed, skill/save proficiencies, senses and
+  the trait/action text; pick one of the three TCE sidekick classes and the
+  ordinary class panel drives its feature timeline and (for the Spellcaster)
+  spell slots. Every seeded value stays hand-editable — nothing is locked. A
+  "How Sidekicks Level" box shows a 20-level table with the current level marked,
+  plus a toggle that renders the book's own TCE "Sidekicks" rules.
+- **Print / PDF** (all pages, the *Print* button): the browser's print-to-PDF.
+  The character pages print as a plain sheet; the sidekick prints as a
+  **stat-block card** (small-caps name, red rules, abilities six across,
+  full trait/action text, reference tables and controls suppressed).
 - Equipped magic items feed derivations globally: AC, saving throws, spell save
   DC and spell attack, and weapon attack/damage (`derive.js`).
-- Both pages share one character store, so a character built in the builder is
-  immediately playable on the sheet.
+- All three pages share one character store, so a character built in the builder
+  is immediately playable on the sheet.
 
 ## 5etools class data structure (read this before adding class mechanics)
 
@@ -130,7 +156,7 @@ read the column when present, curated fallback otherwise.
 
 Preferred: `bash scripts/update-from-upstream.sh` (fetches, merges, regenerates
 pages, runs Character Sheet lint + tests, makes a safety backup branch). If a
-conflict occurs it will be in one of the 3 shared files above — resolve by
+conflict occurs it will be in one of the 4 shared files above — resolve by
 keeping BOTH the fork's registration line(s) and upstream's changes, per
 `docs/CHARACTER_SHEET_MAINTENANCE.md`.
 
@@ -138,11 +164,11 @@ keeping BOTH the fork's registration line(s) and upstream's changes, per
 
 All three run in CI on every push (`.github/workflows/charactersheet-ci.yml`).
 
-- Lint: `npx eslint js/charactersheet.js js/charbuilder.js js/charactersheet/`
+- Lint: `npx eslint js/charactersheet.js js/charbuilder.js js/sidekick.js js/charactersheet/`
 - Unit tests (pure modules, ~2s): `npm run test:unit -- test/jest/CharacterSheet`
-- Browser tests (the real pages, ~2min): `npm run test:e2e` — starts its own dev server.
+- Browser tests (the real pages, ~3min): `npm run test:e2e` — starts its own dev server.
   Add one for any behaviour that only exists in the running page; see `test/e2e/README.md`.
 - Manual: `npm run serve:dev` then open `http://localhost:5050/charactersheet.html`
-  (regenerate first if you changed the template).
+  (or `/charbuilder.html`, `/sidekick.html`; regenerate first if you changed a template).
 - `npm install` may need `--engine-strict=false` if the local Node is older than
   the repo's `engines` requirement.

@@ -31,6 +31,23 @@ export class CharacterSheetClassData {
 		return this._filterBySource(await this.pGetAllClassesUnfiltered());
 	}
 
+	/**
+	 * The three Tasha's sidekick classes. They are kept out of `pGetAllClasses` because they have no
+	 * hit die of their own — a sidekick's die comes from its stat block — and because they are not
+	 * something a player character can take.
+	 */
+	static pGetAllSidekickClasses () {
+		return this._pAllSidekickClasses ||= (async () => {
+			const all = [
+				...(await DataLoader.pCacheAndGetAllSite(UrlUtil.PG_CLASSES)),
+				...(await DataLoader.pCacheAndGetAllPrerelease(UrlUtil.PG_CLASSES)),
+				...(await DataLoader.pCacheAndGetAllBrew(UrlUtil.PG_CLASSES)),
+			].filter(it => it.isSidekick && !it.className);
+			all.sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+			return all;
+		})();
+	}
+
 	static pGetAllClassesUnfiltered () {
 		return this._pAllClasses ||= (async () => {
 			const page = UrlUtil.PG_CLASSES;

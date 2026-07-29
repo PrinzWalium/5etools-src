@@ -48,7 +48,7 @@ jobs:
             run: |
                node node/generate-pages.js
                if [ -n "$(git status --porcelain -- '*.html')" ]; then
-                  echo "::error::charactersheet.html / charbuilder.html are stale — run 'node node/generate-pages.js' and commit the result."
+                  echo "::error::A generated page (charactersheet.html / charbuilder.html / sidekick.html) is stale — run 'node node/generate-pages.js' and commit the result."
                   git --no-pager diff --stat -- '*.html'
                   exit 1
                fi

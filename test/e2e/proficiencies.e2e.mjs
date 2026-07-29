@@ -14,7 +14,7 @@ export async function run ({browser, check}) {
 	const page = await openPage(browser);
 	const byLabel = (groups, label) => groups.find(g => g.label === label);
 
-	check("the empty state says where these come from", /picking a species/i.test(await page.textContent("#cs-prof-list")));
+	check("the empty state says where these come from", /picking content/i.test(await page.textContent("#cs-prof-list")));
 
 	// ---------- class ----------
 	await pickClass(page, "Fighter (PHB'14)");

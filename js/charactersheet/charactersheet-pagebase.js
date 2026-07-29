@@ -1,4 +1,4 @@
-import {CHAR_SHEET_ABILITIES, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
+import {CHAR_SHEET_ABILITIES, CHAR_SHEET_CONDITIONS, CHAR_SHEET_SKILLS, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
 import {CharacterModel} from "./charactersheet-model.js";
 import {getCharacterLabel, getMigratedStore, getNewStore} from "./charactersheet-charstore.js";
 import {getLevelUpHp} from "./charactersheet-levelengine.js";
@@ -95,6 +95,7 @@ export class CharacterPageBase {
 		this._comp._addHookAllBase(() => this._onStateChange());
 
 		this._bindBreakdownPopovers();
+		this._bindPrintPrep();
 		this._initStore();
 
 		this._doRenderAll();
@@ -205,6 +206,131 @@ export class CharacterPageBase {
 		CHAR_SHEET_ABILITIES.forEach(([abv]) => this._bindIptNum(`cs-abil-${abv}`, `abil_${abv}`));
 	}
 
+	/**
+	 * Render the ability modifiers, saving throws, skills and passive Perception, each with the
+	 * breakdown that explains where its number came from. Identical on every page that shows them.
+	 */
+	_renderAbilitiesSavesSkills (derived) {
+		CHAR_SHEET_ABILITIES.forEach(([abv, name]) => {
+			const abil = derived.abilities[abv];
+			// The modifier comes from the score; the score itself is explained on its input
+			this._renderRoll(`cs-mod-${abv}`, abil.mod, `${name} check`,
+				[{label: `Score ${abil.score}`, isText: true}, ...abil.scoreParts.slice(1)], {isTapTarget: false});
+			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-abil-${abv}`), name, abil.scoreParts);
+			this._renderRoll(`cs-saveroll-${abv}`, derived.saves[abv].mod, `${name} save`, derived.saves[abv].parts, {isTapTarget: false});
+			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-savename-${abv}`), `${name} save`, derived.saves[abv].parts, derived.saves[abv].mod);
+		});
+
+		CHAR_SHEET_SKILLS.forEach(skill => {
+			const {mod, profState} = derived.skills[skill.key];
+			this._renderRoll(`cs-skillroll-${skill.key}`, mod, skill.name, derived.skills[skill.key].parts, {isTapTarget: false});
+			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-skillname-${skill.key}`), skill.name, derived.skills[skill.key].parts, mod);
+
+			const btn = document.getElementById(`cs-skillprof-${skill.key}`);
+			btn.classList.toggle("cs__prof--1", profState === 1);
+			btn.classList.toggle("cs__prof--2", profState === 2);
+		});
+
+		const elePassive = document.getElementById("cs-passive-perception");
+		elePassive.textContent = `${derived.passivePerception}`;
+		CharacterPageBase.setBreakdownTitle(elePassive, "Passive Perception", derived.passivePerceptionParts, derived.passivePerception, {isTotalValue: true});
+	}
+
+	/* -------------------------------------------- Shared DOM scaffolding -------------------------------------------- */
+
+	// Saves, skills, death saves and conditions are built identically wherever they appear, so the
+	// sheet and the sidekick page share one copy.
+	_buildSaves () {
+		const wrp = document.getElementById("cs-saves");
+		wrp.innerHTML = CHAR_SHEET_ABILITIES
+			.map(([abv, name]) => `
+				<label class="cs__list-row" title="Toggle proficiency in ${name} saving throws">
+					<input type="checkbox" id="cs-save-${abv}" class="cs__list-cb">
+					<span class="cs__roll cs__list-mod" id="cs-saveroll-${abv}">+0</span>
+					<span class="cs__list-name" id="cs-savename-${abv}">${name}</span>
+				</label>
+			`)
+			.join("");
+
+		CHAR_SHEET_ABILITIES.forEach(([abv]) => this._bindCb(`cs-save-${abv}`, `save_${abv}`));
+	}
+
+	_buildSkills () {
+		const wrp = document.getElementById("cs-skills");
+		wrp.innerHTML = CHAR_SHEET_SKILLS
+			.map(skill => `
+				<div class="cs__list-row" data-cs-skill="${skill.key}">
+					<button type="button" class="cs__prof" id="cs-skillprof-${skill.key}" title="Click to cycle: not proficient → proficient → expertise"></button>
+					<span class="cs__roll cs__list-mod" id="cs-skillroll-${skill.key}">+0</span>
+					<span class="cs__list-name" id="cs-skillname-${skill.key}">${skill.name}</span>
+					<span class="cs__list-abil ve-muted">${Parser.attAbvToFull(skill.ability).slice(0, 3)}</span>
+				</div>
+			`)
+			.join("");
+
+		CHAR_SHEET_SKILLS.forEach(skill => {
+			document.getElementById(`cs-skillprof-${skill.key}`).addEventListener("click", () => {
+				const prop = `skill_${skill.key}`;
+				this._comp._state[prop] = ((Number(this._comp._state[prop]) || 0) + 1) % 3;
+			});
+		});
+	}
+
+	_buildDeathSaves () {
+		[["cs-death-success", "deathSuccess"], ["cs-death-fail", "deathFail"]]
+			.forEach(([id, prop]) => {
+				const wrp = document.getElementById(id);
+				const max = Number(wrp.getAttribute("data-cs-max"));
+				for (let i = 0; i < max; ++i) {
+					const dot = document.createElement("button");
+					dot.type = "button";
+					dot.className = "cs__death-dot";
+					dot.addEventListener("click", () => {
+						const cur = this._comp._state[prop];
+						this._comp._state[prop] = (i + 1 === cur) ? i : i + 1;
+					});
+					wrp.appendChild(dot);
+				}
+			});
+	}
+
+	_renderDeathSaves () {
+		[["cs-death-success", this._comp._state.deathSuccess], ["cs-death-fail", this._comp._state.deathFail]]
+			.forEach(([id, cnt]) => {
+				const dots = document.getElementById(id).querySelectorAll(".cs__death-dot");
+				dots.forEach((dot, ix) => dot.classList.toggle("cs__death-dot--active", ix < cnt));
+			});
+	}
+
+	_buildConditions () {
+		const wrp = document.getElementById("cs-conditions");
+		if (!wrp) return;
+		wrp.innerHTML = CHAR_SHEET_CONDITIONS
+			.map(name => `<button type="button" class="ve-btn ve-btn-xxs ve-btn-default cs__cond no-print" data-cs-cond="${name.qq()}">${name.qq()}</button>`)
+			.join("");
+		wrp.querySelectorAll(".cs__cond").forEach(btn => {
+			btn.addEventListener("click", () => this._comp.toggleCondition(btn.getAttribute("data-cs-cond")));
+		});
+	}
+
+	_renderConditions () {
+		const active = new Set(this._comp._state.conditions || []);
+		document.querySelectorAll("#cs-conditions .cs__cond").forEach(btn => {
+			const on = active.has(btn.getAttribute("data-cs-cond"));
+			btn.classList.toggle("ve-btn-danger", on);
+			btn.classList.toggle("ve-btn-default", !on);
+		});
+	}
+
+	_adjustHp (sign) {
+		// The delta input is transient UI, not character state, so it is not model-bound
+		const eleDelta = document.getElementById("cs-hp-delta");
+		const delta = Math.abs(Number(eleDelta.value) || 0);
+		if (!delta) return;
+		this._comp._state.hpCur = (Number(this._comp._state.hpCur) || 0) + (sign * delta);
+		eleDelta.value = "0";
+	}
+
 	/** Bind the species/background/class search buttons shared by both pages. */
 	_bindBuildPickers () {
 		this._bindClick("cs-pick-species", () => this._onPickSpecies());
@@ -237,7 +363,7 @@ export class CharacterPageBase {
 
 		const groups = groupProficienciesByKind(this._comp._state.proficiencies || []);
 		if (!groups.length) {
-			wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">None yet &mdash; picking a species, background or class fills these in.</div>`);
+			wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small no-print">None yet &mdash; picking content fills these in, or add one by hand.</div>`);
 		}
 
 		groups.forEach(grp => {
@@ -700,6 +826,63 @@ export class CharacterPageBase {
 		ele.dataset.csBreakdown = text;
 	}
 
+	/* -------------------------------------------- Print / PDF -------------------------------------------- */
+
+	/**
+	 * Printing (and so "Save as PDF") needs two things CSS cannot do:
+	 *
+	 *  - a `textarea` prints only the lines its box shows, so its text is mirrored into a plain
+	 *    element that flows and wraps;
+	 *  - a closed `<details>` prints as its summary alone, so every feature card is opened.
+	 *
+	 * Both are undone afterwards, leaving the page as the player left it.
+	 */
+	_bindPrintPrep () {
+		const onBefore = () => {
+			document.querySelectorAll("#charsheet details").forEach(ele => {
+				if (ele.open) return;
+				ele.dataset.csReclose = "1";
+				ele.open = true;
+			});
+
+			// A saves/skills panel with nothing marked is a heading with nothing under it
+			document.querySelectorAll("#charsheet .cs__panel").forEach(panel => {
+				const lists = panel.querySelectorAll(".cs__list");
+				const isEmptyLists = lists.length && ![...lists].some(list => list.querySelector(".cs__prof--1, .cs__prof--2, .cs__list-cb:checked"));
+				panel.classList.toggle("cs__panel--print-empty", !!isEmptyLists);
+			});
+
+			document.querySelectorAll("#charsheet textarea").forEach(ta => {
+				let mirror = ta.nextElementSibling;
+				if (!mirror?.classList?.contains("cs__print-text")) {
+					mirror = document.createElement("div");
+					mirror.className = "cs__print-text";
+					ta.after(mirror);
+				}
+				mirror.textContent = ta.value;
+				mirror.classList.toggle("cs__print-text--empty", !ta.value.trim());
+			});
+		};
+
+		const onAfter = () => {
+			document.querySelectorAll("#charsheet details[data-cs-reclose]").forEach(ele => {
+				ele.open = false;
+				delete ele.dataset.csReclose;
+			});
+		};
+
+		window.addEventListener("beforeprint", onBefore);
+		window.addEventListener("afterprint", onAfter);
+		// Headless printing and "print to PDF" from our own button do not always fire `beforeprint`
+		this._doPrintPrep = onBefore;
+	}
+
+	/** Print, having prepared the page for paper first. */
+	_doPrint () {
+		this._doPrintPrep?.();
+		window.print();
+	}
+
 	/**
 	 * One delegated listener for the whole page: tapping anything carrying a breakdown shows it in a
 	 * dismissible popover. Delegation means it keeps working across the many re-renders, and costs
@@ -746,7 +929,7 @@ export class CharacterPageBase {
 	_bindStoreControls () {
 		this._bindClick("cs-btn-save", () => this._onSaveToFile());
 		this._bindClick("cs-btn-load", () => this._onLoadFromFile());
-		this._bindClick("cs-btn-print", () => window.print());
+		this._bindClick("cs-btn-print", () => this._doPrint());
 		this._bindClick("cs-btn-reset", () => this._onReset());
 
 		const sel = document.getElementById("cs-char-select");
@@ -756,6 +939,8 @@ export class CharacterPageBase {
 			const id = CryptUtil.uid();
 			this._store.characters[id] = null;
 			this._switchCharacter(id);
+			// The sidekick page creates sidekicks, the character pages create characters
+			Object.entries(this._getNewCharacterState()).forEach(([prop, val]) => this._comp._state[prop] = val);
 		});
 		this._bindClick("cs-char-delete", () => this._onDeleteCharacter());
 	}
@@ -772,8 +957,16 @@ export class CharacterPageBase {
 			StorageUtil.syncGet(`${CharacterPageBase._LEGACY_STORAGE_KEY}_charactersheet.html`);
 		this._store = getMigratedStore(rawStore) || getNewStore();
 
+		// The stored "current" character may belong to another page; prefer one of ours
+		const ownIds = Object.entries(this._store.characters)
+			.filter(([, envelope]) => this._isCharacterListed(envelope?.state ?? envelope))
+			.map(([id]) => id);
+		const cur = this._store.characters[this._store.currentId];
+		if (!this._isCharacterListed(cur?.state ?? cur) && ownIds.length) this._store.currentId = ownIds[0];
+
 		const envelope = this._store.characters[this._store.currentId];
 		if (envelope) this._doLoadState(envelope);
+		else Object.entries(this._getNewCharacterState()).forEach(([prop, val]) => this._comp._state[prop] = val);
 		this._onStoreLoaded();
 		this._renderCharacterSelect();
 	}
@@ -999,11 +1192,27 @@ export class CharacterPageBase {
 		this._renderCharacterSelect();
 	}
 
+	/**
+	 * Characters and sidekicks live in one store but are edited on different pages, so each page's
+	 * switcher lists only its own kind. The current character is always listed, whatever it is —
+	 * hiding what is on screen would be worse than showing something unexpected.
+	 */
+	_isCharacterListed () { return true; }
+
+	/** State to seed onto a character created on this page. */
+	_getNewCharacterState () { return {}; }
+
+	_getListedCharacterIds () {
+		return Object.entries(this._store.characters)
+			.filter(([id, envelope]) => id === this._store.currentId || this._isCharacterListed(envelope?.state ?? envelope))
+			.map(([id]) => id);
+	}
+
 	_renderCharacterSelect () {
 		const sel = document.getElementById("cs-char-select");
 		if (!sel) return;
-		sel.innerHTML = Object.entries(this._store.characters)
-			.map(([id, envelope]) => `<option value="${id.qq()}">${getCharacterLabel(id === this._store.currentId ? this._comp.getSaveableState() : envelope).qq()}</option>`)
+		sel.innerHTML = this._getListedCharacterIds()
+			.map(id => `<option value="${id.qq()}">${getCharacterLabel(id === this._store.currentId ? this._comp.getSaveableState() : this._store.characters[id]).qq()}</option>`)
 			.join("");
 		sel.value = this._store.currentId;
 	}
@@ -1035,8 +1244,15 @@ export class CharacterPageBase {
 		})) return;
 
 		delete this._store.characters[this._store.currentId];
-		if (!Object.keys(this._store.characters).length) this._store.characters[CryptUtil.uid()] = null;
-		this._switchCharacter(Object.keys(this._store.characters)[0], {isSkipPersist: true});
+		const remaining = Object.entries(this._store.characters)
+			.filter(([, envelope]) => this._isCharacterListed(envelope?.state ?? envelope))
+			.map(([id]) => id);
+		if (!remaining.length) {
+			const id = CryptUtil.uid();
+			this._store.characters[id] = null;
+			remaining.push(id);
+		}
+		this._switchCharacter(remaining[0], {isSkipPersist: true});
 	}
 
 	/* -------------------------------------------- File / reset -------------------------------------------- */

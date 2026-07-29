@@ -141,6 +141,22 @@ class _PageGeneratorCharbuilder extends PageGeneratorGeneric {
 	];
 }
 
+class _PageGeneratorSidekick extends PageGeneratorGeneric {
+	_filename = "page/template-page-sidekick.hbs";
+	_page = "sidekick.html";
+
+	_pageTitle = "Sidekick Builder";
+	_navbarDescription = "Build and level a sidekick from a stat block. Autosaves to your browser.";
+
+	_stylesheets = [
+		"charactersheet",
+	];
+
+	_scriptsModules = [
+		"sidekick.js",
+	];
+}
+
 class _PageGeneratorCrcalculator extends PageGeneratorGeneric {
 	_filename = "page/template-page-crcalculator.hbs";
 	_page = "crcalculator.html";
@@ -437,6 +453,7 @@ export const PAGE_GENERATORS = 	[
 	new _PageGeneratorConverter(),
 	new _PageGeneratorCharactersheet(),
 	new _PageGeneratorCharbuilder(),
+	new _PageGeneratorSidekick(),
 	new _PageGeneratorCrcalculator(),
 	new _PageGeneratorIndex(),
 	new _PageGeneratorInittrackerplayerview(),

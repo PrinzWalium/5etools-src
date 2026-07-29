@@ -63,11 +63,12 @@ A merge conflict can only happen when **both** upstream **and** your fork change
 **the same file**. Almost the entire Character Sheet lives in **fork-only files**
 that upstream doesn't have, so they can never conflict:
 
-- `charactersheet.html` (generated — see below)
-- `js/charactersheet.js` and everything in `js/charactersheet/`
+- `charactersheet.html`, `charbuilder.html`, `sidekick.html` (generated — see below)
+- `js/charactersheet.js`, `js/charbuilder.js`, `js/sidekick.js`, and everything in `js/charactersheet/`
 - `css/charactersheet.css`, `scss/charactersheet.scss`
-- `node/generate-pages/template/page/template-page-charactersheet.hbs`
-- `test/jest/CharacterSheet*.test.js`
+- `node/generate-pages/template/page/template-page-charactersheet.hbs` (and the
+  `-charbuilder` / `-sidekick` templates beside it)
+- `test/jest/CharacterSheet*.test.js`, `test/e2e/`
 
 That's ~95% of the work, and it is **conflict-proof**.
 
@@ -80,15 +81,17 @@ knows the page exists. These are the **only** spots that can ever conflict. If
 the update script reports a conflict, it will be in one of these — and the fix
 is always the same: **keep both your line(s) and upstream's**.
 
-### 1. `js/navigation.js` — the navbar entry
+### 1. `js/navigation.js` — the navbar entries
 
-Your fork adds this one line (puts "Character Sheet" in the Player menu):
+Your fork adds these three lines (they put the fork's pages in the Player menu):
 
 ```js
+this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "charbuilder.html", aText: "Character Builder"});
+this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "sidekick.html", aText: "Sidekick Builder"});
 this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "charactersheet.html", aText: "Character Sheet"});
 ```
 
-**On conflict:** keep upstream's surrounding menu entries *and* this line.
+**On conflict:** keep upstream's surrounding menu entries *and* these lines.
 
 ### 2. `index.html` — the two home-page buttons
 
@@ -105,7 +108,8 @@ either way.
 
 ### 3. `node/generate-pages/generate-pages-page-generator-config.js` — the page build entry
 
-Your fork adds a page-generator class and registers it. The class:
+Your fork adds a page-generator class per page and registers each one. The
+classes all look like this:
 
 ```js
 class _PageGeneratorCharactersheet extends PageGeneratorGeneric {
@@ -118,13 +122,16 @@ class _PageGeneratorCharactersheet extends PageGeneratorGeneric {
 }
 ```
 
-…and one line in the list of generators near the bottom of the file:
+…with `_PageGeneratorCharbuilder` and `_PageGeneratorSidekick` beside it, plus
+three lines in the list of generators near the bottom of the file:
 
 ```js
 new _PageGeneratorCharactersheet(),
+new _PageGeneratorCharbuilder(),
+new _PageGeneratorSidekick(),
 ```
 
-**On conflict:** keep upstream's other generators *and* both of these.
+**On conflict:** keep upstream's other generators *and* all of these.
 
 > **Resolving a conflict** just means opening the file, finding the
 > `<<<<<<<`, `=======`, `>>>>>>>` markers, and editing so that **both** sides'
@@ -155,8 +162,8 @@ Three layers, cheapest first — all of them run in CI on every push
 
 ```bash
 npm run test:unit -- test/jest/CharacterSheet   # pure rules, ~2s
-npm run test:e2e                                 # the real pages in a browser, ~2min
-npx eslint js/charactersheet.js js/charbuilder.js js/charactersheet/
+npm run test:e2e                                 # the real pages in a browser, ~3min
+npx eslint js/charactersheet.js js/charbuilder.js js/sidekick.js js/charactersheet/
 ```
 
 Prefer a unit test when the logic is pure. `test/e2e/README.md` explains the browser suites and
@@ -164,13 +171,15 @@ how to add one.
 
 ---
 
-## Important: `charactersheet.html` is a *generated* file
+## Important: the page HTML files are *generated*
 
-Never hand-edit `charactersheet.html` — the build overwrites it. Its real source
-is the template:
+Never hand-edit `charactersheet.html`, `charbuilder.html` or `sidekick.html` —
+the build overwrites them. Their real sources are the templates:
 
 ```
 node/generate-pages/template/page/template-page-charactersheet.hbs
+node/generate-pages/template/page/template-page-charbuilder.hbs
+node/generate-pages/template/page/template-page-sidekick.hbs
 ```
 
 To change the page's markup, edit the **template**, then regenerate:

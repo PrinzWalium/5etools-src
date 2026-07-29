@@ -30,6 +30,7 @@ Failures print the check that failed, and every open page is screenshotted into
 | `spellpanel` | The spell panel appears only for a character with spells, from any source |
 | `sourcefilter` | Presets narrow the pickers; content already on a character is kept and flagged |
 | `weaponmastery` | Masteries are picked by weapon *type*, without owning the weapon |
+| `sidekick` | A stat block seeds the sheet, a sidekick class drives its features and level table, and every seeded value stays editable |
 
 ## Writing a new one
 

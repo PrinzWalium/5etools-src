@@ -793,6 +793,239 @@
 		border-color: rgb(255 255 255 / 12%);
 	}
 
+	/* -------------------------------------------- Sidekick builder -------------------------------------------- */
+
+	// "What this sidekick gains at each level" — a reference table, so it is dense on purpose
+	.cs__sk-table {
+		font-size: 0.82em;
+		border-collapse: collapse;
+	}
+
+	.cs__sk-table th {
+		font-size: 0.9em;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		opacity: 0.85;
+		padding: 0 4px 4px;
+		text-align: left;
+	}
+
+	.cs__sk-table td {
+		padding: 2px 4px;
+		border-top: 1px solid rgb(0 0 0 / 7%);
+		vertical-align: top;
+	}
+
+	.ve-night-mode .cs__sk-table td {
+		border-top-color: rgb(255 255 255 / 10%);
+	}
+
+	// The level the sidekick is at now
+	.cs__sk-row--now {
+		font-weight: bold;
+		background: rgb(60 120 200 / 10%);
+	}
+
+	.ve-night-mode .cs__sk-row--now {
+		background: rgb(120 170 240 / 14%);
+	}
+
+	// Levels not yet reached, dimmed rather than hidden so the DM can see what is coming
+	.cs__sk-row--future {
+		opacity: 0.55;
+	}
+
+	// A textarea's text, mirrored into a flowing element for print (see `_bindPrintPrep`)
+	.cs__print-text {
+		display: none;
+	}
+
+	/* -------------------------------------------- Print / PDF -------------------------------------------- */
+
+	// "Print" in a browser is also "Save as PDF", which is the export: no dependency, no layout
+	// engine of our own, and it follows the sheet automatically as the sheet changes.
+	@media print {
+		.cs__toolbar,
+		.cs__toolbar-note {
+			display: none !important;
+		}
+
+		// Panels are the natural unit, so keep each one whole on a page
+		.cs__panel,
+		.cs__feat-card,
+		.cs__ability {
+			break-inside: avoid;
+			background: none !important;
+			box-shadow: none !important;
+		}
+
+		// Fields print as their values, not as controls
+		.ve-form-control {
+			border: 0 !important;
+			border-bottom: 1px solid rgb(0 0 0 / 35%) !important;
+			background: none !important;
+			padding-left: 0 !important;
+			color: #000 !important;
+			appearance: none;
+		}
+
+		// A textarea prints only the lines its box shows, so print its mirrored text instead
+		.cs__textarea {
+			display: none !important;
+		}
+
+		.cs__print-text {
+			display: block;
+			white-space: pre-wrap;
+			font-size: 0.95em;
+		}
+
+		.cs__print-text--empty {
+			display: none;
+		}
+
+		// Every feature card prints open — a collapsed card is a blank line on paper
+		.cs__feat-card > summary {
+			padding-bottom: 2px;
+		}
+
+		details {
+			display: block;
+		}
+
+		details > *:not(summary) {
+			display: block !important;
+		}
+
+		// Three columns is unreadable at page width; one flowing column is not
+		.cs__body,
+		.cs__hdr {
+			display: block !important;
+		}
+
+		.cs__body .cs__col,
+		.cs__hdr-name,
+		.cs__hdr .ve-col-8 {
+			width: 100% !important;
+			max-width: 100% !important;
+		}
+
+		.cs__has-breakdown {
+			text-decoration: none !important;
+		}
+	}
+
+	// A printed sidekick reads as a creature's stat card rather than a character sheet: the fields
+	// the DM needs while running it, in the order a stat block puts them.
+	@media print {
+		.cs__page--sidekick {
+			font-size: 10.5pt;
+		}
+
+		.cs__page--sidekick .cs__ipt-name {
+			font-family: var(--font-family-stat-block-name, serif);
+			font-size: 1.6em;
+			font-variant: small-caps;
+			border: 0 !important;
+			padding: 0 !important;
+		}
+
+		// The stat-block rule under the name, and again above the traits
+		.cs__page--sidekick hr {
+			border: 0;
+			border-top: 2px solid #922610;
+			margin: 4px 0 8px;
+		}
+
+		.cs__page--sidekick .cs__panel {
+			border: 0 !important;
+			border-top: 1px solid #922610 !important;
+			border-radius: 0;
+			padding: 6px 0 0;
+			margin-bottom: 10px;
+		}
+
+		.cs__page--sidekick .cs__panel-title {
+			color: #922610;
+			border-bottom: 0;
+			margin-bottom: 4px;
+			padding-bottom: 0;
+		}
+
+		// The six abilities as one row, the way a stat block prints them
+		.cs__page--sidekick .cs__abilities {
+			grid-template-columns: repeat(6, 1fr);
+			gap: 4px;
+		}
+
+		.cs__page--sidekick .cs__ability {
+			border: 0;
+			padding: 0;
+			text-align: center;
+		}
+
+		.cs__page--sidekick .cs__ability-mod {
+			font-size: 1.1em;
+		}
+
+		// Reference material the DM does not need on the card itself
+		.cs__page--sidekick #cs-sk-levelling,
+		.cs__page--sidekick #cs-sk-level-table {
+			display: none !important;
+		}
+
+		// A stat block lists the skills and saves the creature is actually good at, not all of them
+		.cs__page--sidekick .cs__list-row:not(:has(.cs__prof--1, .cs__prof--2, :checked)) {
+			display: none;
+		}
+
+		// ... and an empty list section is just a heading on paper
+		.cs__page--sidekick .cs__panel:has(#cs-attacks-body:empty),
+		.cs__page--sidekick .cs__panel:has(#cs-spell-body.ve-hidden) {
+			display: none !important;
+		}
+
+		// Controls are for the screen; the card shows their values
+		.cs__page--sidekick #charsheet button,
+		.cs__page--sidekick #charsheet select {
+			display: none !important;
+		}
+
+		// A panel whose lists have nothing marked (flagged during print prep)
+		.cs__panel--print-empty {
+			display: none !important;
+		}
+
+		// The proficiency dots and checkboxes are controls, not printable marks
+		.cs__page--sidekick .cs__prof,
+		.cs__page--sidekick .cs__list-cb,
+		.cs__page--sidekick .cs__pick-btn,
+		.cs__page--sidekick .cs__death-dots,
+		.cs__page--sidekick .cs__lbl[for="cs-name"] {
+			display: none !important;
+		}
+
+		// Skills and saves read as a stat block's comma list rather than a column
+		.cs__page--sidekick .cs__list {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0 10px;
+		}
+
+		.cs__page--sidekick .cs__list-row {
+			padding: 0;
+			gap: 4px;
+		}
+
+		.cs__page--sidekick .cs__list-name {
+			flex: 0 0 auto;
+		}
+
+		.cs__page--sidekick .cs__list-abil {
+			display: none;
+		}
+	}
+
 	/* -------------------------------------------- Responsive -------------------------------------------- */
 
 	/* -------------------------------------------- Narrow screens -------------------------------------------- */
