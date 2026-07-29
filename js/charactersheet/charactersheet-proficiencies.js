@@ -38,24 +38,31 @@ const _ENTITY_KEY_TO_KIND = {
 };
 
 const _titleCase = str => String(str).replace(/\w\S*/g, txt => txt[0].toUpperCase() + txt.slice(1));
+const _sentenceCase = str => str ? str[0].toUpperCase() + str.slice(1) : str;
 
 /**
  * Display text for a proficiency value: `{@item thieves' tools|phb|Thieves' Tools}` → its display
- * text, a bare uid ("battleaxe|phb") → its name, and anything else title-cased.
+ * text, a bare uid ("battleaxe|phb") → its name, and anything else cased for display.
+ *
+ * Short values are names ("light", "thieves' tools") and read best title-cased; a whole clause
+ * ("martial weapons that have the Finesse or Light property") does not, so it only gets its first
+ * letter capitalised.
  */
 export function getProficiencyDisplay (val) {
 	let str = String(val ?? "").trim();
 	if (!str) return "";
 
-	// Unwrap tags, preferring the tag's explicit display text over the entity name
-	str = str.replace(/\{@\w+\s+([^}]+)\}/g, (_, inner) => {
+	str = str.replace(/\{@(\w+)\s+([^}]+)\}/g, (_, tag, inner) => {
 		const parts = inner.split("|");
+		// `{@filter display|page|...}` leads with its display text; entity tags end with theirs
+		if (tag.toLowerCase() === "filter") return (parts[0] || "").trim();
 		return (parts[2] || parts[0] || "").trim();
 	});
 	// A bare "name|source" uid keeps only the name (names may contain spaces, e.g. "light hammer|phb")
 	if (str.includes("|")) str = str.split("|")[0];
 
-	return _titleCase(str.trim());
+	str = str.trim();
+	return str.split(/\s+/).length > 3 ? _sentenceCase(str) : _titleCase(str);
 }
 
 /**

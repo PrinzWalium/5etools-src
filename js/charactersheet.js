@@ -193,7 +193,8 @@ class CharacterSheetPage extends CharacterPageBase {
 				<div class="cs__list-row" data-cs-skill="${skill.key}">
 					<button type="button" class="cs__prof" id="cs-skillprof-${skill.key}" title="Click to cycle: not proficient → proficient → expertise"></button>
 					<span class="cs__roll cs__list-mod" id="cs-skillroll-${skill.key}">+0</span>
-					<span class="cs__list-name" id="cs-skillname-${skill.key}">${skill.name} <span class="cs__list-abil ve-muted">(${Parser.attAbvToFull(skill.ability).slice(0, 3)})</span></span>
+					<span class="cs__list-name" id="cs-skillname-${skill.key}">${skill.name}</span>
+					<span class="cs__list-abil ve-muted">${Parser.attAbvToFull(skill.ability).slice(0, 3)}</span>
 				</div>
 			`)
 			.join("");
@@ -411,6 +412,7 @@ class CharacterSheetPage extends CharacterPageBase {
 			eleDc.textContent = "—";
 			eleAtk.textContent = "—";
 		}
+		CharacterPageBase.setSpellBadgesVisible(!!derived.spell);
 	}
 }
 

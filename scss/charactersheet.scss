@@ -9,12 +9,12 @@
 
 	.cs__lbl {
 		display: block;
-		font-size: 0.7em;
+		font-size: 0.72em;
 		font-weight: bold;
 		text-transform: uppercase;
 		letter-spacing: 0.03em;
-		opacity: 0.75;
-		margin-bottom: 2px;
+		opacity: 0.85;
+		margin-bottom: 3px;
 	}
 
 	.cs__lbl--inline {
@@ -22,11 +22,16 @@
 		margin-bottom: 0;
 	}
 
+	.cs__toggle {
+		gap: 6px;
+		margin-bottom: 0;
+	}
+
 	.cs__panel {
 		border: 1px solid rgb(0 0 0 / 15%);
-		border-radius: 5px;
-		padding: 8px 10px;
-		margin-bottom: 10px;
+		border-radius: 6px;
+		padding: 12px 14px;
+		margin-bottom: 14px;
 		background: rgb(0 0 0 / 2%);
 	}
 
@@ -42,13 +47,18 @@
 		gap: 10px;
 	}
 
+	// A heading row inside a panel: title, caption, and an action that drops below when space runs out
+	.cs__section-head {
+		gap: 4px 8px;
+	}
+
 	.cs__panel-title {
 		font-size: 0.95em;
 		font-weight: bold;
 		text-transform: uppercase;
-		letter-spacing: 0.03em;
-		margin: 0 0 6px;
-		padding-bottom: 4px;
+		letter-spacing: 0.05em;
+		margin: 0 0 10px;
+		padding-bottom: 6px;
 		border-bottom: 1px solid rgb(0 0 0 / 12%);
 	}
 
@@ -64,7 +74,7 @@
 	.cs__feat-card {
 		border: 1px solid rgb(0 0 0 / 12%);
 		border-radius: 5px;
-		margin-bottom: 6px;
+		margin-bottom: 8px;
 		background: rgb(0 0 0 / 2%);
 	}
 
@@ -77,9 +87,17 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		padding: 5px 8px;
+		padding: 8px 10px;
 		cursor: pointer;
 		list-style: none;
+
+		&:hover {
+			background: rgb(0 0 0 / 3%);
+		}
+	}
+
+	.ve-night-mode .cs__feat-card > summary:hover {
+		background: rgb(255 255 255 / 5%);
 	}
 
 	.cs__feat-card > summary::-webkit-details-marker {
@@ -124,7 +142,7 @@
 	}
 
 	.cs__feat-body {
-		padding: 2px 10px 8px;
+		padding: 0 12px 10px;
 		font-size: 0.9em;
 	}
 
@@ -143,12 +161,65 @@
 	}
 
 	// The inline chooser inside a feature card (subclass pick, ASI slot, Expertise, Weapon Mastery, ...).
+	// Label on its own line, controls below: at narrow widths an inline label and button
+	// would otherwise end up on top of each other.
 	.cs__feat-choice {
-		margin-top: 6px;
-		padding: 6px 8px;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 6px;
+		margin-top: 8px;
+		padding: 8px 10px;
 		border: 1px solid rgb(60 120 200 / 35%);
-		border-radius: 4px;
+		border-radius: 5px;
 		background: rgb(60 120 200 / 6%);
+
+		> label,
+		> .ve-flex-v-center {
+			flex-wrap: wrap;
+			gap: 6px;
+			max-width: 100%;
+		}
+
+		select,
+		input[type="text"] {
+			max-width: 100%;
+		}
+	}
+
+	.cs__feat-choice-head {
+		gap: 4px 8px;
+		width: 100%;
+	}
+
+	.cs__feat-choice-lbl {
+		font-weight: bold;
+	}
+
+	// A choice still waiting on the player, called out without shouting
+	.cs__feat-choice-lbl--todo {
+		color: #b8651b;
+	}
+
+	.ve-night-mode .cs__feat-choice-lbl--todo {
+		color: #e8a35a;
+	}
+
+	// The options inside a chooser (Expertise skills, mastery weapons, ...): comfortable tap targets
+	.cs__feat-choice-opts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 14px;
+		width: 100%;
+	}
+
+	.cs__feat-choice-opts label {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		min-height: 24px;
+		margin-bottom: 0;
+		font-weight: normal;
 	}
 
 	.ve-night-mode .cs__feat-choice {
@@ -247,10 +318,11 @@
 
 	.cs__field--boxed {
 		border: 1px solid rgb(0 0 0 / 12%);
-		border-radius: 5px;
-		padding: 4px 6px;
+		border-radius: 6px;
+		padding: 7px 8px;
 		text-align: center;
 		flex: 1;
+		margin-bottom: 0;
 	}
 
 	.ve-night-mode .cs__field--boxed {
@@ -260,6 +332,24 @@
 	.cs__ipt-num {
 		text-align: center;
 		width: 5em;
+	}
+
+	// Fields stacked label-over-control, filling their column: readable in a narrow sidebar,
+	// where a label beside its input would wrap and squeeze the control to a sliver.
+	.cs__stack-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 8px;
+	}
+
+	.cs__ipt-fill {
+		width: 100%;
+	}
+
+	.cs__ac-mode {
+		width: 100%;
+		margin-top: 4px;
+		font-size: 0.85em;
 	}
 
 	.cs__ipt-num--xs {
@@ -274,13 +364,15 @@
 		gap: 8px;
 	}
 
+	// The modifier is the number you roll with, so it leads; the score sits below it as reference.
 	.cs__ability {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
+		gap: 2px;
 		border: 1px solid rgb(0 0 0 / 12%);
-		border-radius: 5px;
-		padding: 6px 4px 10px;
+		border-radius: 6px;
+		padding: 8px 6px 10px;
 	}
 
 	.ve-night-mode .cs__ability {
@@ -288,33 +380,39 @@
 	}
 
 	.cs__ability-name {
-		margin-bottom: 4px;
-	}
-
-	.cs__ability-score {
-		text-align: center;
-		width: 4em;
-		font-size: 1.2em;
-		font-weight: bold;
+		margin-bottom: 0;
 	}
 
 	.cs__ability-mod {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		min-width: 2.4em;
-		margin-top: -10px;
-		padding: 2px 6px;
-		border: 1px solid rgb(0 0 0 / 20%);
-		border-radius: 999px;
-		background: var(--rgb-bg, #fff);
-		font-size: 0.95em;
+		min-width: 2.6em;
+		padding: 1px 8px;
+		font-size: 1.5em;
 		font-weight: bold;
+		line-height: 1.15;
 	}
 
-	.ve-night-mode .cs__ability-mod {
-		border-color: rgb(255 255 255 / 25%);
-		background: #222;
+	.cs__ability-scorewrp {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-bottom: 0;
+		font-weight: normal;
+	}
+
+	.cs__ability-scorelbl {
+		margin-bottom: 0;
+		font-size: 0.62em;
+	}
+
+	.cs__ability-score {
+		text-align: center;
+		width: 3.6em;
+		height: auto;
+		padding: 1px 4px;
+		font-size: 0.95em;
 	}
 
 	/* -------------------------------------------- Lists (saves / skills) -------------------------------------------- */
@@ -323,9 +421,18 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		padding: 2px;
+		padding: 4px 2px;
 		margin-bottom: 0;
+		border-radius: 4px;
 		font-weight: normal;
+
+		&:hover {
+			background: rgb(0 0 0 / 4%);
+		}
+	}
+
+	.ve-night-mode .cs__list-row:hover {
+		background: rgb(255 255 255 / 6%);
 	}
 
 	.cs__list-cb {
@@ -333,17 +440,22 @@
 	}
 
 	.cs__list-mod {
-		min-width: 2.4em;
-		text-align: center;
+		min-width: 2.3em;
+		text-align: right;
 		font-weight: bold;
 	}
 
 	.cs__list-name {
 		flex: 1;
+		min-width: 0;
 	}
 
+	// The governing ability sits in its own right-hand column, so a long skill name never wraps around it
 	.cs__list-abil {
-		font-size: 0.85em;
+		flex: 0 0 auto;
+		font-size: 0.72em;
+		text-transform: uppercase;
+		opacity: 0.55;
 	}
 
 	/* -------------------------------------------- "Choose one" species traits -------------------------------------------- */
@@ -453,10 +565,12 @@
 
 	/* -------------------------------------------- Combat -------------------------------------------- */
 
+	// Armor Class carries a mode selector, so it needs more room than Initiative or Speed
 	.cs__combat-top {
-		display: flex;
-		gap: 8px;
-		margin-bottom: 10px;
+		display: grid;
+		grid-template-columns: 1.35fr 1fr 1fr;
+		gap: 10px;
+		margin-bottom: 14px;
 	}
 
 	.cs__combat-init {
@@ -477,7 +591,7 @@
 
 	.cs__hp {
 		display: flex;
-		gap: 12px;
+		gap: 16px;
 		flex-wrap: wrap;
 	}
 
@@ -491,18 +605,61 @@
 		min-width: 160px;
 	}
 
+	// Current / Max / Temp as three equal boxes — the numbers you touch every combat round
 	.cs__hp-row {
-		display: flex;
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
 		gap: 8px;
-		margin-bottom: 6px;
+		margin-bottom: 10px;
+	}
+
+	.cs__ipt-num--hp {
+		width: 100%;
+		font-size: 1.1em;
+		font-weight: bold;
 	}
 
 	.cs__hp-quick {
 		gap: 6px;
+		margin-bottom: 8px;
+	}
+
+	// Rests are a different kind of action from damage/heal, so they get their own row
+	.cs__hp-rests {
+		gap: 6px;
+		padding-top: 8px;
+		border-top: 1px solid rgb(0 0 0 / 8%);
+	}
+
+	.ve-night-mode .cs__hp-rests {
+		border-top-color: rgb(255 255 255 / 12%);
+	}
+
+	.cs__hp-policy {
+		margin-left: auto;
+	}
+
+	.cs__hp-policy .cs__lbl {
+		white-space: nowrap;
+	}
+
+	.cs__hd {
+		margin-bottom: 10px;
+	}
+
+	.cs__hd-row {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 8px;
+	}
+
+	.cs__lbl--sub {
+		font-size: 0.62em;
+		opacity: 0.7;
 	}
 
 	.cs__death {
-		margin-top: 8px;
+		margin-top: 10px;
 	}
 
 	.cs__death-row {
@@ -542,15 +699,16 @@
 	}
 
 	.cs__attacks th {
-		font-size: 0.85em;
+		font-size: 0.8em;
 		text-transform: uppercase;
 		letter-spacing: 0.03em;
-		opacity: 0.75;
-		padding: 2px 4px;
+		opacity: 0.85;
+		padding: 0 4px 6px;
+		white-space: nowrap;
 	}
 
 	.cs__attacks td {
-		padding: 2px 4px;
+		padding: 3px 4px;
 		vertical-align: middle;
 	}
 
@@ -601,10 +759,32 @@
 
 	.cs__spellhdr {
 		display: flex;
-		align-items: center;
-		gap: 16px;
+		align-items: flex-end;
+		gap: 8px;
 		flex-wrap: wrap;
-		margin-bottom: 8px;
+		margin-bottom: 10px;
+	}
+
+	.cs__spellhdr > * {
+		flex: 1 1 8em;
+	}
+
+	.cs__spellhdr .cs__field--inline {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 2px;
+	}
+
+	// Label above value, matching the fields beside them
+	.cs__spellhdr .cs__stat-badge {
+		flex-direction: column-reverse;
+		padding: 4px 6px;
+		border: 1px solid rgb(0 0 0 / 12%);
+		border-radius: 6px;
+	}
+
+	.ve-night-mode .cs__spellhdr .cs__stat-badge {
+		border-color: rgb(255 255 255 / 12%);
 	}
 
 	/* -------------------------------------------- Responsive -------------------------------------------- */
@@ -626,8 +806,27 @@
 		// Comfortable tap targets
 		.cs__prof,
 		.cs__death-dot {
-			width: 18px;
-			height: 18px;
+			width: 20px;
+			height: 20px;
+		}
+
+		.cs__prof-chip-rm {
+			padding: 0 4px;
+		}
+
+		.cs__panel .ve-form-control,
+		.cs__panel .ve-btn {
+			min-height: 30px;
+		}
+
+		.cs__panel input[type="checkbox"] {
+			width: 20px;
+			height: 20px;
+		}
+
+		// Six ability boxes in two rows rather than three, so less of the screen is spent scrolling
+		.cs__abilities {
+			grid-template-columns: repeat(3, 1fr);
 		}
 
 		.cs__has-breakdown {
@@ -644,15 +843,12 @@
 			flex-direction: column;
 		}
 
-		.cs__body .cs__col {
-			width: 100%;
-			flex: 0 0 100%;
-			max-width: 100%;
-		}
-
+		// `!important` matches the grid's own `.ve-col-N { width: …% !important }`, which would
+		// otherwise keep each stacked column at a quarter of the screen on a phone.
+		.cs__body .cs__col,
 		.cs__hdr-name,
 		.cs__hdr .ve-col-8 {
-			width: 100%;
+			width: 100% !important;
 			flex: 0 0 100%;
 			max-width: 100%;
 		}

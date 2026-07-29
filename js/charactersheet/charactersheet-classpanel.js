@@ -140,9 +140,10 @@ export class CharacterClassPanel {
 
 		const wrp = document.createElement("div");
 		wrp.className = "ve-mb-2";
+		// Title and action share a row; the caption sits below, so nothing collides in a narrow column
 		const head = document.createElement("div");
-		head.className = "ve-flex-v-center ve-mb-1";
-		head.innerHTML = `<span class="bold">Other Feats</span> <span class="ve-muted ve-small ve-ml-1">granted outside your class progression</span>`;
+		head.className = "cs__section-head ve-flex-v-center ve-flex-wrap";
+		head.innerHTML = `<span class="bold">Other Feats</span>`;
 		const btnAdd = document.createElement("button");
 		btnAdd.type = "button";
 		btnAdd.className = "ve-btn ve-btn-xxs ve-btn-primary ve-ml-auto no-print";
@@ -150,6 +151,7 @@ export class CharacterClassPanel {
 		btnAdd.addEventListener("click", () => this._pOnAddManualFeat());
 		head.appendChild(btnAdd);
 		wrp.appendChild(head);
+		wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small ve-mb-1">Granted outside your class progression.</div>`);
 
 		if (!feats.length) {
 			wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">None. Use <b>Add Feat</b> for feats earned through training or the story &mdash; these do not use an Ability Score Improvement slot.</div>`);
@@ -351,7 +353,7 @@ export class CharacterClassPanel {
 		const total = this._getExpertiseTotal();
 		const proficient = CHAR_SHEET_SKILLS.filter(({key}) => (Number(this._comp._state[`skill_${key}`]) || 0) >= PROF_STATE_PROFICIENT);
 
-		wrp.innerHTML = `<div class="ve-flex-v-center ve-mb-1"><span class="bold">Expertise</span> <span class="ve-muted ve-small ve-ml-1 cs__exp-count"></span></div>`;
+		wrp.innerHTML = `<div class="cs__feat-choice-head ve-flex-v-center ve-flex-wrap"><span class="cs__feat-choice-lbl">Expertise</span> <span class="ve-muted ve-small cs__exp-count"></span></div>`;
 		const dispCount = wrp.querySelector(".cs__exp-count");
 
 		const renderCount = () => {
@@ -362,7 +364,7 @@ export class CharacterClassPanel {
 				clsName = "ve-text-danger";
 				txt = `${nChosen}/${total} chosen — more than your features grant`;
 			} else if (nChosen < total) txt = `${nChosen}/${total} chosen — pick ${total - nChosen} more`;
-			dispCount.className = `ve-small ve-ml-1 cs__exp-count ${clsName}`;
+			dispCount.className = `ve-small cs__exp-count ${clsName}`;
 			dispCount.textContent = txt;
 		};
 
@@ -373,10 +375,10 @@ export class CharacterClassPanel {
 		}
 
 		const wrpOpts = document.createElement("div");
-		wrpOpts.className = "ve-flex ve-flex-wrap";
+		wrpOpts.className = "cs__feat-choice-opts";
 		proficient.forEach(({key, name}) => {
 			const lbl = document.createElement("label");
-			lbl.className = "ve-flex-v-center ve-mr-3 ve-mb-1 ve-small";
+			lbl.className = "ve-small";
 			const cb = document.createElement("input");
 			cb.type = "checkbox";
 			cb.className = "ve-mr-1";
@@ -439,18 +441,18 @@ export class CharacterClassPanel {
 		const total = getWeaponMasteryCount(cls, entry.level);
 		const chosen = this._comp._state.weaponMasteries || [];
 
-		wrp.innerHTML = `<div class="ve-flex-v-center ve-mb-1"><span class="bold">Weapon Mastery</span> <span class="ve-small ve-ml-1 cs__wm-count"></span></div>`;
+		wrp.innerHTML = `<div class="cs__feat-choice-head ve-flex-v-center ve-flex-wrap"><span class="cs__feat-choice-lbl">Weapon Mastery</span> <span class="ve-small cs__wm-count"></span></div>`;
 		const dispCount = wrp.querySelector(".cs__wm-count");
 		const n = chosen.length;
-		dispCount.className = `ve-small ve-ml-1 cs__wm-count ${n > total ? "ve-text-danger" : "ve-muted"}`;
+		dispCount.className = `ve-small cs__wm-count ${n > total ? "ve-text-danger" : "ve-muted"}`;
 		dispCount.textContent = n > total ? `${n}/${total} chosen — more than your class grants` : (n < total ? `${n}/${total} chosen — pick ${total - n} more` : `${n}/${total} chosen`);
 
 		if (chosen.length) {
 			const wrpChosen = document.createElement("div");
-			wrpChosen.className = "ve-flex ve-flex-wrap ve-mb-1";
+			wrpChosen.className = "cs__feat-choice-opts";
 			chosen.forEach(name => {
 				const spn = document.createElement("span");
-				spn.className = "ve-flex-v-center ve-mr-2 ve-mb-1 ve-small";
+				spn.className = "ve-flex-v-center ve-small";
 				spn.innerHTML = `<span class="bold">${name.qq()}</span>`;
 				const btnRm = document.createElement("button");
 				btnRm.type = "button";
@@ -665,13 +667,13 @@ export class CharacterClassPanel {
 		const choice = (entry.asiFeatChoices || [])[slotIndex];
 
 		const lbl = document.createElement("span");
-		lbl.className = choice ? "ve-muted" : "ve-text-danger bold";
-		lbl.textContent = "Ability Score Improvement or Feat: ";
+		lbl.className = `cs__feat-choice-lbl${choice ? "" : " cs__feat-choice-lbl--todo"}`;
+		lbl.textContent = choice ? "Ability Score Improvement or Feat" : "Choose an Ability Score Improvement or Feat";
 		box.appendChild(lbl);
 
 		if (choice) {
 			const spn = document.createElement("span");
-			spn.className = "ve-mr-1";
+			spn.className = "ve-flex-v-center";
 			if (choice.type === "feat") {
 				spn.innerHTML = Renderer.get().render(`{@feat ${choice.name}${choice.source !== Parser.SRC_PHB ? `|${choice.source}` : ""}}`);
 			} else {

@@ -187,12 +187,17 @@ export class CharacterPageBase {
 	_buildAbilities () {
 		const wrp = document.getElementById("cs-abilities");
 		if (!wrp) return;
+		// The modifier leads: it is the number that gets rolled, while the score is reference data
+		// you set once. Stacking them (rather than overlapping) keeps both readable.
 		wrp.innerHTML = CHAR_SHEET_ABILITIES
 			.map(([abv, name]) => `
 				<div class="cs__ability" data-cs-ability="${abv}">
 					<span class="cs__lbl cs__ability-name">${name}</span>
-					<input type="number" id="cs-abil-${abv}" min="1" max="30" class="ve-form-control ve-input-xs cs__ability-score">
 					<span class="cs__ability-mod cs__roll" id="cs-mod-${abv}">+0</span>
+					<label class="cs__ability-scorewrp" title="${name} score">
+						<span class="cs__lbl cs__ability-scorelbl">Score</span>
+						<input type="number" id="cs-abil-${abv}" min="1" max="30" class="ve-form-control ve-input-xs cs__ability-score">
+					</label>
 				</div>
 			`)
 			.join("");
@@ -658,6 +663,17 @@ export class CharacterPageBase {
 		// A rollable value swallows clicks (that is the roll), so its explanation is hover-only and
 		// the tap target lives on the neighbouring label instead.
 		CharacterPageBase.setBreakdownTitle(ele, name, parts, mod, {isTapTarget});
+	}
+
+	/**
+	 * The spell save DC and attack bonus only mean anything once a spellcasting ability is set, so
+	 * hide the pair for a character who has none rather than showing two em-dashes.
+	 */
+	static setSpellBadgesVisible (isVisible) {
+		["cs-spell-dc", "cs-spell-atk"].forEach(id => {
+			const badge = document.getElementById(id)?.closest(".cs__stat-badge");
+			if (badge) badge.classList.toggle("ve-hidden", !isVisible);
+		});
 	}
 
 	/**

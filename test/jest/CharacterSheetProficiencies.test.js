@@ -27,6 +27,11 @@ describe("Proficiencies: display text", () => {
 		expect(getProficiencyDisplay("light hammer|phb")).toBe("Light Hammer");
 	});
 
+	it("Keeps a filter tag's display text, not its filter expression", () => {
+		expect(getProficiencyDisplay("Martial weapons that have the {@filter Finesse or Light|items|type=martial weapon|property=finesse;light} property"))
+			.toBe("Martial weapons that have the Finesse or Light property");
+	});
+
 	it("Title-cases plain values and tolerates empties", () => {
 		expect(getProficiencyDisplay("light")).toBe("Light");
 		expect(getProficiencyDisplay("simple")).toBe("Simple");
@@ -57,9 +62,9 @@ describe("Proficiencies: from class starting proficiencies", () => {
 		expect(out.find(it => it.name === "Simple").isOptional).toBe(false);
 	});
 
-	it("Prefers the `full` text when the data supplies one", () => {
+	it("Prefers the `full` text when the data supplies one, cased as a sentence", () => {
 		const cls = {startingProficiencies: {armor: [{proficiency: "shield", full: "shields (druids will not wear metal)"}]}};
-		expect(getClassProficiencies(cls)[0].name).toBe("Shields (Druids Will Not Wear Metal)");
+		expect(getClassProficiencies(cls)[0].name).toBe("Shields (druids will not wear metal)");
 	});
 
 	it("Skips choice entries, which the choice engine resolves", () => {

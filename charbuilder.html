@@ -165,12 +165,15 @@
 					</div>
 				</div>
 
-				<div class="cs__panel cs__panel--inline">
-					<label class="cs__field cs__field--inline"><span class="cs__lbl">Max HP</span><input type="number" id="cs-hp-max" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
-					<label class="cs__field cs__field--inline"><span class="cs__lbl">Hit Dice</span><input type="text" id="cs-hd-total" placeholder="e.g. 5d10" class="ve-form-control ve-input-xs"></label>
-					<label class="cs__field cs__field--inline" title="How HP is gained when you raise a level here">
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Hit Points</h5>
+					<div class="cs__stack-grid">
+						<label class="cs__field"><span class="cs__lbl">Max HP</span><input type="number" id="cs-hp-max" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-fill"></label>
+						<label class="cs__field"><span class="cs__lbl">Hit Dice</span><input type="text" id="cs-hd-total" placeholder="e.g. 5d10" class="ve-form-control ve-input-xs cs__ipt-fill"></label>
+					</div>
+					<label class="cs__field ve-mt-2" title="How HP is gained when you raise a level here">
 						<span class="cs__lbl">HP on level-up</span>
-						<select id="cs-hp-policy" class="ve-form-control ve-input-xs">
+						<select id="cs-hp-policy" class="ve-form-control ve-input-xs cs__ipt-fill">
 							<option value="ask">Ask each time</option>
 							<option value="average">Average</option>
 							<option value="max">Max</option>

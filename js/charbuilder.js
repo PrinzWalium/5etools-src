@@ -84,6 +84,7 @@ class CharacterBuilderPage extends CharacterPageBase {
 				eleDc.textContent = "—";
 				eleAtk.textContent = "—";
 			}
+			CharacterPageBase.setSpellBadgesVisible(!!derived.spell);
 		}
 	}
 }
