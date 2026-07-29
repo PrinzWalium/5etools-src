@@ -30,3 +30,6 @@ sw-injector.js
 
 # Dev scripts
 dev-*.sh
+
+# Character Sheet browser-test artifacts
+test/e2e/screenshots/

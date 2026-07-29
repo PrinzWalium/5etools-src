@@ -73,7 +73,7 @@ That's ~95% of the work, and it is **conflict-proof**.
 
 ---
 
-## The only 3 places a conflict can happen
+## The only 4 places a conflict can happen
 
 The Character Sheet has to be "registered" into a few shared files so the app
 knows the page exists. These are the **only** spots that can ever conflict. If
@@ -130,6 +130,37 @@ new _PageGeneratorCharactersheet(),
 > `<<<<<<<`, `=======`, `>>>>>>>` markers, and editing so that **both** sides'
 > content is present (deleting the marker lines). Then `git add <file>` and
 > `git commit`. Re-run the update script afterward to rebuild and test.
+
+---
+
+### 4. `package.json` — two added lines
+
+The fork adds one script and one dev dependency for its browser tests:
+
+```json
+"test:e2e": "node test/e2e/run-e2e.mjs",
+```
+```json
+"playwright-core": "^1.61.1",
+```
+
+If this ever conflicts, keep **both** sides' lines — upstream's dependency changes and these two.
+
+---
+
+## Testing the Character Sheet
+
+Three layers, cheapest first — all of them run in CI on every push
+(`.github/workflows/charactersheet-ci.yml`):
+
+```bash
+npm run test:unit -- test/jest/CharacterSheet   # pure rules, ~2s
+npm run test:e2e                                 # the real pages in a browser, ~2min
+npx eslint js/charactersheet.js js/charbuilder.js js/charactersheet/
+```
+
+Prefer a unit test when the logic is pure. `test/e2e/README.md` explains the browser suites and
+how to add one.
 
 ---
 

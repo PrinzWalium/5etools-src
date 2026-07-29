@@ -28,7 +28,9 @@ its own DOM assembly + rendering.
 - `css/charactersheet.css`, `scss/charactersheet.scss` (shared by both pages)
 - `node/generate-pages/template/page/template-page-charactersheet.hbs`,
   `.../template-page-charbuilder.hbs`
-- `test/jest/CharacterSheet*.test.js`
+- `test/jest/CharacterSheet*.test.js` — unit tests for the pure modules
+- `test/e2e/` — browser tests driving the real pages (see `test/e2e/README.md`)
+- `.github/workflows/charactersheet-ci.yml`, `.github/workflows/sync-upstream.yml`
 
 **Shared upstream files the fork edits (the ONLY upstream-merge conflict points):**
 1. `js/navigation.js` — two `_addElement_li({... page: "char....html" ...})` lines
@@ -36,6 +38,7 @@ its own DOM assembly + rendering.
 3. `node/generate-pages/generate-pages-page-generator-config.js` — the
    `_PageGeneratorCharactersheet` / `_PageGeneratorCharbuilder` classes + their two
    `new _PageGenerator...(),` registration lines
+4. `package.json` — a `test:e2e` script and the `playwright-core` dev dependency (two lines)
 
 Exact snippets and resolution steps: `docs/CHARACTER_SHEET_MAINTENANCE.md`.
 
@@ -133,9 +136,12 @@ keeping BOTH the fork's registration line(s) and upstream's changes, per
 
 ## Verifying Character Sheet changes
 
-- Lint: `npx eslint js/charactersheet.js js/charactersheet/`
-- Unit tests: the repo's `test:unit` script, e.g.
-  `node --localstorage-file test/temp/localstorage.tmp --experimental-vm-modules node_modules/jest/bin/jest.js test/jest/CharacterSheet`
+All three run in CI on every push (`.github/workflows/charactersheet-ci.yml`).
+
+- Lint: `npx eslint js/charactersheet.js js/charbuilder.js js/charactersheet/`
+- Unit tests (pure modules, ~2s): `npm run test:unit -- test/jest/CharacterSheet`
+- Browser tests (the real pages, ~2min): `npm run test:e2e` — starts its own dev server.
+  Add one for any behaviour that only exists in the running page; see `test/e2e/README.md`.
 - Manual: `npm run serve:dev` then open `http://localhost:5050/charactersheet.html`
   (regenerate first if you changed the template).
 - `npm install` may need `--engine-strict=false` if the local Node is older than
