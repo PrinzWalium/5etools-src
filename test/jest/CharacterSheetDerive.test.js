@@ -176,7 +176,10 @@ describe("Character sheet derivation", () => {
 
 		it("Should flow into saving throws and spell DC/attack in the full derivation", () => {
 			const state = getBaseState({
-				abil_cha: 16, level: 5, save_cha: true, spellAbility: "cha", // Cha +3, PB +3
+				abil_cha: 16,
+				level: 5,
+				save_cha: true,
+				spellAbility: "cha", // Cha +3, PB +3
 				inventory: [{id: "c", name: "Cloak of Protection", bonusSavingThrow: 1, equipped: true},
 					{id: "r", name: "Rod", bonusSpellSaveDc: 1, bonusSpellAttack: 1, equipped: true}],
 			});
@@ -234,7 +237,6 @@ describe("Derive: fighting-style effects", () => {
 		expect(getWeaponAttack(getBaseState({abil_dex: 14}), bow).atkBonus).toBe(2 + 2);
 	});
 });
-
 
 describe("Derive: breakdowns (where a number comes from)", () => {
 	it("Explains a save: ability, proficiency and magic items", () => {
