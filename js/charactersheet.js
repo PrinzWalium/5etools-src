@@ -129,6 +129,8 @@ class CharacterSheetPage extends CharacterPageBase {
 			comp: this._comp,
 			wrpSlots: document.getElementById("cs-spell-slots"),
 			wrpKnown: document.getElementById("cs-spells-known"),
+			wrpPanel: document.getElementById("cs-spell-panel"),
+			wrpBody: document.getElementById("cs-spell-body"),
 		});
 		this._spellsPanel.init();
 		this._actionsPanel = new CharacterActionsPanel({comp: this._comp, wrp: document.getElementById("cs-actions")});

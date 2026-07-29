@@ -216,7 +216,7 @@
 					<div id="cs-combat-notes" class="ve-small ve-mt-1"><!-- populated by JS --></div>
 				</div>
 
-				<div class="cs__panel">
+				<div class="cs__panel" id="cs-spell-panel">
 					<div class="cs__panel-title-row ve-flex-v-center ve-flex-h-between no-print">
 						<span class="cs__lbl ve-mb-0">Spells</span>
 						<div class="ve-flex-v-center no-print">
@@ -224,28 +224,30 @@
 							<button type="button" id="cs-spell-add" class="ve-btn ve-btn-xs ve-btn-default" title="Search and add any spell to the known/prepared list"><span class="glyphicon glyphicon-search"></span> Add Spell</button>
 						</div>
 					</div>
-					<div class="cs__spellhdr">
-						<label class="cs__field cs__field--inline">
-							<span class="cs__lbl">Spellcasting Ability</span>
-							<select id="cs-spell-ability" class="ve-form-control ve-input-xs">
-								<option value="">&mdash;</option>
-								<option value="int">Intelligence</option>
-								<option value="wis">Wisdom</option>
-								<option value="cha">Charisma</option>
-							</select>
-						</label>
-						<div class="cs__stat-badge" title="8 + proficiency bonus + spellcasting ability modifier">
-							<span class="cs__stat-badge-val" id="cs-spell-dc">&mdash;</span>
-							<span class="cs__lbl">Spell Save DC</span>
+					<div id="cs-spell-body">
+						<div class="cs__spellhdr">
+							<label class="cs__field cs__field--inline">
+								<span class="cs__lbl">Spellcasting Ability</span>
+								<select id="cs-spell-ability" class="ve-form-control ve-input-xs">
+									<option value="">&mdash;</option>
+									<option value="int">Intelligence</option>
+									<option value="wis">Wisdom</option>
+									<option value="cha">Charisma</option>
+								</select>
+							</label>
+							<div class="cs__stat-badge" title="8 + proficiency bonus + spellcasting ability modifier">
+								<span class="cs__stat-badge-val" id="cs-spell-dc">&mdash;</span>
+								<span class="cs__lbl">Spell Save DC</span>
+							</div>
+							<div class="cs__stat-badge" title="proficiency bonus + spellcasting ability modifier">
+								<span class="cs__stat-badge-val cs__roll" id="cs-spell-atk">&mdash;</span>
+								<span class="cs__lbl">Spell Attack Bonus</span>
+							</div>
 						</div>
-						<div class="cs__stat-badge" title="proficiency bonus + spellcasting ability modifier">
-							<span class="cs__stat-badge-val cs__roll" id="cs-spell-atk">&mdash;</span>
-							<span class="cs__lbl">Spell Attack Bonus</span>
-						</div>
+						<div id="cs-spell-slots" class="ve-mt-1"><!-- populated by JS --></div>
+						<div id="cs-spells-known" class="ve-mt-1"><!-- populated by JS --></div>
+						<textarea id="cs-spells" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Spell notes: rituals, foci, prepared lists..."></textarea>
 					</div>
-					<div id="cs-spell-slots" class="ve-mt-1"><!-- populated by JS --></div>
-					<div id="cs-spells-known" class="ve-mt-1"><!-- populated by JS --></div>
-					<textarea id="cs-spells" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Spell notes: rituals, foci, prepared lists..."></textarea>
 				</div>
 
 				<div class="cs__panel">
