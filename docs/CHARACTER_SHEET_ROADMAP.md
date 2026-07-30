@@ -76,6 +76,35 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
 - [ ] **Homebrew.** 5etools has a homebrew loader; the builder ignores it entirely, so a
       homebrew class or species cannot be picked.
 
+## Ideas worth building, easiest first
+
+- [ ] **Printable spell and action cards.** The character's known spells as index-card-sized cards
+      — name, level, casting time, range, components, duration, effect — printed from the sheet.
+      A real table artifact people buy elsewhere; here it is the existing print work pointed at
+      `spellsKnown`. An afternoon.
+- [ ] **Level-up preview.** Show the diff *before* committing: "+1d8+2 HP · Extra Attack · one new
+      spell to pick · 3rd-level slots 0→2 · proficiency bonus unchanged". Every sheet walks you
+      through a level-up; none shows the outcome first or lets you back out cleanly. Cheap because
+      the level engine already derives everything by level — derive at N and N+1 and diff. The same
+      machinery answers "what did I gain at 4th?".
+- [ ] **Build audit.** One panel reporting what is *broken* (multiclass prerequisite unmet, four
+      attuned items, prepared over the limit, over-encumbered) and — the rarer half — what is
+      *unclaimed*: an ASI never spent, an Expertise pick outstanding, a feat's skill choice never
+      made, a subclass spell never picked. No sheet tells you what you left on the table. The
+      pending-ability-offer work is this idea for one narrow case; this generalises it.
+- [ ] **Every number cites its rule.** The breakdowns already say "Dexterity +3, Proficiency +2,
+      Archery +2"; a click should show the rule's own text — the Archery entry, the armor's rules,
+      the exhaustion table. This app *contains the books*, so it can trace a number to its source
+      paragraph in a way no licensed sheet can. The work is the mapping: a feat, item or class
+      feature is an addressable entity, but "Proficiency" is prose in a chapter and needs a curated
+      pointer.
+- [ ] **A session journal the sheet writes itself.** The sheet sees every HP swing, death save,
+      rest, spent slot, condition and charge, and records none of it. It could: "Session 12 — took
+      47 damage across three fights, went down once, burned six slots, two long rests, gained a
+      level, fired 23 arrows and recovered 11." Nothing else does this and it needs no sync, but it
+      is the biggest of the five: an event log in the model, session boundaries, storage growth,
+      and a summariser.
+
 ## Maybe
 
 - [ ] **A party sheet.** One page for the whole party: senses, resistances and immunities,
