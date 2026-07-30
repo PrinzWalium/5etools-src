@@ -1,6 +1,6 @@
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {getCantripsKnown, getDynamicSpellGrants, getGrantedSpellUids, getPreparedSpellCount, getSpellcastingMeta, getSpellsKnown, isSpellMatchingFilter} from "./charactersheet-levelengine.js";
-import {deriveCharacterSheet, getAbilityModifier} from "./charactersheet-derive.js";
+import {deriveCharacterSheet, getAbilityModifier, hasSpellcasting} from "./charactersheet-derive.js";
 import {getSpellSummary, normaliseCastTime} from "./charactersheet-actions.js";
 
 /**
@@ -8,8 +8,10 @@ import {getSpellSummary, normaliseCastTime} from "./charactersheet-actions.js";
  * spell lists) and checkbox-per-slot expenditure tracking fed by the leveling engine.
  */
 export class CharacterSpellsPanel {
-	constructor ({comp, wrpSlots, wrpKnown}) {
+	constructor ({comp, wrpSlots, wrpKnown, wrpPanel = null, wrpBody = null}) {
 		this._comp = comp;
+		this._wrpPanel = wrpPanel;
+		this._wrpBody = wrpBody;
 		this._wrpSlots = wrpSlots;
 		this._wrpKnown = wrpKnown;
 		this._renderToken = 0;
@@ -26,6 +28,9 @@ export class CharacterSpellsPanel {
 			this._pRenderSlots(); // known counts live in the slots block
 		});
 		this._comp._addHookBase("grantedSpellChoices", () => this._pRenderKnown());
+		// Whether the character has spellcasting at all can change from any of these
+		["inventory", "spellsText", "spellAbility", "spellsKnown", "grantedSpellChoices", "classes"]
+			.forEach(prop => this._comp._addHookBase(prop, () => this._pRenderVisibility()));
 		// The spell-summary numbers depend on the spellcasting ability score/level, so refresh on those too.
 		["spellAbility", "level", "abil_int", "abil_wis", "abil_cha"].forEach(prop => this._comp._addHookBase(prop, () => this._pRenderKnown()));
 		document.getElementById("cs-spell-add").addEventListener("click", () => this._pOnAddSpell());
@@ -34,6 +39,26 @@ export class CharacterSpellsPanel {
 
 		this._pRenderKnown();
 		this._pRenderSlots();
+		this._pRenderVisibility();
+	}
+
+	/**
+	 * A character with no spellcasting from any source keeps only the panel's header, so the page
+	 * is not half spell furniture for a Fighter — while "Add Spell" stays reachable for a spell the
+	 * DM hands out. Adding one brings the rest of the panel back.
+	 */
+	async _pRenderVisibility () {
+		if (!this._wrpBody) return;
+		const loaded = await this._pGetLoadedClasses();
+		const meta = getSpellcastingMeta(loaded.map(({entry, cls, sc}) => ({cls, sc, level: entry.level})));
+		const isClassCaster = !!(meta.slots?.some(Boolean) || meta.pact);
+		const isCaster = hasSpellcasting(this._comp._state, {isClassCaster});
+
+		this._wrpBody.classList.toggle("ve-hidden", !isCaster);
+		this._wrpPanel?.classList.toggle("cs__panel--quiet", !isCaster);
+		// "Class Spells" browses the class's learnable list — only a class caster has one, even if
+		// a species or an item has given this character a spell of their own
+		document.getElementById("cs-spell-browse")?.classList.toggle("ve-hidden", !isClassCaster);
 	}
 
 	/** Cache spell entities by "name|source" (lowercased) for enriching the known list with cast details. */

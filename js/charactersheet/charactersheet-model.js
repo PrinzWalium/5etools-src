@@ -1,6 +1,7 @@
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SCHEMA_VERSION, CHAR_SHEET_SKILLS, EXPENDABLE_RESOURCES, getSkillKeyByName} from "./charactersheet-consts.js";
 import {getGrantedFeats, getProfListDisplay} from "./charactersheet-choices.js";
 import {getClassProficiencies, getEntityProficiencies, getMulticlassProficiencies} from "./charactersheet-proficiencies.js";
+import {getCreatureFeatureText} from "./charactersheet-sidekick.js";
 
 /**
  * The character data model: single source of truth for the sheet.
@@ -63,6 +64,9 @@ export class CharacterModel extends BaseComponent {
 
 			// Structured entity references, populated by the pickers; the `*Text` fields above remain
 			// free-text overrides
+			isSidekick: false, // a sidekick is a stat block plus levels in a sidekick class
+			refCreature: null, // {name, source, tag} — the stat block a sidekick started from
+			sidekickHitDie: null, // faces of the die it gains per level, from its stat block
 			refSpecies: null, // {name, source, tag}
 			refBackground: null, // {name, source, tag}
 			classes: [], // [{id, name, source, level, hdFaces, subclass: null | {name, shortName, source}}]
@@ -423,6 +427,56 @@ export class CharacterModel extends BaseComponent {
 		if (!key) return;
 		const prop = `skill_${key}`;
 		this._state[prop] = Math.max(Number(this._state[prop]) || 0, val);
+	}
+
+	/* -------------------------------------------- Sidekicks -------------------------------------------- */
+
+	/**
+	 * Apply a stat block as a sidekick's starting point. Everything written here is a suggestion the
+	 * DM can overwrite — a sidekick sheet is a scratchpad, not a locked-down character.
+	 */
+	applySidekickCreature ({doc, ent, seed}) {
+		this._state.isSidekick = true;
+		this._state.refCreature = {name: doc.n, source: doc.source, tag: doc.tag};
+		this._state.speciesText = doc.n;
+		this.setPickTag("species", doc.tag);
+
+		Object.entries(seed.abilities || {}).forEach(([abv, score]) => {
+			if (`abil_${abv}` in this.__state) this._state[`abil_${abv}`] = score;
+		});
+		if (seed.hitDie) this._state.sidekickHitDie = seed.hitDie;
+		if (seed.ac != null) { this._state.ac = seed.ac; this._state.acMode = "manual"; }
+		if (seed.hpMax != null) { this._state.hpMax = seed.hpMax; this._state.hpCur = seed.hpMax; }
+		if (seed.speed) this._state.speed = seed.speed;
+
+		Object.entries(seed.skills || {}).forEach(([name, level]) => this.setSkillProfByName(name, level));
+		(seed.saves || []).forEach(abv => this._state[`save_${abv}`] = true);
+
+		const notes = [seed.sizeType, seed.sensesText ? `Senses: ${seed.sensesText}` : null, seed.languagesText ? `Languages: ${seed.languagesText}` : null]
+			.filter(Boolean)
+			.join("\n");
+		if (notes) this.appendToTextProp("proficienciesText", notes);
+
+		if (ent) this._state.featuresText = getCreatureFeatureText(ent) || this._state.featuresText;
+	}
+
+	/**
+	 * Set (or change) the sidekick's class, keeping its level and the hit die from its stat block.
+	 * The die is stored on the sidekick rather than the class entry, so picking a creature and
+	 * picking a class work in either order.
+	 */
+	setSidekickClass (cls, {level = null, hdFaces = null} = {}) {
+		const existing = this._state.classes[0];
+		this._state.classes = [{
+			id: existing?.id || CryptUtil.uid(),
+			name: cls.name,
+			source: cls.source,
+			level: level ?? existing?.level ?? this.getLevelNumber(),
+			hdFaces: hdFaces ?? this._state.sidekickHitDie ?? existing?.hdFaces ?? null,
+			subclass: null,
+			optionalFeatures: [],
+			asiFeatChoices: existing?.asiFeatChoices || [],
+		}];
 	}
 
 	/* -------------------------------------------- Entity application -------------------------------------------- */

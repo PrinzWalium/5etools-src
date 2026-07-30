@@ -68,6 +68,25 @@ export function getAbilityModifier (state, abv) {
 	return Parser.getAbilityModNumber(Number(state[`abil_${abv}`]) || 10);
 }
 
+/**
+ * Whether this character has spellcasting at all, from any source: a class or subclass that grants
+ * slots, a species or feat grant, a magic item that carries spells, spells added by hand, or notes
+ * the player wrote. Used to keep the spell panel out of a pure martial character's way.
+ *
+ * @param state The character state.
+ * @param [opts.isClassCaster] Whether the class/subclass progression grants slots — the caller
+ * computes this from the loaded class data (`getSpellcastingMeta`).
+ */
+export function hasSpellcasting (state, {isClassCaster = false} = {}) {
+	if (!state) return false;
+	if (isClassCaster) return true;
+	if (state.spellAbility) return true;
+	if ((state.spellsKnown || []).length) return true;
+	if ((state.grantedSpellChoices || []).length) return true;
+	if ((state.spellsText || "").trim()) return true;
+	return (state.inventory || []).some(it => it?.grantsSpells);
+}
+
 export function deriveCharacterSheet (state) {
 	const totalLevel = getTotalLevel(state);
 	const pb = getProfBonus(state);

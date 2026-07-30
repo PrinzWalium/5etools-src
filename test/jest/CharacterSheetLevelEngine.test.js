@@ -313,14 +313,16 @@ describe("Leveling engine: class resources (table columns)", () => {
 	it("Should read dice/number/bonus columns and skip spell columns", () => {
 		const cls = {
 			classTableGroups: [
-				{colLabels: ["Rages", "Rage Damage", "Weapon Mastery"], rows: [
-					["2", {type: "bonus", value: 2}, "2"],
-					["3", {type: "bonus", value: 2}, "3"],
-				]},
-				{colLabels: ["Sneak Attack"], rows: [
-					[{type: "dice", toRoll: [{number: 1, faces: 6}]}],
-					[{type: "dice", toRoll: [{number: 2, faces: 6}]}],
-				]},
+				{colLabels: ["Rages", "Rage Damage", "Weapon Mastery"],
+					rows: [
+						["2", {type: "bonus", value: 2}, "2"],
+						["3", {type: "bonus", value: 2}, "3"],
+					]},
+				{colLabels: ["Sneak Attack"],
+					rows: [
+						[{type: "dice", toRoll: [{number: 1, faces: 6}]}],
+						[{type: "dice", toRoll: [{number: 2, faces: 6}]}],
+					]},
 				{colLabels: ["Cantrips Known", "1st"], rowsSpellProgression: [[3, 2], [3, 3]]}, // spell cols: ignored
 			],
 		};

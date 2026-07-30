@@ -56,6 +56,8 @@ export function getInventoryItemMeta (ent) {
 	const bonusSavingThrow = parseItemBonus(ent.bonusSavingThrow);
 	if (bonusSavingThrow) out.bonusSavingThrow = bonusSavingThrow;
 	if (ent.reqAttune) out.requiresAttunement = true;
+	// Wands, staves, rings of spell storing, ... — enough to make the character a spell user
+	if (ent.attachedSpells) out.grantsSpells = true;
 	return out;
 }
 

@@ -129,6 +129,8 @@ class CharacterSheetPage extends CharacterPageBase {
 			comp: this._comp,
 			wrpSlots: document.getElementById("cs-spell-slots"),
 			wrpKnown: document.getElementById("cs-spells-known"),
+			wrpPanel: document.getElementById("cs-spell-panel"),
+			wrpBody: document.getElementById("cs-spell-body"),
 		});
 		this._spellsPanel.init();
 		this._actionsPanel = new CharacterActionsPanel({comp: this._comp, wrp: document.getElementById("cs-actions")});
@@ -167,98 +169,6 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._renderDerived();
 		this._pRefreshFeatureEffects();
 		this._lastLevel = this._comp.getLevelNumber();
-	}
-
-	/* -------------------------------------------- DOM scaffolding -------------------------------------------- */
-
-	_buildSaves () {
-		const wrp = document.getElementById("cs-saves");
-		wrp.innerHTML = CHAR_SHEET_ABILITIES
-			.map(([abv, name]) => `
-				<label class="cs__list-row" title="Toggle proficiency in ${name} saving throws">
-					<input type="checkbox" id="cs-save-${abv}" class="cs__list-cb">
-					<span class="cs__roll cs__list-mod" id="cs-saveroll-${abv}">+0</span>
-					<span class="cs__list-name" id="cs-savename-${abv}">${name}</span>
-				</label>
-			`)
-			.join("");
-
-		CHAR_SHEET_ABILITIES.forEach(([abv]) => this._bindCb(`cs-save-${abv}`, `save_${abv}`));
-	}
-
-	_buildSkills () {
-		const wrp = document.getElementById("cs-skills");
-		wrp.innerHTML = CHAR_SHEET_SKILLS
-			.map(skill => `
-				<div class="cs__list-row" data-cs-skill="${skill.key}">
-					<button type="button" class="cs__prof" id="cs-skillprof-${skill.key}" title="Click to cycle: not proficient → proficient → expertise"></button>
-					<span class="cs__roll cs__list-mod" id="cs-skillroll-${skill.key}">+0</span>
-					<span class="cs__list-name" id="cs-skillname-${skill.key}">${skill.name} <span class="cs__list-abil ve-muted">(${Parser.attAbvToFull(skill.ability).slice(0, 3)})</span></span>
-				</div>
-			`)
-			.join("");
-
-		CHAR_SHEET_SKILLS.forEach(skill => {
-			document.getElementById(`cs-skillprof-${skill.key}`).addEventListener("click", () => {
-				const prop = `skill_${skill.key}`;
-				this._comp._state[prop] = ((Number(this._comp._state[prop]) || 0) + 1) % 3;
-			});
-		});
-	}
-
-	_buildDeathSaves () {
-		[["cs-death-success", "deathSuccess"], ["cs-death-fail", "deathFail"]]
-			.forEach(([id, prop]) => {
-				const wrp = document.getElementById(id);
-				const max = Number(wrp.getAttribute("data-cs-max"));
-				for (let i = 0; i < max; ++i) {
-					const dot = document.createElement("button");
-					dot.type = "button";
-					dot.className = "cs__death-dot";
-					dot.addEventListener("click", () => {
-						const cur = this._comp._state[prop];
-						this._comp._state[prop] = (i + 1 === cur) ? i : i + 1;
-					});
-					wrp.appendChild(dot);
-				}
-			});
-	}
-
-	_renderDeathSaves () {
-		[["cs-death-success", this._comp._state.deathSuccess], ["cs-death-fail", this._comp._state.deathFail]]
-			.forEach(([id, cnt]) => {
-				const dots = document.getElementById(id).querySelectorAll(".cs__death-dot");
-				dots.forEach((dot, ix) => dot.classList.toggle("cs__death-dot--active", ix < cnt));
-			});
-	}
-
-	_buildConditions () {
-		const wrp = document.getElementById("cs-conditions");
-		if (!wrp) return;
-		wrp.innerHTML = CHAR_SHEET_CONDITIONS
-			.map(name => `<button type="button" class="ve-btn ve-btn-xxs ve-btn-default cs__cond no-print" data-cs-cond="${name.qq()}">${name.qq()}</button>`)
-			.join("");
-		wrp.querySelectorAll(".cs__cond").forEach(btn => {
-			btn.addEventListener("click", () => this._comp.toggleCondition(btn.getAttribute("data-cs-cond")));
-		});
-	}
-
-	_renderConditions () {
-		const active = new Set(this._comp._state.conditions || []);
-		document.querySelectorAll("#cs-conditions .cs__cond").forEach(btn => {
-			const on = active.has(btn.getAttribute("data-cs-cond"));
-			btn.classList.toggle("ve-btn-danger", on);
-			btn.classList.toggle("ve-btn-default", !on);
-		});
-	}
-
-	_adjustHp (sign) {
-		// The delta input is transient UI, not character state, so it is not model-bound
-		const eleDelta = document.getElementById("cs-hp-delta");
-		const delta = Math.abs(Number(eleDelta.value) || 0);
-		if (!delta) return;
-		this._comp._state.hpCur = (Number(this._comp._state.hpCur) || 0) + (sign * delta);
-		eleDelta.value = "0";
 	}
 
 	/* -------------------------------------------- Data pickers -------------------------------------------- */
@@ -345,29 +255,7 @@ class CharacterSheetPage extends CharacterPageBase {
 
 		document.getElementById("cs-pb").textContent = CharacterPageBase.fmtBonus(derived.pb);
 
-		CHAR_SHEET_ABILITIES.forEach(([abv, name]) => {
-			const abil = derived.abilities[abv];
-			// The modifier comes from the score; the score itself is explained on its input
-			this._renderRoll(`cs-mod-${abv}`, abil.mod, `${name} check`,
-				[{label: `Score ${abil.score}`, isText: true}, ...abil.scoreParts.slice(1)], {isTapTarget: false});
-			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-abil-${abv}`), name, abil.scoreParts);
-			this._renderRoll(`cs-saveroll-${abv}`, derived.saves[abv].mod, `${name} save`, derived.saves[abv].parts, {isTapTarget: false});
-			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-savename-${abv}`), `${name} save`, derived.saves[abv].parts, derived.saves[abv].mod);
-		});
-
-		CHAR_SHEET_SKILLS.forEach(skill => {
-			const {mod, profState} = derived.skills[skill.key];
-			this._renderRoll(`cs-skillroll-${skill.key}`, mod, skill.name, derived.skills[skill.key].parts, {isTapTarget: false});
-			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-skillname-${skill.key}`), skill.name, derived.skills[skill.key].parts, mod);
-
-			const btn = document.getElementById(`cs-skillprof-${skill.key}`);
-			btn.classList.toggle("cs__prof--1", profState === 1);
-			btn.classList.toggle("cs__prof--2", profState === 2);
-		});
-
-		const elePassive = document.getElementById("cs-passive-perception");
-		elePassive.textContent = `${derived.passivePerception}`;
-		CharacterPageBase.setBreakdownTitle(elePassive, "Passive Perception", derived.passivePerceptionParts, derived.passivePerception, {isTotalValue: true});
+		this._renderAbilitiesSavesSkills(derived);
 
 		this._renderArmorClass(derived.armorClass);
 
@@ -411,6 +299,7 @@ class CharacterSheetPage extends CharacterPageBase {
 			eleDc.textContent = "—";
 			eleAtk.textContent = "—";
 		}
+		CharacterPageBase.setSpellBadgesVisible(!!derived.spell);
 	}
 }
 

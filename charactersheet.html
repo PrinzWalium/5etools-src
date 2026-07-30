@@ -187,18 +187,6 @@
 					</div>
 				</div>
 
-				<div class="cs__panel">
-					<h5 class="cs__panel-title">Conditions &amp; Concentration</h5>
-					<label class="cs__field cs__field--inline ve-mb-1">
-						<span class="cs__lbl">Concentrating on</span>
-						<input type="text" id="cs-concentration" class="ve-form-control ve-input-xs" placeholder="e.g. Bless">
-					</label>
-					<label class="cs__field cs__field--inline ve-mb-1" title="0–6; a long rest reduces it by one">
-						<span class="cs__lbl">Exhaustion</span>
-						<input type="number" id="cs-exhaustion" min="0" max="6" value="0" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs">
-					</label>
-					<div class="cs__conditions ve-flex ve-flex-wrap" id="cs-conditions"><!-- populated by JS --></div>
-				</div>
 			</div>
 
 			<div class="ve-col-5 cs__col">
@@ -210,11 +198,11 @@
 								<span class="cs__stat-badge-val" id="cs-ac-computed">10</span>
 								<input type="number" id="cs-ac" min="0" value="10" class="ve-form-control ve-input-xs cs__ipt-num cs__ac-manual ve-hidden" title="Manual AC value">
 							</div>
-							<select id="cs-ac-mode" class="ve-form-control ve-input-xs no-print cs__ac-mode" title="How Armor Class is calculated">
-								<option value="auto">Auto (armor)</option>
-								<option value="barbarian">Unarmored (Barb)</option>
+							<select id="cs-ac-mode" class="ve-form-control ve-input-xs no-print cs__ac-mode" title="How Armor Class is calculated: from worn armor, from a Barbarian's or Monk's Unarmored Defense, or a number you set yourself">
+								<option value="auto">From armor</option>
+								<option value="barbarian">Unarmored (Barbarian)</option>
 								<option value="monk">Unarmored (Monk)</option>
-								<option value="manual">Manual</option>
+								<option value="manual">Set by hand</option>
 							</select>
 						</div>
 						<div class="cs__field cs__field--boxed" title="1d20 + Dexterity modifier + misc">
@@ -230,20 +218,20 @@
 					<div class="cs__hp">
 						<div class="cs__hp-main">
 							<div class="cs__hp-row">
-								<label class="cs__field cs__field--inline"><span class="cs__lbl">Max HP</span><input type="number" id="cs-hp-max" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
-								<label class="cs__field cs__field--inline"><span class="cs__lbl">Current HP</span><input type="number" id="cs-hp-cur" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
-								<label class="cs__field cs__field--inline"><span class="cs__lbl">Temp HP</span><input type="number" id="cs-hp-temp" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
+								<label class="cs__field cs__field--boxed"><span class="cs__lbl">Current HP</span><input type="number" id="cs-hp-cur" value="0" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--hp"></label>
+								<label class="cs__field cs__field--boxed"><span class="cs__lbl">Max HP</span><input type="number" id="cs-hp-max" min="0" value="0" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--hp"></label>
+								<label class="cs__field cs__field--boxed"><span class="cs__lbl">Temp HP</span><input type="number" id="cs-hp-temp" value="0" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--hp"></label>
 							</div>
 							<div class="cs__hp-quick ve-flex-v-center ve-flex-wrap no-print">
-								<label class="cs__field cs__field--inline"><span class="cs__lbl">Adjust</span><input type="number" id="cs-hp-delta" value="0" class="ve-form-control ve-input-xs cs__ipt-num"></label>
+								<label class="cs__field cs__field--inline ve-mb-0"><span class="cs__lbl">Adjust</span><input type="number" id="cs-hp-delta" value="0" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs"></label>
 								<button type="button" id="cs-hp-damage" class="ve-btn ve-btn-xs ve-btn-danger" title="Subtract from current HP">Damage</button>
 								<button type="button" id="cs-hp-heal" class="ve-btn ve-btn-xs ve-btn-success" title="Add to current HP">Heal</button>
-								<button type="button" id="cs-short-rest" class="ve-btn ve-btn-xs ve-btn-default ve-ml-2" title="Restore Pact Magic slots">Short Rest</button>
-								<button type="button" id="cs-long-rest" class="ve-btn ve-btn-xs ve-btn-primary" title="Restore HP, spell slots, Hit Dice; reduce Exhaustion">Long Rest</button>
 							</div>
-							<div class="cs__hp-quick ve-flex-v-center no-print">
-								<label class="cs__field cs__field--inline" title="How the level-up prompt gains HP">
-									<span class="cs__lbl">HP on level-up</span>
+							<div class="cs__hp-rests ve-flex-v-center ve-flex-wrap no-print">
+								<button type="button" id="cs-short-rest" class="ve-btn ve-btn-xs ve-btn-default" title="Restore Pact Magic slots">Short Rest</button>
+								<button type="button" id="cs-long-rest" class="ve-btn ve-btn-xs ve-btn-primary" title="Restore HP, spell slots, Hit Dice; reduce Exhaustion">Long Rest</button>
+								<label class="cs__field cs__field--inline cs__hp-policy ve-mb-0" title="How the level-up prompt gains HP">
+									<span class="cs__lbl">On level-up</span>
 									<select id="cs-hp-policy" class="ve-form-control ve-input-xs">
 										<option value="ask">Ask each time</option>
 										<option value="average">Average</option>
@@ -254,8 +242,13 @@
 							</div>
 						</div>
 						<div class="cs__hp-side">
-							<label class="cs__field cs__field--inline"><span class="cs__lbl">Hit Dice (total)</span><input type="text" id="cs-hd-total" placeholder="e.g. 5d10" class="ve-form-control ve-input-xs"></label>
-							<label class="cs__field cs__field--inline"><span class="cs__lbl">Hit Dice (remaining)</span><input type="text" id="cs-hd-cur" placeholder="e.g. 5d10" class="ve-form-control ve-input-xs"></label>
+							<div class="cs__hd">
+								<span class="cs__lbl">Hit Dice</span>
+								<div class="cs__hd-row">
+									<label class="cs__field"><span class="cs__lbl cs__lbl--sub">Remaining</span><input type="text" id="cs-hd-cur" placeholder="e.g. 5d10" class="ve-form-control ve-input-xs"></label>
+									<label class="cs__field"><span class="cs__lbl cs__lbl--sub">Total</span><input type="text" id="cs-hd-total" placeholder="e.g. 5d10" class="ve-form-control ve-input-xs"></label>
+								</div>
+							</div>
 							<div class="cs__death">
 								<span class="cs__lbl">Death Saves</span>
 								<div class="cs__death-row"><span class="cs__death-lbl">Successes</span><span class="cs__death-dots" id="cs-death-success" data-cs-max="3"></span></div>
@@ -288,7 +281,7 @@
 					<div id="cs-combat-notes" class="ve-small ve-mt-1"><!-- populated by JS --></div>
 				</div>
 
-				<div class="cs__panel">
+				<div class="cs__panel" id="cs-spell-panel">
 					<div class="cs__panel-title-row ve-flex-v-center ve-flex-h-between no-print">
 						<span class="cs__lbl ve-mb-0">Spells</span>
 						<div class="ve-flex-v-center no-print">
@@ -296,33 +289,48 @@
 							<button type="button" id="cs-spell-add" class="ve-btn ve-btn-xs ve-btn-default" title="Search and add any spell to the known/prepared list"><span class="glyphicon glyphicon-search"></span> Add Spell</button>
 						</div>
 					</div>
-					<div class="cs__spellhdr">
-						<label class="cs__field cs__field--inline">
-							<span class="cs__lbl">Spellcasting Ability</span>
-							<select id="cs-spell-ability" class="ve-form-control ve-input-xs">
-								<option value="">&mdash;</option>
-								<option value="int">Intelligence</option>
-								<option value="wis">Wisdom</option>
-								<option value="cha">Charisma</option>
-							</select>
-						</label>
-						<div class="cs__stat-badge" title="8 + proficiency bonus + spellcasting ability modifier">
-							<span class="cs__stat-badge-val" id="cs-spell-dc">&mdash;</span>
-							<span class="cs__lbl">Spell Save DC</span>
+					<div id="cs-spell-body">
+						<div class="cs__spellhdr">
+							<label class="cs__field cs__field--inline">
+								<span class="cs__lbl">Spellcasting Ability</span>
+								<select id="cs-spell-ability" class="ve-form-control ve-input-xs">
+									<option value="">&mdash;</option>
+									<option value="int">Intelligence</option>
+									<option value="wis">Wisdom</option>
+									<option value="cha">Charisma</option>
+								</select>
+							</label>
+							<div class="cs__stat-badge" title="8 + proficiency bonus + spellcasting ability modifier">
+								<span class="cs__stat-badge-val" id="cs-spell-dc">&mdash;</span>
+								<span class="cs__lbl">Spell Save DC</span>
+							</div>
+							<div class="cs__stat-badge" title="proficiency bonus + spellcasting ability modifier">
+								<span class="cs__stat-badge-val cs__roll" id="cs-spell-atk">&mdash;</span>
+								<span class="cs__lbl">Spell Attack Bonus</span>
+							</div>
 						</div>
-						<div class="cs__stat-badge" title="proficiency bonus + spellcasting ability modifier">
-							<span class="cs__stat-badge-val cs__roll" id="cs-spell-atk">&mdash;</span>
-							<span class="cs__lbl">Spell Attack Bonus</span>
-						</div>
+						<div id="cs-spell-slots" class="ve-mt-1"><!-- populated by JS --></div>
+						<div id="cs-spells-known" class="ve-mt-1"><!-- populated by JS --></div>
+						<textarea id="cs-spells" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Spell notes: rituals, foci, prepared lists..."></textarea>
 					</div>
-					<div id="cs-spell-slots" class="ve-mt-1"><!-- populated by JS --></div>
-					<div id="cs-spells-known" class="ve-mt-1"><!-- populated by JS --></div>
-					<textarea id="cs-spells" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Spell notes: rituals, foci, prepared lists..."></textarea>
 				</div>
 
 				<div class="cs__panel">
 					<h5 class="cs__panel-title" title="Derived from your weapons, spells (by casting time), and common features">Actions</h5>
 					<div id="cs-actions"><!-- populated by JS --></div>
+				</div>
+
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Conditions &amp; Concentration</h5>
+					<label class="cs__field cs__field--inline ve-mb-1">
+						<span class="cs__lbl">Concentrating on</span>
+						<input type="text" id="cs-concentration" class="ve-form-control ve-input-xs" placeholder="e.g. Bless">
+					</label>
+					<label class="cs__field cs__field--inline ve-mb-1" title="0–6; a long rest reduces it by one">
+						<span class="cs__lbl">Exhaustion</span>
+						<input type="number" id="cs-exhaustion" min="0" max="6" value="0" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs">
+					</label>
+					<div class="cs__conditions ve-flex ve-flex-wrap" id="cs-conditions"><!-- populated by JS --></div>
 				</div>
 			</div>
 

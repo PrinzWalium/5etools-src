@@ -47,6 +47,8 @@ class CharacterBuilderPage extends CharacterPageBase {
 			comp: this._comp,
 			wrpSlots: document.getElementById("cs-spell-slots"),
 			wrpKnown: document.getElementById("cs-spells-known"),
+			wrpPanel: document.getElementById("cs-spell-panel"),
+			wrpBody: document.getElementById("cs-spell-body"),
 		});
 		this._spellsPanel.init();
 
@@ -84,6 +86,7 @@ class CharacterBuilderPage extends CharacterPageBase {
 				eleDc.textContent = "—";
 				eleAtk.textContent = "—";
 			}
+			CharacterPageBase.setSpellBadgesVisible(!!derived.spell);
 		}
 	}
 }

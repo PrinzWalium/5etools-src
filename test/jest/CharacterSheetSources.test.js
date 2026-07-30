@@ -83,7 +83,8 @@ describe("Source filter: labels", () => {
 describe("Source filter: flagging existing picks", () => {
 	const state = {
 		classes: [{
-			name: "Rogue", source: "PHB",
+			name: "Rogue",
+			source: "PHB",
 			subclass: {name: "Swashbuckler", source: "XGE"},
 			optionalFeatures: [{name: "Archery", source: "PHB"}],
 			asiFeatChoices: [{type: "feat", name: "Prodigy", source: "XGE"}, {type: "asi", bonuses: {str: 2}}],

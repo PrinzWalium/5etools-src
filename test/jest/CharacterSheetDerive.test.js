@@ -1,5 +1,5 @@
 import "../../js/parser.js";
-import {deriveArmorClass, deriveCharacterSheet, formatBreakdown, getAbilityScoreParts, getEquippedMagicBonuses, getProfBonus, getTotalLevel, getUnarmedStrike, getWeaponAttack} from "../../js/charactersheet/charactersheet-derive.js";
+import {deriveArmorClass, deriveCharacterSheet, formatBreakdown, getAbilityScoreParts, getEquippedMagicBonuses, getProfBonus, getTotalLevel, getUnarmedStrike, getWeaponAttack, hasSpellcasting} from "../../js/charactersheet/charactersheet-derive.js";
 
 const getBaseState = (overrides = {}) => ({
 	level: 1,
@@ -176,7 +176,10 @@ describe("Character sheet derivation", () => {
 
 		it("Should flow into saving throws and spell DC/attack in the full derivation", () => {
 			const state = getBaseState({
-				abil_cha: 16, level: 5, save_cha: true, spellAbility: "cha", // Cha +3, PB +3
+				abil_cha: 16,
+				level: 5,
+				save_cha: true,
+				spellAbility: "cha", // Cha +3, PB +3
 				inventory: [{id: "c", name: "Cloak of Protection", bonusSavingThrow: 1, equipped: true},
 					{id: "r", name: "Rod", bonusSpellSaveDc: 1, bonusSpellAttack: 1, equipped: true}],
 			});
@@ -234,7 +237,6 @@ describe("Derive: fighting-style effects", () => {
 		expect(getWeaponAttack(getBaseState({abil_dex: 14}), bow).atkBonus).toBe(2 + 2);
 	});
 });
-
 
 describe("Derive: breakdowns (where a number comes from)", () => {
 	it("Explains a save: ability, proficiency and magic items", () => {
@@ -328,5 +330,33 @@ describe("Derive: breakdowns (where a number comes from)", () => {
 	it("Falls back to a plain base score with no recorded increases", () => {
 		expect(getAbilityScoreParts(getBaseState({abil_str: 15}), "str"))
 			.toEqual([{label: "Base", value: 15, isRaw: true}]);
+	});
+});
+
+describe("Spellcasting presence", () => {
+	it("Is false for a character with nothing spell-related", () => {
+		expect(hasSpellcasting({spellsKnown: [], inventory: []})).toBe(false);
+		expect(hasSpellcasting(null)).toBe(false);
+		expect(hasSpellcasting({})).toBe(false);
+	});
+
+	it("Is true for a class caster, even before any spell is picked", () => {
+		expect(hasSpellcasting({}, {isClassCaster: true})).toBe(true);
+	});
+
+	it("Is true once a spell arrives from a species, feat or by hand", () => {
+		expect(hasSpellcasting({spellsKnown: [{name: "Fire Bolt"}]})).toBe(true);
+		expect(hasSpellcasting({grantedSpellChoices: [{name: "Bless"}]})).toBe(true);
+	});
+
+	it("Is true for a spell-carrying magic item", () => {
+		expect(hasSpellcasting({inventory: [{name: "Longsword"}]})).toBe(false);
+		expect(hasSpellcasting({inventory: [{name: "Wand of Magic Missiles", grantsSpells: true}]})).toBe(true);
+	});
+
+	it("Is true once a spellcasting ability is set, or notes are written", () => {
+		expect(hasSpellcasting({spellAbility: "int"})).toBe(true);
+		expect(hasSpellcasting({spellsText: "  "})).toBe(false);
+		expect(hasSpellcasting({spellsText: "Ritual: Find Familiar"})).toBe(true);
 	});
 });
