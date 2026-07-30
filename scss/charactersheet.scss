@@ -835,6 +835,83 @@
 		opacity: 0.55;
 	}
 
+	// The level-up box: what the next level brings, and the button that takes it
+	.cs__sk-next,
+	.cs__sk-catchup {
+		padding: 6px 8px;
+		border-radius: 3px;
+		border: 1px solid rgb(60 120 200 / 35%);
+		background: rgb(60 120 200 / 8%);
+	}
+
+	.ve-night-mode .cs__sk-next,
+	.ve-night-mode .cs__sk-catchup {
+		border-color: rgb(120 170 240 / 35%);
+		background: rgb(120 170 240 / 10%);
+	}
+
+	.cs__sk-catchup {
+		border-color: rgb(200 140 40 / 45%);
+		background: rgb(200 140 40 / 10%);
+	}
+
+	.cs__sk-next-hdr {
+		font-weight: bold;
+		text-transform: uppercase;
+		font-size: 0.8em;
+		letter-spacing: 0.04em;
+		opacity: 0.8;
+	}
+
+	// Traits & actions, one editable row each
+	.cs__sk-trait {
+		padding: 4px 0;
+		border-top: 1px solid rgb(0 0 0 / 8%);
+
+		&:first-child {
+			border-top: 0;
+		}
+	}
+
+	.ve-night-mode .cs__sk-trait {
+		border-top-color: rgb(255 255 255 / 10%);
+	}
+
+	.cs__sk-trait-top {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-bottom: 2px;
+	}
+
+	.cs__sk-trait-section {
+		width: auto;
+		flex: 0 0 auto;
+		max-width: 110px;
+	}
+
+	.cs__sk-trait-name {
+		flex: 1 1 auto;
+		font-weight: bold;
+	}
+
+	.cs__sk-trait-tag {
+		flex: 0 0 auto;
+		font-size: 0.75em;
+		white-space: nowrap;
+	}
+
+	.cs__sk-trait-text {
+		min-height: 0;
+		resize: vertical;
+	}
+
+	// The role's own wording, shown under the type selects
+	#cs-sk-role-hint {
+		margin-top: 2px;
+		line-height: 1.35;
+	}
+
 	// A textarea's text, mirrored into a flowing element for print (see `_bindPrintPrep`)
 	.cs__print-text {
 		display: none;
@@ -981,8 +1058,39 @@
 
 		// ... and an empty list section is just a heading on paper
 		.cs__page--sidekick .cs__panel:has(#cs-attacks-body:empty),
+		.cs__page--sidekick .cs__panel:has(#cs-sk-traits:empty),
 		.cs__page--sidekick .cs__panel:has(#cs-spell-body.ve-hidden) {
 			display: none !important;
+		}
+
+		// A trait prints as a stat block writes it: bold name, then the text, run together
+		.cs__page--sidekick .cs__sk-trait {
+			border: 0;
+			padding: 0;
+			margin-bottom: 4px;
+			break-inside: avoid;
+		}
+
+		.cs__page--sidekick .cs__sk-trait-top {
+			display: inline;
+			margin: 0;
+		}
+
+		.cs__page--sidekick .cs__sk-trait-name {
+			display: inline !important;
+			width: auto !important;
+			border: 0 !important;
+			padding: 0 !important;
+			font-style: italic;
+			font-weight: bold;
+		}
+
+		.cs__page--sidekick .cs__sk-trait-text {
+			display: none !important;
+		}
+
+		.cs__page--sidekick .cs__sk-trait .cs__print-text {
+			display: inline;
 		}
 
 		// Controls are for the screen; the card shows their values

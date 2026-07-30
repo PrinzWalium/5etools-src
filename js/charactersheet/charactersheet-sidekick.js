@@ -1,11 +1,15 @@
 /**
- * Sidekick rules (Tasha's, "Sidekicks").
+ * Sidekick rules — both published rulesets, because they answer different questions.
  *
- * A sidekick is a *creature* with a low challenge rating that gains levels in one of three simple
- * classes — Expert, Spellcaster or Warrior. So a sidekick is modelled as an ordinary character
- * whose "class" is a sidekick class and whose starting point is a stat block rather than a species
- * and background: the stat block seeds the ability scores, AC, hit points, speed, senses and skills,
- * and everything after that is the normal leveling machinery.
+ * **Essentials Kit** (the default here): a sidekick is one of three ready-made stat blocks — Expert,
+ * Spellcaster or Warrior — and levels 2–6 are a fixed table giving an exact hit-point maximum and one
+ * or two named features per level. The Spellcaster and Warrior each pick a *role* (healer/mage,
+ * attacker/defender) that decides which of their stat block's entries apply. All of that is
+ * structured data (`bestiary-esk.json` + the `Sidekicks|ESK` rule), so the builder reads it rather
+ * than restating it.
+ *
+ * **Tasha's**: a sidekick is any low-CR creature that takes levels 1–20 in a sidekick *class*. That
+ * path is the ordinary leveling machinery, so it stays available for a sidekick beyond 6th level.
  *
  * Everything here is intentionally permissive — this is a DM's tool, so the seeded values are a
  * starting point to be edited, not a rule to be enforced.
@@ -18,6 +22,20 @@ export const SIDEKICK_CLASS_NAMES = ["Expert Sidekick", "Spellcaster Sidekick", 
 
 /** The rules text to show alongside the builder, as a `{@variantrule}` the renderer can resolve. */
 export const SIDEKICK_RULE_UID = "Sidekicks|TCE";
+export const SIDEKICK_ESK_RULE_UID = "Sidekicks|ESK";
+
+/**
+ * The three Essentials Kit sidekicks, and the stat block each one starts from. The blurbs are the
+ * book's own one-line descriptions.
+ */
+export const ESK_SIDEKICK_TYPES = [
+	{key: "expert", name: "Expert", source: "ESK", blurb: "an agile and exceedingly helpful jack of all trades"},
+	{key: "spellcaster", name: "Spellcaster", source: "ESK", blurb: "a magic-user who can harm your foes or heal you and your friends"},
+	{key: "warrior", name: "Warrior", source: "ESK", blurb: "a martial companion who specializes in striking your foes or defending your allies"},
+];
+
+/** The highest level the Essentials Kit's tables cover. Beyond that, a sidekick class takes over. */
+export const ESK_MAX_LEVEL = 6;
 
 /** Sizes to the hit die a creature of that size uses, when its stat block does not say. */
 const _SIZE_TO_HIT_DIE = {T: 4, S: 6, M: 8, L: 10, H: 12, G: 20};
@@ -213,21 +231,224 @@ function _entryToText (entry) {
 	return "";
 }
 
+/* -------------------------------------------- Traits & actions, one by one -------------------------------------------- */
+
+export const SIDEKICK_TRAIT_SECTIONS = ["Trait", "Action", "Bonus Action", "Reaction", "Feature"];
+
 /**
- * A stat block's traits and actions as readable notes, so the DM has the creature's own abilities
- * on the sheet next to whatever its sidekick class adds. Deliberately text: these are for reading
- * and editing, not for deriving numbers from.
+ * A stat block's traits and actions as *separate* entries, so the sheet can list them one per row
+ * and let the DM add, edit and delete them individually.
+ *
+ * @param creature The stat block.
+ * @param opts.role A chosen role key ("healer", "defender", …). Entries belonging to another role are
+ *   left out — a Defender warrior has the Protection reaction, an Attacker does not.
+ * @return {Array<{section: string, name: string, text: string}>}
  */
-export function getCreatureFeatureText (creature) {
+export function getCreatureTraitEntries (creature, {role = null} = {}) {
+	const roleKeys = getSidekickRoles(creature).roles.map(it => it.key);
+
 	const sections = [
-		["Traits", creature?.trait],
-		["Actions", creature?.action],
-		["Bonus Actions", creature?.bonus],
-		["Reactions", creature?.reaction],
+		["Trait", creature?.trait],
+		["Action", creature?.action],
+		["Bonus Action", creature?.bonus],
+		["Reaction", creature?.reaction],
 	];
 
-	return sections
-		.filter(([, entries]) => entries?.length)
-		.map(([label, entries]) => `${label}:\n${entries.map(it => `  ${_entryToText(it)}`).join("\n")}`)
-		.join("\n\n");
+	const out = [];
+	sections.forEach(([section, entries]) => {
+		(entries || []).forEach(entry => {
+			const name = entry?.name || "";
+			if (!isEntryForRole(name, {role, roleKeys})) return;
+			out.push({section, name: stripRoleQualifier(name), text: _entryToText(entry.entries || entry.entry || [])});
+		});
+	});
+
+	// A spellcasting block is a trait too, and for a Spellcaster it is the whole point of the role
+	(creature?.spellcasting || []).forEach(sc => {
+		if (!isEntryForRole(sc?.name || "", {role, roleKeys})) return;
+		out.push({section: "Trait", name: stripRoleQualifier(sc.name || "Spellcasting"), text: getSpellcastingText(sc)});
+	});
+
+	return out;
+}
+
+/** A spellcasting block as readable text: how it casts, then what it has, level by level. */
+export function getSpellcastingText (sc) {
+	const parts = [_entryToText(sc?.headerEntries || [])];
+
+	Object.entries(sc?.spells || {}).forEach(([level, meta]) => {
+		const lbl = level === "0" ? "Cantrips" : `Level ${level}${meta.slots ? ` (${meta.slots} slots)` : ""}`;
+		parts.push(`${lbl}: ${(meta.spells || []).map(_entryToText).join(", ")}`);
+	});
+
+	return parts.filter(Boolean).join(" ").trim();
+}
+
+/* -------------------------------------------- Roles (healer/mage, attacker/defender) -------------------------------------------- */
+
+/**
+ * The roles a sidekick stat block asks you to choose between. The Warrior spells them out as a list
+ * inside its "Martial Role" trait; the Spellcaster names them in prose and then gives one
+ * `spellcasting` block per role. Both shapes are read here, so the choice comes from the data.
+ *
+ * @return {{traitName: string|null, roles: Array<{key: string, name: string, text: string}>}}
+ */
+export function getSidekickRoles (creature) {
+	const traitRole = (creature?.trait || []).find(it => /\brole\b/i.test(it?.name || ""));
+
+	const roles = [];
+	const addRole = (name, text) => {
+		if (!name) return;
+		const key = name.toLowerCase();
+		const existing = roles.find(it => it.key === key);
+		if (existing) { if (!existing.text && text) existing.text = text; return; }
+		roles.push({key, name: name.replace(/\b\w/, c => c.toUpperCase()), text: text || ""});
+	};
+
+	// The Warrior: a list of named options inside the trait
+	const walkItems = entries => (entries || []).forEach(entry => {
+		if (typeof entry !== "object" || entry == null) return;
+		if (entry.type === "item" || entry.name) addRole(entry.name, _entryToText(entry.entry ?? entry.entries ?? []));
+		walkItems(entry.items || entry.entries);
+	});
+	walkItems(traitRole?.entries);
+
+	// The Spellcaster: named in the trait's prose ("...: healer or mage"), detailed by its spellcasting
+	if (!roles.length && traitRole) {
+		const m = /:\s*([a-z]+)\s+or\s+([a-z]+)/i.exec(_entryToText(traitRole.entries || []));
+		if (m) { addRole(m[1]); addRole(m[2]); }
+	}
+	(creature?.spellcasting || []).forEach(sc => {
+		const qualifier = /\(([^)]+)\)/.exec(sc?.name || "");
+		if (qualifier) addRole(qualifier[1], getSpellcastingText(sc));
+	});
+
+	return {traitName: traitRole?.name || null, roles};
+}
+
+/** The role a stat block entry belongs to, from its name — "Protection (Defender Only)" → "defender". */
+export function getEntryRole (name, {roleKeys = []} = {}) {
+	const qualifier = /\(([^)]+)\)\s*$/.exec(name || "");
+	if (!qualifier) return null;
+	const words = qualifier[1].toLowerCase().replace(/\bonly\b/g, "").trim();
+	return roleKeys.includes(words) ? words : null;
+}
+
+/** Whether an entry applies, given the chosen role. Entries with no role apply to every role. */
+export function isEntryForRole (name, {role = null, roleKeys = []} = {}) {
+	const entryRole = getEntryRole(name, {roleKeys});
+	if (!entryRole) return true;
+	// With no role chosen yet, show everything rather than hiding half the stat block
+	return !role || entryRole === String(role).toLowerCase();
+}
+
+/** "Spellcasting (Healer)" → "Spellcasting" — the role is shown by the sheet, not repeated per row. */
+export function stripRoleQualifier (name) {
+	return String(name || "").replace(/\s*\([^)]*\)\s*$/, "").trim() || String(name || "");
+}
+
+/* -------------------------------------------- The Essentials Kit level tables -------------------------------------------- */
+
+const _ESK_TABLE_CAPTION_TO_TYPE = {experts: "expert", spellcasters: "spellcaster", warriors: "warrior"};
+
+/** Flatten one "New Features" cell into the features it grants; a cell may hold more than one. */
+function _cellToFeatures (cell) {
+	if (typeof cell === "string") return cell.trim() ? [{name: "", text: _entryToText(cell)}] : [];
+	if (Array.isArray(cell)) return cell.flatMap(_cellToFeatures);
+	if (!cell || typeof cell !== "object") return [];
+	if (cell.name) return [{name: cell.name, text: _entryToText(cell.entries ?? cell.entry ?? [])}];
+	return _cellToFeatures(cell.entries ?? cell.entry ?? []);
+}
+
+/**
+ * The three "Beyond 1st Level" tables from the Essentials Kit's sidekick rules, keyed by sidekick
+ * type. Each row is a level with the exact hit-point maximum the book gives it and the features it
+ * gains, so the builder can level a sidekick without any of this being restated in code.
+ *
+ * @return {Object<string, Array<{level: number, hpMax: number|null, hpFormula: string,
+ *   features: Array<{name: string, text: string}>}>>}
+ */
+export function getEskLevelTables (rule) {
+	const out = {};
+
+	const walk = entry => {
+		if (Array.isArray(entry)) return entry.forEach(walk);
+		if (!entry || typeof entry !== "object") return;
+
+		if (entry.type === "table") {
+			const mCaption = /^(\w+)\s+Beyond/i.exec(entry.caption || "");
+			const type = mCaption ? _ESK_TABLE_CAPTION_TO_TYPE[mCaption[1].toLowerCase()] : null;
+			if (type) {
+				out[type] = (entry.rows || []).map(row => {
+					const mHp = /^\s*(\d+)\s*(?:\(([^)]*)\))?/.exec(_entryToText(row[1]) || "");
+					return {
+						level: parseInt(_entryToText(row[0])) || null,
+						hpMax: mHp ? Number(mHp[1]) : null,
+						hpFormula: mHp?.[2]?.trim() || "",
+						features: _cellToFeatures(row[2]),
+					};
+				}).filter(it => it.level);
+			}
+		}
+
+		[entry.entries, entry.items].forEach(walk);
+	};
+	walk(rule?.entries);
+
+	return out;
+}
+
+/** The row for one level of one sidekick type, or `null` when the tables do not reach that level. */
+export function getEskLevelRow (tables, type, level) {
+	return (tables?.[type] || []).find(it => it.level === Number(level)) || null;
+}
+
+/** Everything an Essentials Kit sidekick has gained by a level: its features from level 2 up. */
+export function getEskFeaturesUpToLevel (tables, type, level) {
+	return (tables?.[type] || [])
+		.filter(it => it.level <= Number(level))
+		.flatMap(row => row.features.map(feature => ({...feature, level: row.level})));
+}
+
+/** The hit-point maximum the book gives this type at this level. */
+export function getEskHpForLevel (tables, type, level, {baseCreature = null} = {}) {
+	if (Number(level) <= 1) return baseCreature?.hp?.average ?? null;
+	return getEskLevelRow(tables, type, level)?.hpMax ?? null;
+}
+
+/**
+ * The best published stat block for a sidekick at a level. The Essentials Kit stats all three at
+ * 1st level, and the adventures that use them restate each one at 7th, 9th and 11th — so a DM
+ * levelling past the tables has a printed block to seed from rather than arithmetic.
+ *
+ * @param creatures Candidate stat blocks (anything with `type.sidekickType`).
+ * @return The highest-level match at or below `level`, else the lowest-level match.
+ */
+export function findSidekickStatBlock (creatures, {type, role = null, level = 1} = {}) {
+	const candidates = (creatures || [])
+		.filter(it => getSidekickTypeOfCreature(it) === type)
+		.filter(it => {
+			const tags = (it?.type?.tags || []).map(tag => String(typeof tag === "object" ? tag.tag : tag).toLowerCase());
+			// A block tagged for a role only fits that role; an untagged block fits any
+			return !tags.length || !role || tags.includes(String(role).toLowerCase());
+		})
+		.sort((a, b) => (a.level || 1) - (b.level || 1));
+	if (!candidates.length) return null;
+
+	const atOrBelow = candidates.filter(it => (it.level || 1) <= Number(level));
+	return atOrBelow.length ? atOrBelow[atOrBelow.length - 1] : candidates[0];
+}
+
+/** Which of the three sidekicks a stat block is, if any — the data flags this on `type`. */
+export function getSidekickTypeOfCreature (creature) {
+	const type = creature?.type;
+	return (type && typeof type === "object" && type.sidekickType) || null;
+}
+
+/** The role a published stat block was statted for ("Spellcaster (Healer)" → "healer"). */
+export function getSidekickRoleOfCreature (creature) {
+	const tags = creature?.type?.tags || [];
+	const first = tags[0];
+	const tag = typeof first === "object" ? first?.tag : first;
+	return tag ? String(tag).toLowerCase() : null;
 }

@@ -16,11 +16,12 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       match their templates, and runs the browser tests on every push and pull request.
 - [x] **Browser tests in the repo.** 136 checks across eight suites in `test/e2e/`, promoted from
       throwaway scripts. They caught real regressions repeatedly while the sheet was being built.
-- [x] **Sidekick builder** (`sidekick.html`). Any bestiary stat block seeds a sheet; one of the
-      three TCE sidekick classes drives its features and spell slots; everything stays
-      hand-editable, and a "How Sidekicks Level" box carries the 20-level table and the book's
-      own rules. A sidekick is just a character with `isSidekick: true`, so it reuses the whole
-      engine.
+- [x] **Sidekick builder** (`sidekick.html`, in the DM menu). Both published rulesets, read from
+      data: the Essentials Kit's three types with their roles (healer/mage, attacker/defender) and
+      its fixed level table driving a one-click level-up, and any bestiary stat block plus a TCE
+      sidekick class for levels past 6. Traits & Actions is a list of editable rows. Everything
+      stays hand-editable, and a sidekick is just a character with `isSidekick: true`, so it reuses
+      the whole engine.
 - [x] **Print / PDF output.** The *Print* button on every page. Character pages print as a plain
       sheet, sidekicks as a stat-block card. `_bindPrintPrep` works around what browsers refuse
       to print: textarea overflow, closed `<details>`, and panels with nothing in them.

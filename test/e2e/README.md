@@ -30,7 +30,7 @@ Failures print the check that failed, and every open page is screenshotted into
 | `spellpanel` | The spell panel appears only for a character with spells, from any source |
 | `sourcefilter` | Presets narrow the pickers; content already on a character is kept and flagged |
 | `weaponmastery` | Masteries are picked by weapon *type*, without owning the weapon |
-| `sidekick` | A stat block seeds the sheet, a sidekick class drives its features and level table, and every seeded value stays editable |
+| `sidekick` | Both sidekick rulesets: an Essentials Kit type + role with its level table and level-up box, and any stat block + a Tasha's class; traits as editable rows |
 
 ## Writing a new one
 

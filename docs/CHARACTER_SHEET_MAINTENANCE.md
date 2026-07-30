@@ -87,9 +87,11 @@ Your fork adds these three lines (they put the fork's pages in the Player menu):
 
 ```js
 this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "charbuilder.html", aText: "Character Builder"});
-this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "sidekick.html", aText: "Sidekick Builder"});
 this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "charactersheet.html", aText: "Character Sheet"});
+this._addElement_li({keyPath: [NavBar._CAT_DUNGEON_MASTER], page: "sidekick.html", aText: "Sidekick Builder"});
 ```
+
+(The sidekick builder sits in the *Dungeon Master* menu, the other two in *Player*.)
 
 **On conflict:** keep upstream's surrounding menu entries *and* these lines.
 

@@ -90,13 +90,21 @@ template, run `node node/generate-pages.js` and commit both.
   attacks with a **Wield** button and an automatic **Unarmed Strike**, an
   **Actions** panel (action/bonus/reaction economy), spell slots, death saves,
   **rests** (short/long), and a **conditions & concentration** tracker.
-- **Sidekick builder** (`sidekick.html`): a DM tool. Pick any bestiary creature
-  and it seeds abilities, AC, HP, speed, skill/save proficiencies, senses and
-  the trait/action text; pick one of the three TCE sidekick classes and the
-  ordinary class panel drives its feature timeline and (for the Spellcaster)
-  spell slots. Every seeded value stays hand-editable — nothing is locked. A
-  "How Sidekicks Level" box shows a 20-level table with the current level marked,
-  plus a toggle that renders the book's own TCE "Sidekicks" rules.
+- **Sidekick builder** (`sidekick.html`, navbar → Dungeon Master): a DM tool
+  covering **both** sidekick rulesets, read from data in each case.
+  - *Essentials Kit*: pick a **type** (Expert/Spellcaster/Warrior) and it seeds
+    the sheet from that ESK stat block; pick the **role** the block asks for
+    (healer/mage, attacker/defender) and it filters which of the block's entries
+    apply and sets the spellcasting ability. The `Sidekicks|ESK` variantrule's
+    three tables drive a **level-up box**: exact HP maximum + the level's
+    features, applied on a click, plus a "catch up to level N" for a sidekick
+    that started high.
+  - *Tasha's*: pick any bestiary creature + one of the three TCE sidekick
+    classes, and the ordinary class panel drives the 1–20 feature timeline and
+    spell slots. This is also the path past ESK's 6th-level ceiling.
+  - **Traits & Actions** is a list of editable rows (kind, name, text) with an
+    Add button — seeded per stat-block entry, tagged when a level granted it.
+  - Every seeded value stays hand-editable; nothing is locked.
 - **Print / PDF** (all pages, the *Print* button): the browser's print-to-PDF.
   The character pages print as a plain sheet; the sidekick prints as a
   **stat-block card** (small-caps name, red rules, abilities six across,
