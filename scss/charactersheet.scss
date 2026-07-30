@@ -793,6 +793,35 @@
 		border-color: rgb(255 255 255 / 12%);
 	}
 
+	// A wand's charges and a quiver's arrows, tracked inline on the item's own row
+	.cs__inv-charges,
+	.cs__inv-ammo {
+		gap: 2px;
+		margin-left: 4px;
+		white-space: nowrap;
+	}
+
+	.cs__inv-charges-val {
+		min-width: 30px;
+		text-align: center;
+		font-variant-numeric: tabular-nums;
+	}
+
+	// An ability-score grant that was skipped, still waiting to be assigned
+	.cs__offer {
+		margin-bottom: 6px;
+		padding: 5px 8px;
+		border-radius: 3px;
+		border: 1px solid rgb(200 140 40 / 45%);
+		background: rgb(200 140 40 / 10%);
+		font-size: 0.9em;
+	}
+
+	.cs__offer-actions {
+		gap: 6px;
+		margin-top: 3px;
+	}
+
 	// The concentration save a hit calls for: loud enough not to be missed, quiet enough to ignore
 	.cs__conc-prompt {
 		margin: 0 0 6px;

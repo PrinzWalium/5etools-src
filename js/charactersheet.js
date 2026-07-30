@@ -166,6 +166,7 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._renderConditions();
 		this._renderProficiencies();
 		this._renderDefenses();
+		this._renderAbilityOffers();
 		this._pRefreshTraitChoices();
 		this._renderDerived();
 		this._pRefreshFeatureEffects();

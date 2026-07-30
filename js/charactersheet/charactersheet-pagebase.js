@@ -90,6 +90,7 @@ export class CharacterPageBase {
 		this._comp._addHookBase("level", () => this._pMaybePromptLevelUp());
 		this._comp._addHookBase("proficiencies", () => this._renderProficiencies());
 		this._comp._addHookBase("defenses", () => this._renderDefenses());
+		this._comp._addHookBase("pendingAbilityOffers", () => this._renderAbilityOffers());
 		// Trait picks imply resistances, and equipped gear grants them for as long as it is worn
 		this._comp._addHookBase("inventory", () => this._renderDefenses());
 		this._comp._addHookBase("refSpecies", () => this._pRefreshTraitChoices());
@@ -888,7 +889,7 @@ export class CharacterPageBase {
 			textNo: "Skip",
 		});
 		if (!isApply) {
-			this._comp.appendToTextProp("proficienciesText", `Ability Scores (${name}): ${ptOffer} — assign manually`);
+			this._comp.addPendingAbilityOffer({source: name, offer: ptOffer, packages: choice.packages});
 			return;
 		}
 
@@ -913,7 +914,7 @@ export class CharacterPageBase {
 			const from = (pkg.weighted.from.length ? pkg.weighted.from : allAbvs).filter(abv => !taken.has(abv));
 			if (!from.length) break;
 			const [abv] = await pPickAbilities({count: 1, from, title: `${name}: which ability gets ${weight >= 0 ? "+" : ""}${weight}?`}) || [];
-			if (abv == null) return this._noteUnassignedAbilities(name, ptOffer);
+			if (abv == null) return this._noteUnassignedAbilities(name, ptOffer, choice.packages);
 			bonuses[abv] = (bonuses[abv] || 0) + weight;
 			taken.add(abv);
 		}
@@ -922,15 +923,66 @@ export class CharacterPageBase {
 		if (pkg.choose) {
 			const from = (pkg.choose.from.length ? pkg.choose.from : allAbvs).filter(abv => !taken.has(abv));
 			const picked = await pPickAbilities({count: pkg.choose.count, from, title: `${name}: increase which ability?`});
-			if (!picked) return this._noteUnassignedAbilities(name, ptOffer);
+			if (!picked) return this._noteUnassignedAbilities(name, ptOffer, choice.packages);
 			picked.forEach(abv => bonuses[abv] = (bonuses[abv] || 0) + pkg.choose.amount);
 		}
 
-		if (Object.keys(bonuses).length) this._comp.applyAbilityBonuses(bonuses, {source: name});
+		if (Object.keys(bonuses).length) {
+			this._comp.applyAbilityBonuses(bonuses, {source: name});
+			this._comp.clearPendingAbilityOffers(name);
+		}
 	}
 
-	_noteUnassignedAbilities (name, ptOffer) {
-		this._comp.appendToTextProp("proficienciesText", `Ability Scores (${name}): ${ptOffer} — assign manually`);
+	_noteUnassignedAbilities (name, ptOffer, packages = null) {
+		this._comp.addPendingAbilityOffer({source: name, offer: ptOffer, packages});
+	}
+
+	/**
+	 * Ability increases that were offered and skipped. Shown as something still to do rather than as
+	 * a note in a box that never goes away: assigning one settles it, and so does dismissing it.
+	 */
+	_renderAbilityOffers () {
+		const wrp = document.getElementById("cs-ability-offers");
+		if (!wrp) return;
+		wrp.innerHTML = "";
+
+		(this._comp._state.pendingAbilityOffers || []).forEach(offer => {
+			const box = document.createElement("div");
+			box.className = "cs__offer no-print";
+			box.innerHTML = `<div><span class="ve-bold">${offer.source.qq()}</span> grants <span class="ve-bold">${offer.offer.qq()}</span>, not yet assigned.</div>`;
+
+			const actions = document.createElement("div");
+			actions.className = "cs__offer-actions ve-flex-v-center";
+
+			// Without the packages (an offer carried over from an older character) there is nothing to
+			// walk, so the only honest options are to do it by hand and dismiss this
+			if (offer.packages?.length) {
+				const btnAssign = document.createElement("button");
+				btnAssign.type = "button";
+				btnAssign.className = "ve-btn ve-btn-xxs ve-btn-primary";
+				btnAssign.textContent = "Assign now";
+				btnAssign.addEventListener("click", () => this._pOnAssignPendingOffer(offer));
+				actions.appendChild(btnAssign);
+			}
+
+			const btnDismiss = document.createElement("button");
+			btnDismiss.type = "button";
+			btnDismiss.className = "ve-btn ve-btn-xxs ve-btn-default";
+			btnDismiss.textContent = offer.packages?.length ? "Dismiss" : "Done — dismiss";
+			btnDismiss.title = "Remove this reminder; the scores are yours to set by hand";
+			btnDismiss.addEventListener("click", () => this._comp.removePendingAbilityOffer(offer.id));
+			actions.appendChild(btnDismiss);
+
+			box.appendChild(actions);
+			wrp.appendChild(box);
+		});
+	}
+
+	async _pOnAssignPendingOffer (offer) {
+		// Walking the choice again settles it on success, and re-records it on a cancel
+		this._comp.removePendingAbilityOffer(offer.id);
+		await this._pResolveAbilityChoice({packages: offer.packages}, offer.source);
+		this._renderAbilityOffers();
 	}
 
 	async _onPickClass () {

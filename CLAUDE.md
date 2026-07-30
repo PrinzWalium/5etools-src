@@ -95,6 +95,13 @@ template, run `node node/generate-pages.js` and commit both.
   save DC or damage); ability boxes therefore expose both `mod` and `checkMod`.
   Losing hit points while concentrating raises a **concentration-save prompt**
   (DC 10 or half the damage) from a `hpCur` hook in the page base.
+  Inventory rows track **charges** (spent per click; a rest restores what the
+  item's `recharge`/`rechargeAmount` say, rolled) and **ammunition** (*Fire*,
+  plus the recover-half-after-a-battle rule).
+- An ability increase that was **skipped** becomes a `pendingAbilityOffers`
+  entry rendered beside the scores, not a note in a box — *Assign now* re-walks
+  the original packages. Old characters' notes migrate into offers on load
+  (`getStateWithMigratedAbilityNotes`, in `charstore`).
 - **Sidekick builder** (`sidekick.html`, navbar → Dungeon Master): a DM tool
   covering **both** sidekick rulesets, read from data in each case.
   - *Essentials Kit*: pick a **type** (Expert/Spellcaster/Warrior) and it seeds

@@ -1,5 +1,5 @@
 import {getEncumbrance, getWeaponAttack} from "./charactersheet-derive.js";
-import {getInventoryItemMeta} from "./charactersheet-equipment.js";
+import {getAmmoRecovered, getInventoryItemMeta, getRechargeRest} from "./charactersheet-equipment.js";
 import {getEntityDefenses} from "./charactersheet-defenses.js";
 import {pGetUserItemSearchFiltered} from "./charactersheet-sources.js";
 
@@ -63,6 +63,70 @@ class _InventoryRenderableCollection extends RenderableCollectionBase {
 			btn.addEventListener("click", () => this._comp.addAttack(getWeaponAttack(this._comp._getState(), entity)));
 			meta.wrpFlags.appendChild(btn);
 		}
+
+		if (entity.chargesMax) meta.wrpFlags.appendChild(this._getChargesControl(entity));
+		if (entity.isAmmo) meta.wrpFlags.appendChild(this._getAmmoControl(entity));
+	}
+
+	/** "3/7 charges", spent and restored a click at a time; a rest gives back what the item says. */
+	_getChargesControl (entity) {
+		const used = Math.max(0, Number(entity.chargesUsed) || 0);
+		const left = Math.max(0, entity.chargesMax - used);
+
+		const wrp = document.createElement("span");
+		wrp.className = "cs__inv-charges ve-flex-v-center";
+
+		const restKind = getRechargeRest(entity.recharge);
+		const ptRegain = entity.rechargeAmount != null ? Renderer.stripTags(`${entity.rechargeAmount}`) : "all";
+		wrp.title = restKind
+			? `Regains ${ptRegain} charges on a ${restKind} rest (${entity.recharge})`
+			: `${entity.recharge === "special" ? "The item's own text says how these come back" : "No stated recharge"}`;
+
+		const mkBtn = (label, delta, hint) => {
+			const btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = "ve-btn ve-btn-xxs ve-btn-default no-print";
+			btn.textContent = label;
+			btn.title = hint;
+			btn.addEventListener("click", () => this._comp.adjustCharges(entity.id, delta));
+			return btn;
+		};
+
+		const disp = document.createElement("span");
+		disp.className = "cs__inv-charges-val";
+		disp.textContent = `${left}/${entity.chargesMax}`;
+
+		wrp.append(mkBtn("−", -1, "Spend a charge"), disp, mkBtn("+", 1, "Give a charge back"));
+		return wrp;
+	}
+
+	/** Ammunition: one off the quiver per shot, and the battlefield search that gets half of it back. */
+	_getAmmoControl (entity) {
+		const spent = Math.max(0, Number(entity.ammoSpent) || 0);
+
+		const wrp = document.createElement("span");
+		wrp.className = "cs__inv-ammo ve-flex-v-center";
+
+		const btnFire = document.createElement("button");
+		btnFire.type = "button";
+		btnFire.className = "ve-btn ve-btn-xxs ve-btn-default no-print cs__inv-fire";
+		btnFire.textContent = "Fire";
+		btnFire.title = "Spend one";
+		btnFire.disabled = !(Number(entity.quantity) || 0);
+		btnFire.addEventListener("click", () => this._comp.spendAmmo(entity.id));
+		wrp.appendChild(btnFire);
+
+		if (spent) {
+			const btnRecover = document.createElement("button");
+			btnRecover.type = "button";
+			btnRecover.className = "ve-btn ve-btn-xxs ve-btn-default no-print cs__inv-recover";
+			btnRecover.textContent = `Recover ${getAmmoRecovered(spent)}`;
+			btnRecover.title = `${spent} spent — a minute searching the battlefield recovers half of them`;
+			btnRecover.addEventListener("click", () => this._comp.recoverAmmo(entity.id));
+			wrp.appendChild(btnRecover);
+		}
+
+		return wrp;
 	}
 
 	_getFlagToggle (entity, prop, labelOff, labelOn) {

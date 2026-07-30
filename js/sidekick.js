@@ -125,6 +125,7 @@ class SidekickPage extends CharacterPageBase {
 		this._renderConditions();
 		this._renderProficiencies();
 		this._renderDefenses();
+		this._renderAbilityOffers();
 		this._renderSubtitle();
 		this._renderClassSelect();
 		this._renderTypeSelect();

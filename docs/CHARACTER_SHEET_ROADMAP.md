@@ -45,10 +45,13 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       and *Kept it* / *Lost it* — the latter clearing the spell. Watches the hit-point value rather
       than the Damage button, so typing a lower number counts; healing and switching characters do
       not.
-- [ ] **Item charges and ammunition.** Spell-carrying items are now flagged, but nothing tracks a
-      wand's charges or a quiver's arrows.
-- [ ] **Stale "assign manually" notes.** Skipping an ability-score offer leaves a note in the
-      proficiencies box forever, even once the scores are assigned by hand.
+- [x] **Item charges and ammunition.** An item with charges shows what it has left and spends them
+      a click at a time; a rest gives back exactly what the item says (`1d6 + 1` at dawn is rolled,
+      not assumed), and only on the rest that recharges it. Ammunition has *Fire*, and the
+      battlefield search that recovers half of what was spent.
+- [x] **Stale "assign manually" notes.** A skipped ability increase is now an outstanding offer
+      shown beside the ability scores, with *Assign now* (which walks the original choice) and
+      *Dismiss*. Assigning settles it, and an old character's note is migrated into one on load.
 
 ## Later — quality of life
 

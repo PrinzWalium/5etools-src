@@ -2,6 +2,8 @@ import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SCHEMA_VERSION, CHAR_SHEET_SKILLS, EXPE
 import {getGrantedFeats, getProfListDisplay} from "./charactersheet-choices.js";
 import {getClassProficiencies, getEntityProficiencies, getMulticlassProficiencies} from "./charactersheet-proficiencies.js";
 import {getEntityDefenses} from "./charactersheet-defenses.js";
+import {getStateWithMigratedAbilityNotes} from "./charactersheet-charstore.js";
+import {getAmmoRecovered, getChargesAfterRest} from "./charactersheet-equipment.js";
 import {
 	getCreatureTraitEntries,
 	getSidekickRoleOfCreature,
@@ -120,6 +122,7 @@ export class CharacterModel extends BaseComponent {
 			proficiencies: [], // [{id, kind, name, source}] — armor/weapon/tool/language, with what granted each
 			defenses: [], // [{id, kind, name, note, source}] — resistances/immunities/vulnerabilities/senses (gear is derived, not stored)
 			traitChoices: [], // [{id, source, trait, level, option, resist}] — "choose one" species traits
+			pendingAbilityOffers: [], // [{id, source, offer, packages}] — ability increases offered but not yet assigned
 
 			featuresText: "",
 			equipmentText: "",
@@ -372,6 +375,29 @@ export class CharacterModel extends BaseComponent {
 		this._state.defenses = (this._state.defenses || []).filter(it => it.id !== id);
 	}
 
+	/* -------------------------------------------- Unassigned ability increases -------------------------------------------- */
+
+	/**
+	 * Remember an ability-score increase that was offered and not taken, so the sheet can offer it
+	 * again rather than leaving a note in the box forever. The packages come along, which is what
+	 * makes "assign it now" possible later.
+	 */
+	addPendingAbilityOffer ({source, offer, packages = null}) {
+		const cur = this._state.pendingAbilityOffers || [];
+		if (cur.some(it => it.source === source && it.offer === offer)) return false;
+		this._state.pendingAbilityOffers = [...cur, {id: CryptUtil.uid(), source, offer, packages}];
+		return true;
+	}
+
+	removePendingAbilityOffer (id) {
+		this._state.pendingAbilityOffers = (this._state.pendingAbilityOffers || []).filter(it => it.id !== id);
+	}
+
+	/** Drop every outstanding offer from one source — it was assigned, or the source itself is gone. */
+	clearPendingAbilityOffers (source) {
+		this._state.pendingAbilityOffers = (this._state.pendingAbilityOffers || []).filter(it => it.source !== source);
+	}
+
 	/* -------------------------------------------- "Choose one" trait picks -------------------------------------------- */
 
 	/**
@@ -426,6 +452,7 @@ export class CharacterModel extends BaseComponent {
 		this._state.deathFail = 0;
 		this._state.concentration = "";
 		this._state.exhaustion = Math.max(0, (Number(this._state.exhaustion) || 0) - 1);
+		this.rechargeItems("long");
 	}
 
 	/** A short rest: restore Pact Magic slots (Warlock) and short-rest class resources (Ki, Wild Shape, ...). */
@@ -434,6 +461,67 @@ export class CharacterModel extends BaseComponent {
 		const used = {...this._state.resourcesUsed};
 		Object.keys(used).forEach(label => { if (EXPENDABLE_RESOURCES[label] === "short") used[label] = 0; });
 		this._state.resourcesUsed = used;
+		this.rechargeItems("short");
+	}
+
+	/* -------------------------------------------- Charges & ammunition -------------------------------------------- */
+
+	/**
+	 * Give back the charges this rest restores. The amount is often a die roll, so it is rolled here
+	 * rather than assumed — a Wand of Fireballs regains 1d6 + 1 at dawn, not all seven.
+	 * @return {Array<{name: string, regained: number}>} what came back, for the sheet to report
+	 */
+	rechargeItems (restKind) {
+		const report = [];
+		let isChanged = false;
+
+		this._state.inventory.forEach(item => {
+			if (!item.chargesMax) return;
+			const before = Math.max(0, Number(item.chargesUsed) || 0);
+			const after = getChargesAfterRest(item, restKind);
+			if (after === before) return;
+			item.chargesUsed = after;
+			isChanged = true;
+			report.push({name: item.name, regained: before - after});
+		});
+
+		if (isChanged) this._triggerCollectionUpdate("inventory");
+		return report;
+	}
+
+	/** Spend or restore charges on one item, clamped to what it can hold. */
+	adjustCharges (id, delta) {
+		const item = this._state.inventory.find(it => it.id === id);
+		if (!item?.chargesMax) return;
+		const used = Math.max(0, Number(item.chargesUsed) || 0);
+		item.chargesUsed = Math.max(0, Math.min(item.chargesMax, used - delta));
+		this._triggerCollectionUpdate("inventory");
+	}
+
+	/**
+	 * Fire a piece of ammunition: one off the pile, and one onto the count of what is lying on the
+	 * battlefield waiting to be picked back up.
+	 */
+	spendAmmo (id, n = 1) {
+		const item = this._state.inventory.find(it => it.id === id);
+		if (!item) return;
+		const have = Math.max(0, Number(item.quantity) || 0);
+		const spend = Math.min(have, Math.max(0, n));
+		if (!spend) return;
+		item.quantity = have - spend;
+		item.ammoSpent = (Number(item.ammoSpent) || 0) + spend;
+		this._triggerCollectionUpdate("inventory");
+	}
+
+	/** Search the battlefield: half of what was spent comes back, and the rest is gone for good. */
+	recoverAmmo (id) {
+		const item = this._state.inventory.find(it => it.id === id);
+		if (!item?.ammoSpent) return 0;
+		const recovered = getAmmoRecovered(item.ammoSpent);
+		item.quantity = (Number(item.quantity) || 0) + recovered;
+		item.ammoSpent = 0;
+		this._triggerCollectionUpdate("inventory");
+		return recovered;
 	}
 
 	/** Replace this character's source filter (which books its pickers offer). */
@@ -606,6 +694,7 @@ export class CharacterModel extends BaseComponent {
 			this.clearTraitChoicesFromSource(prev);
 			this.setProficienciesFromSource(prev, []);
 			this.setDefensesFromSource(prev, []);
+			this.clearPendingAbilityOffers(prev);
 		}
 
 		this._state.speciesText = doc.n;
@@ -868,7 +957,7 @@ export class CharacterModel extends BaseComponent {
 	 */
 	static getMigratedState (saved) {
 		if (saved.version == null && saved.fields) return {version: CHAR_SHEET_SCHEMA_VERSION, state: this._getStateFromLegacy(saved)};
-		if (saved.version === CHAR_SHEET_SCHEMA_VERSION && saved.state) return saved;
+		if (saved.version === CHAR_SHEET_SCHEMA_VERSION && saved.state) return {...saved, state: getStateWithMigratedAbilityNotes(saved.state)};
 		return null;
 	}
 
