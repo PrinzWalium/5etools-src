@@ -90,6 +90,11 @@ template, run `node node/generate-pages.js` and commit both.
   attacks with a **Wield** button and an automatic **Unarmed Strike**, an
   **Actions** panel (action/bonus/reaction economy), spell slots, death saves,
   **rests** (short/long), and a **conditions & concentration** tracker.
+  **Exhaustion** applies the 2024 −2/level to every d20 test (checks, saves,
+  skills, initiative, passive Perception, weapon and spell attacks — never a
+  save DC or damage); ability boxes therefore expose both `mod` and `checkMod`.
+  Losing hit points while concentrating raises a **concentration-save prompt**
+  (DC 10 or half the damage) from a `hpCur` hook in the page base.
 - **Sidekick builder** (`sidekick.html`, navbar → Dungeon Master): a DM tool
   covering **both** sidekick rulesets, read from data in each case.
   - *Essentials Kit*: pick a **type** (Expert/Spellcaster/Warrior) and it seeds

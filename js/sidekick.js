@@ -596,6 +596,7 @@ class SidekickPage extends CharacterPageBase {
 		if (elePb) elePb.textContent = CharacterPageBase.fmtBonus(derived.pb);
 
 		this._renderAbilitiesSavesSkills(derived);
+		this._renderExhaustionNote(derived);
 		this._renderRoll("cs-initiative-roll", derived.initiative, "Initiative", derived.initiativeParts);
 
 		// Hit points the rules would give, as a hint rather than a correction

@@ -34,10 +34,16 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       condition immunities all land in the notes box. They should be structured and attributed to
       their source, the way proficiencies now are, and rendered as real fields on the sheet.
       *(The Dragonborn work already models the shape: a trait pick carries its resistance.)*
-- [ ] **Exhaustion is tracked but does nothing.** The 2024 rule is −2 per level on every d20 test.
-      The counter and the derivation engine both exist; they are simply not connected.
-- [ ] **No concentration prompt on damage.** When current HP drops while concentrating, offer the
-      DC 10 (or half the damage, whichever is higher) Constitution save.
+- [x] **Exhaustion now costs what it should.** −2 per level on every d20 test: ability checks,
+      saving throws, skills, initiative, passive Perception and attack rolls, weapon and spell
+      alike. Not on a spell save DC, which is set rather than rolled, and not on damage. Each
+      affected number's breakdown names exhaustion as the reason, and the counter says what it is
+      costing ("−4 to d20 tests, −10 ft. speed").
+- [x] **The concentration save is prompted.** Losing hit points while concentrating raises a
+      prompt with the DC (10, or half the damage), the spell's name, a Constitution save to roll,
+      and *Kept it* / *Lost it* — the latter clearing the spell. Watches the hit-point value rather
+      than the Damage button, so typing a lower number counts; healing and switching characters do
+      not.
 - [ ] **Item charges and ammunition.** Spell-carrying items are now flagged, but nothing tracks a
       wand's charges or a quiver's arrows.
 - [ ] **Stale "assign manually" notes.** Skipping an ability-score offer leaves a note in the

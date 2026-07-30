@@ -256,6 +256,7 @@ class CharacterSheetPage extends CharacterPageBase {
 		document.getElementById("cs-pb").textContent = CharacterPageBase.fmtBonus(derived.pb);
 
 		this._renderAbilitiesSavesSkills(derived);
+		this._renderExhaustionNote(derived);
 
 		this._renderArmorClass(derived.armorClass);
 

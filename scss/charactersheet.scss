@@ -793,6 +793,26 @@
 		border-color: rgb(255 255 255 / 12%);
 	}
 
+	// The concentration save a hit calls for: loud enough not to be missed, quiet enough to ignore
+	.cs__conc-prompt {
+		margin: 0 0 6px;
+		padding: 5px 8px;
+		border-radius: 3px;
+		border: 1px solid rgb(200 60 60 / 45%);
+		background: rgb(200 60 60 / 9%);
+		font-size: 0.9em;
+	}
+
+	.ve-night-mode .cs__conc-prompt {
+		border-color: rgb(240 130 130 / 40%);
+		background: rgb(240 130 130 / 12%);
+	}
+
+	.cs__conc-prompt-actions {
+		gap: 6px;
+		margin-top: 3px;
+	}
+
 	/* -------------------------------------------- Sidekick builder -------------------------------------------- */
 
 	// "What this sidekick gains at each level" — a reference table, so it is dense on purpose

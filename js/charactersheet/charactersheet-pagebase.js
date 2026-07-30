@@ -1,8 +1,8 @@
-import {CHAR_SHEET_ABILITIES, CHAR_SHEET_CONDITIONS, CHAR_SHEET_SKILLS, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
+import {CHAR_SHEET_ABILITIES, CHAR_SHEET_CONDITIONS, CHAR_SHEET_SKILLS, EXHAUSTION_MAX_LEVEL, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
 import {CharacterModel} from "./charactersheet-model.js";
 import {getCharacterLabel, getMigratedStore, getNewStore} from "./charactersheet-charstore.js";
 import {getLevelUpHp} from "./charactersheet-levelengine.js";
-import {formatBreakdown} from "./charactersheet-derive.js";
+import {deriveCharacterSheet, formatBreakdown, getConcentrationSaveDc} from "./charactersheet-derive.js";
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {CharacterWizard} from "./charactersheet-wizard.js";
 import {CHOICE_TYPE_ABILITY, CHOICE_TYPE_LANGUAGE, CHOICE_TYPE_SKILL, CHOICE_TYPE_TOOL, getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats, getPendingChoices, getResistChoices} from "./charactersheet-choices.js";
@@ -96,6 +96,7 @@ export class CharacterPageBase {
 
 		this._bindBreakdownPopovers();
 		this._bindPrintPrep();
+		this._bindConcentrationWatch();
 		this._initStore();
 
 		this._doRenderAll();
@@ -213,9 +214,14 @@ export class CharacterPageBase {
 	_renderAbilitiesSavesSkills (derived) {
 		CHAR_SHEET_ABILITIES.forEach(([abv, name]) => {
 			const abil = derived.abilities[abv];
-			// The modifier comes from the score; the score itself is explained on its input
-			this._renderRoll(`cs-mod-${abv}`, abil.mod, `${name} check`,
-				[{label: `Score ${abil.score}`, isText: true}, ...abil.scoreParts.slice(1)], {isTapTarget: false});
+			// The modifier comes from the score; the score itself is explained on its input. The
+			// number shown is what an ability *check* rolls, so it carries any exhaustion penalty.
+			this._renderRoll(`cs-mod-${abv}`, abil.checkMod, `${name} check`,
+				[
+					{label: `Score ${abil.score}`, isText: true},
+					...abil.scoreParts.slice(1),
+					...(derived.exhaustion?.penalty ? [{label: `Exhaustion ${derived.exhaustion.level}`, value: derived.exhaustion.penalty}] : []),
+				], {isTapTarget: false});
 			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-abil-${abv}`), name, abil.scoreParts);
 			this._renderRoll(`cs-saveroll-${abv}`, derived.saves[abv].mod, `${name} save`, derived.saves[abv].parts, {isTapTarget: false});
 			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-savename-${abv}`), `${name} save`, derived.saves[abv].parts, derived.saves[abv].mod);
@@ -329,6 +335,87 @@ export class CharacterPageBase {
 		if (!delta) return;
 		this._comp._state.hpCur = (Number(this._comp._state.hpCur) || 0) + (sign * delta);
 		eleDelta.value = "0";
+	}
+
+	/* -------------------------------------------- Concentration -------------------------------------------- */
+
+	/**
+	 * Losing hit points while concentrating calls for a Constitution save, and forgetting it is the
+	 * single easiest thing to miss at the table. Watching `hpCur` rather than the Damage button means
+	 * typing a lower number into the field counts too.
+	 */
+	_bindConcentrationWatch () {
+		this._lastHpCur = Number(this._comp._state.hpCur) || 0;
+
+		this._comp._addHookBase("hpCur", () => {
+			const prev = this._lastHpCur;
+			const next = Number(this._comp._state.hpCur) || 0;
+			this._lastHpCur = next;
+
+			// Loading a character or switching to another is not damage
+			if (this._isLoading) return;
+			const damage = prev - next;
+			if (damage <= 0) return;
+			if (!(this._comp._state.concentration || "").trim()) return;
+
+			this._renderConcentrationPrompt(damage);
+		});
+
+		// Dropping the spell by hand also dismisses the prompt
+		this._comp._addHookBase("concentration", () => {
+			if (!(this._comp._state.concentration || "").trim()) this._hideConcentrationPrompt();
+		});
+	}
+
+	_hideConcentrationPrompt () {
+		document.getElementById("cs-conc-prompt")?.classList.add("ve-hidden");
+	}
+
+	_renderConcentrationPrompt (damage) {
+		const wrp = document.getElementById("cs-conc-prompt");
+		if (!wrp) return;
+
+		const dc = getConcentrationSaveDc(damage);
+		const save = deriveCharacterSheet(this._comp._getState()).saves.con;
+		const spell = this._comp._state.concentration;
+
+		wrp.innerHTML = `
+			<div class="cs__conc-prompt-line">
+				<span class="ve-bold">DC ${dc}</span> Constitution save to keep
+				<span class="ve-bold">${spell.qq()}</span>
+				<span class="ve-muted">(${damage} damage)</span>
+			</div>
+			<div class="cs__conc-prompt-actions ve-flex-v-center">
+				<span class="cs__roll cs__conc-roll"></span>
+				<button type="button" class="ve-btn ve-btn-xxs ve-btn-default" data-cs-conc="keep">Kept it</button>
+				<button type="button" class="ve-btn ve-btn-xxs ve-btn-danger" data-cs-conc="lose">Lost it</button>
+			</div>`;
+
+		wrp.querySelector(".cs__conc-roll").innerHTML = Renderer.get()
+			.render(`{@d20 ${save.mod}|${CharacterPageBase.fmtBonus(save.mod)}|Concentration (Constitution save)}`);
+		wrp.querySelector("[data-cs-conc=keep]").addEventListener("click", () => this._hideConcentrationPrompt());
+		wrp.querySelector("[data-cs-conc=lose]").addEventListener("click", () => {
+			this._comp._state.concentration = "";
+			this._hideConcentrationPrompt();
+		});
+
+		wrp.classList.remove("ve-hidden");
+	}
+
+	/** What exhaustion is costing this character, stated next to the counter. */
+	_renderExhaustionNote (derived) {
+		const ele = document.getElementById("cs-exhaustion-note");
+		if (!ele) return;
+
+		const {level, penalty, speedPenaltyFt} = derived.exhaustion;
+		if (!level) { ele.textContent = ""; return; }
+
+		ele.textContent = level >= EXHAUSTION_MAX_LEVEL
+			? "dead"
+			: `${penalty} to d20 tests, −${speedPenaltyFt} ft. speed`;
+		ele.title = level >= EXHAUSTION_MAX_LEVEL
+			? "The sixth level of exhaustion is death"
+			: `Every ability check, saving throw and attack roll is reduced by ${Math.abs(penalty)}`;
 	}
 
 	/** Bind the species/background/class search buttons shared by both pages. */

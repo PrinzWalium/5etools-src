@@ -261,9 +261,11 @@
 						<span class="cs__lbl">Concentrating on</span>
 						<input type="text" id="cs-concentration" class="ve-form-control ve-input-xs" placeholder="e.g. Bless">
 					</label>
+					<div id="cs-conc-prompt" class="cs__conc-prompt ve-hidden no-print"><!-- populated by JS --></div>
 					<label class="cs__field cs__field--inline ve-mb-1" title="0–6; a long rest reduces it by one">
 						<span class="cs__lbl">Exhaustion</span>
 						<input type="number" id="cs-exhaustion" min="0" max="6" value="0" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs">
+						<span class="ve-muted ve-small ve-ml-2" id="cs-exhaustion-note"><!-- populated by JS --></span>
 					</label>
 					<div class="cs__conditions ve-flex ve-flex-wrap" id="cs-conditions"><!-- populated by JS --></div>
 				</div>
