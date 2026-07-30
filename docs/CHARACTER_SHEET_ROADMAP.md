@@ -53,6 +53,17 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       shown beside the ability scores, with *Assign now* (which walks the original choice) and
       *Dismiss*. Assigning settles it, and an old character's note is migrated into one on load.
 
+## Next — the turn helper
+
+- [ ] **"What can I do right now?"** The Actions panel lists what the character *has*; it should
+      list what they can actually do this turn, with everything else greyed and annotated by live
+      state: no 3rd-level slots left, the wand is at 0 charges, the quiver is empty, you are already
+      concentrating on something else, everything is at −4 from exhaustion, you are Prone or
+      Grappled. No mainstream sheet gates its action list on live resources — they print a static
+      list and leave the bookkeeping to the player. This fork already tracks every input it needs
+      (slots, charges, ammunition, concentration, exhaustion, conditions), so this is the payoff of
+      that work rather than new rules. One character, one device: no sharing problem.
+
 ## Later — quality of life
 
 - [ ] **Print polish.** The print path now works and is tested by hand, but it has no automated
@@ -64,6 +75,20 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
 - [ ] **Sharing a character** with a DM — a link or an export they can open read-only.
 - [ ] **Homebrew.** 5etools has a homebrew loader; the builder ignores it entirely, so a
       homebrew class or species cannot be picked.
+
+## Maybe
+
+- [ ] **A party sheet.** One page for the whole party: senses, resistances and immunities,
+      languages, tool proficiencies, passive Perception, spells known — the columns that answer
+      "does anyone have darkvision / speak Draconic / resist fire", which is the question that
+      actually stops play. No other sheet answers it, and everything it needs is structured here.
+      *The catch:* characters live in each player's own browser, and live sync would need a server
+      or WebRTC signalling — which costs the no-account, static-site property. The workable version
+      is snapshots: players send a *Save to File* export (or a link whose payload sits in the URL
+      fragment and never reaches a server) once per level-up, and the page flags a stale one
+      ("level 4 snapshot, party is level 6"). The columns that matter are build data, so a snapshot
+      is nearly as good as live — but it costs every player a send at each level-up, and only the
+      DM sees the benefit. Worth doing if that trade stops feeling annoying.
 
 ## Housekeeping
 
