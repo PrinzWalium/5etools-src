@@ -119,6 +119,37 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       is nearly as good as live — but it costs every player a send at each level-up, and only the
       DM sees the benefit. Worth doing if that trade stops feeling annoying.
 
+- [ ] **Server-side characters.** The thing that would make the party sheet live, and let a player
+      pick up their character on another device. Sketched here so the shape is on record; not
+      committed to, because it is the first part of this project that could break for other people.
+
+  **The client barely changes.** Persistence is already behind a seam — `CharacterPageBase` owns
+  `_initStore` / `_persistNow` / `_doLoadState`, and the store format is a pure module. Define a
+  storage adapter (`list`, `load`, `save`, `delete`) with two implementations, `LocalStorage` and
+  `Remote`, and pick one at init. The model, the panels and the derivations never learn about it.
+  One new fork-owned module and a few lines in the page base: **no new upstream conflict points**,
+  the count stays at four.
+
+  **Local-first, never server-first.** Write to localStorage always, then queue a push. The UI
+  never blocks on the network, play survives the wifi dying mid-session, and with no sync URL
+  configured the app behaves exactly as it does today.
+
+  **The server is small.** A key-value store of character envelopes with ownership:
+  `POST /api/session` (join with a campaign invite code → long-lived token), then
+  `GET/PUT/DELETE /api/characters[/:id]`. Concurrency by a per-character version and `If-Match`;
+  on a 409 ask "keep mine / take theirs" rather than attempting a merge — characters are
+  single-writer in practice. The wire format is the existing save-file envelope, so an export is a
+  valid upload and there is no second schema to maintain.
+
+  **Deployment stays boring.** A Cloudflare Worker with D1/KV needs no container and no backups to
+  run; the alternative is a small container beside the existing image, which is yours to patch and
+  restore. Either way the client reads the sync URL from a runtime `config.js` the image can drop
+  in, so the Pages build keeps producing a working, sync-less site. The server lives in `server/`
+  with its own `package.json`, so the root dependency tree and CI are untouched.
+
+  **The real cost is not the code** — that is a weekend. It is owning uptime, backups, restores and
+  token revocation, for data that today cannot be lost except by the user's own browser.
+
 ## Housekeeping
 
 - [x] **Protect `main`.** Branch rulesets are in place for `main` and `beta`, so the
