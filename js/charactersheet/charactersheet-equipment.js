@@ -71,6 +71,8 @@ export function getInventoryItemMeta (ent) {
 		if (ent.rechargeAmount != null) out.rechargeAmount = ent.rechargeAmount;
 	}
 	if (isAmmunitionType(type)) out.isAmmo = true;
+	// Which ammunition this weapon needs, so the sheet can tell you the quiver is empty
+	if (ent.ammoType) out.ammoType = ent.ammoType;
 	return out;
 }
 

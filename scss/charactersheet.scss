@@ -793,6 +793,48 @@
 		border-color: rgb(255 255 255 / 12%);
 	}
 
+	// What the character cannot do right now: dimmed and struck, with the reason beside it, rather
+	// than hidden — knowing the option exists but is spent is the point
+	.cs__act-row--blocked {
+		opacity: 0.5;
+
+		.cs__act-reason {
+			color: #a33;
+		}
+	}
+
+	.ve-night-mode .cs__act-row--blocked .cs__act-reason {
+		color: #e88;
+	}
+
+	.cs__act-row--warn .cs__act-reason {
+		color: #a70;
+	}
+
+	.ve-night-mode .cs__act-row--warn .cs__act-reason {
+		color: #ec9;
+	}
+
+	.cs__act-reason {
+		font-style: italic;
+		margin-left: 4px;
+	}
+
+	// Conditions and exhaustion apply to the whole turn, so they sit above the list
+	.cs__turn-notes {
+		margin-bottom: 6px;
+		padding: 4px 8px;
+		border-radius: 3px;
+		border: 1px solid rgb(200 140 40 / 45%);
+		background: rgb(200 140 40 / 10%);
+	}
+
+	.cs__turn-notes--stop {
+		border-color: rgb(200 60 60 / 55%);
+		background: rgb(200 60 60 / 12%);
+		font-weight: bold;
+	}
+
 	// A wand's charges and a quiver's arrows, tracked inline on the item's own row
 	.cs__inv-charges,
 	.cs__inv-ammo {

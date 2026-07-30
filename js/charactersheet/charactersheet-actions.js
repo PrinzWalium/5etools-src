@@ -110,7 +110,16 @@ export function buildActionEconomy ({attacks = [], unarmed = null, spells = [], 
 		// Unknown casting time (e.g. legacy saves) defaults to Action, which fits the large majority of spells.
 		const ct = sp.castTime === "bonus" || sp.castTime === "reaction" || sp.castTime === "action" ? sp.castTime : "action";
 		if (sp.castTime === "other") return; // ritual/long-cast: skip the combat economy
-		out[ct].push({label: sp.name, source: sp.source, sub: sp.level === 0 ? "Cantrip" : `Level ${sp.level}`, kind: "spell"});
+		out[ct].push({
+			label: sp.name,
+			source: sp.source,
+			sub: sp.level === 0 ? "Cantrip" : `Level ${sp.level}`,
+			kind: "spell",
+			// Carried through for the availability check: which slot it needs, and whether casting it
+			// would drop whatever is already being concentrated on
+			spellLevel: sp.level,
+			isConcentration: !!sp.isConcentration,
+		});
 	});
 
 	const seen = new Set();

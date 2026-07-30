@@ -160,6 +160,28 @@ export class CharacterSheetClassData {
 			|| null;
 	}
 
+	/**
+	 * Load the class (and subclass) entity behind each of a character's class entries — what the
+	 * panels need before they can read slots, resources or features off the data.
+	 * @return {Promise<Array<{entry: Object, cls: Object|null, sc: Object|null}>>}
+	 */
+	static async pGetLoadedClasses (classes) {
+		const out = [];
+		for (const entry of classes || []) {
+			const cls = await this.pGetClass({name: entry.name, source: entry.source}).catch(() => null);
+			const sc = entry.subclass
+				? await this.pGetSubclass({
+					className: entry.name,
+					classSource: entry.source,
+					shortName: entry.subclass.shortName,
+					source: entry.subclass.source,
+				}).catch(() => null)
+				: null;
+			out.push({entry, cls, sc});
+		}
+		return out;
+	}
+
 	/** All spells from site + prerelease + brew, excluded entries removed. Cached. */
 	static async pGetAllSpells () {
 		return this._filterBySource(await this.pGetAllSpellsUnfiltered());

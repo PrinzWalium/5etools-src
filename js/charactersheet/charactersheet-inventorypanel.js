@@ -4,10 +4,12 @@ import {getEntityDefenses} from "./charactersheet-defenses.js";
 import {pGetUserItemSearchFiltered} from "./charactersheet-sources.js";
 
 // Anything whose effect depends on being worn or held: armor and weapons, the items that carry a
-// bonus, and the ring or cloak whose whole point is the resistance it grants while worn
+// bonus, the ring or cloak whose whole point is the resistance it grants while worn, and the wand
+// whose charges are only usable with it in hand
 const _isEquippable = it => it.isArmor || it.isWeapon
 	|| it.bonusAc != null || it.bonusSavingThrow != null || it.bonusSpellSaveDc != null || it.bonusSpellAttack != null
 	|| ["LA", "MA", "HA", "S", "M", "R"].includes(it.type)
+	|| !!it.chargesMax
 	|| !!getEntityDefenses(it).length;
 const _isWeapon = it => it.isWeapon || ["M", "R"].includes(it.type);
 

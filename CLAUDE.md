@@ -98,6 +98,9 @@ template, run `node node/generate-pages.js` and commit both.
   Inventory rows track **charges** (spent per click; a rest restores what the
   item's `recharge`/`rechargeAmount` say, rolled) and **ammunition** (*Fire*,
   plus the recover-half-after-a-battle rule).
+  The **Actions panel is a turn helper**: `charactersheet-availability.js` grades
+  each entry against live state (slots, charges, ammo, concentration,
+  conditions) and the panel greys the blocked ones with their reason.
 - An ability increase that was **skipped** becomes a `pendingAbilityOffers`
   entry rendered beside the scores, not a note in a box — *Assign now* re-walks
   the original packages. Old characters' notes migrate into offers on load

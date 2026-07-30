@@ -55,14 +55,13 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
 
 ## Next — the turn helper
 
-- [ ] **"What can I do right now?"** The Actions panel lists what the character *has*; it should
-      list what they can actually do this turn, with everything else greyed and annotated by live
-      state: no 3rd-level slots left, the wand is at 0 charges, the quiver is empty, you are already
-      concentrating on something else, everything is at −4 from exhaustion, you are Prone or
-      Grappled. No mainstream sheet gates its action list on live resources — they print a static
-      list and leave the bookkeeping to the player. This fork already tracks every input it needs
-      (slots, charges, ammunition, concentration, exhaustion, conditions), so this is the payoff of
-      that work rather than new rules. One character, one device: no sharing problem.
+- [x] **"What can I do right now?"** The Actions panel now says what is *possible*, not just what
+      exists. A spell with no slot left, an empty wand, an empty quiver and a spent class resource
+      are greyed with the reason beside them; a concentration spell warns that it would drop what
+      is already running; an incapacitating condition blocks the whole turn, and exhaustion, being
+      prone and being grappled are stated once above the list. Equipped items with charges are
+      listed as actions in their own right, which they never were. No mainstream sheet gates its
+      action list on live resources.
 
 ## Later — quality of life
 
