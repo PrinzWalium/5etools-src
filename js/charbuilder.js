@@ -4,6 +4,7 @@ import {CharacterClassPanel} from "./charactersheet/charactersheet-classpanel.js
 import {CharacterInventoryPanel} from "./charactersheet/charactersheet-inventorypanel.js";
 import {CharacterSpellsPanel} from "./charactersheet/charactersheet-spellspanel.js";
 import {CharacterPageBase} from "./charactersheet/charactersheet-pagebase.js";
+import {CharacterAuditPanel} from "./charactersheet/charactersheet-auditpanel.js";
 
 /**
  * The build-focused page. It surfaces the tools for *planning* a character — the guided wizard,
@@ -51,6 +52,8 @@ class CharacterBuilderPage extends CharacterPageBase {
 			wrpBody: document.getElementById("cs-spell-body"),
 		});
 		this._spellsPanel.init();
+		this._auditPanel = new CharacterAuditPanel({comp: this._comp, wrp: document.getElementById("cs-audit")});
+		this._auditPanel.init();
 
 		this._comp._addHookBase("pickTags", () => this._renderPickLinks());
 	}

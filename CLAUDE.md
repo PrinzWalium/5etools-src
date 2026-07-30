@@ -79,7 +79,8 @@ template, run `node node/generate-pages.js` and commit both.
 
 ## What the feature covers (so you don't rebuild it)
 
-- **Builder** (`charbuilder.html`): guided wizard; species/background/class pickers;
+- **Builder** (`charbuilder.html`): a **Build Check** panel (`charactersheet-audit.js`)
+  reporting what breaks a rule and what is unclaimed; guided wizard; species/background/class pickers;
   ability scores; the class/leveling panel (subclass, ASI/feat with prerequisite
   warnings, optional features, **Expertise** chooser, features timeline); the
   class-filtered **spell manager** (learnable-only, known vs prepared counts,

@@ -86,11 +86,13 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       through a level-up; none shows the outcome first or lets you back out cleanly. Cheap because
       the level engine already derives everything by level — derive at N and N+1 and diff. The same
       machinery answers "what did I gain at 4th?".
-- [ ] **Build audit.** One panel reporting what is *broken* (multiclass prerequisite unmet, four
-      attuned items, prepared over the limit, over-encumbered) and — the rarer half — what is
-      *unclaimed*: an ASI never spent, an Expertise pick outstanding, a feat's skill choice never
-      made, a subclass spell never picked. No sheet tells you what you left on the table. The
-      pending-ability-offer work is this idea for one narrow case; this generalises it.
+- [x] **Build audit.** A *Build Check* panel on the builder, in two halves: what breaks a rule (a
+      fourth attuned item, an unmet multiclass prerequisite read from the class's own
+      `multiclassing.requirements`, over-encumbered, class levels that do not add up, hit points
+      never set) and what is unclaimed (an ability increase never assigned, an Expertise pick, a
+      weapon mastery, a missing class/species/background). It reports and never blocks — a DM
+      ruling beats it. The counts come from the same pure functions the class panel uses to *offer*
+      those choices, so the audit cannot drift from what the panel asks for.
 - [ ] **Every number cites its rule.** The breakdowns already say "Dexterity +3, Proficiency +2,
       Archery +2"; a click should show the rule's own text — the Archery entry, the armor's rules,
       the exhaustion table. This app *contains the books*, so it can trace a number to its source

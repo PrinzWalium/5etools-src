@@ -793,6 +793,19 @@
 		border-color: rgb(255 255 255 / 12%);
 	}
 
+	// The build check: a broken rule in red, an unclaimed choice in amber, both as plain sentences
+	.cs__audit-row {
+		font-size: 0.9em;
+		line-height: 1.35;
+		padding-left: 10px;
+		border-left: 3px solid rgb(200 140 40 / 70%);
+		margin-bottom: 3px;
+	}
+
+	.cs__audit-row--broken {
+		border-left-color: rgb(200 60 60 / 75%);
+	}
+
 	// What the character cannot do right now: dimmed and struck, with the reason beside it, rather
 	// than hidden — knowing the option exists but is spent is the point
 	.cs__act-row--blocked {
