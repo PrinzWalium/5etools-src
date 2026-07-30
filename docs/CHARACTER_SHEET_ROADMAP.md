@@ -30,10 +30,11 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
 
 ## Next — rules gaps a player hits at the table
 
-- [ ] **Resistances, immunities and senses are free text.** Darkvision, damage resistances and
-      condition immunities all land in the notes box. They should be structured and attributed to
-      their source, the way proficiencies now are, and rendered as real fields on the sheet.
-      *(The Dragonborn work already models the shape: a trait pick carries its resistance.)*
+- [x] **Resistances, immunities and senses are structured.** A *Defenses & Senses* panel on all
+      three pages, grouped by kind and attributed to whatever granted each one — species, feat,
+      trait pick, equipped item, or added by hand. Read from the data in every case. Gear grants
+      only while it is worn (and the chip says so); a trait pick's resistance follows the pick.
+      Nothing is copied into the notes box any more.
 - [x] **Exhaustion now costs what it should.** −2 per level on every d20 test: ability checks,
       saving throws, skills, initiative, passive Perception and attack rolls, weapon and spell
       alike. Not on a spell save DC, which is set rather than rolled, and not on damage. Each

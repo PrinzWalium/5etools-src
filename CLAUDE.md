@@ -23,7 +23,7 @@ Each page's controller keeps only its own DOM assembly + rendering.
 - `js/charactersheet.js`, `js/charbuilder.js`, `js/sidekick.js` — the three page entry points
 - `js/charactersheet/*.js` — the shared modules: pure rules (`derive`,
   `levelengine`, `choices`, `abilityscores`, `equipment`, `actions`, `charstore`,
-  `sidekick`, `consts`), data access (`classdata`), the model (`model`), the page
+  `defenses`, `sidekick`, `consts`), data access (`classdata`), the model (`model`), the page
   base (`pagebase`), and the panel renderers (`classpanel`, `inventorypanel`,
   `spellspanel`, `actionspanel`, `wizard`)
 - `css/charactersheet.css`, `scss/charactersheet.scss` (shared by all three pages)
@@ -66,8 +66,8 @@ template, run `node node/generate-pages.js` and commit both.
   not hardcoded — except the PHB multiclass spell-slot table, which is a fixed
   core rule in `charactersheet-levelengine.js`.
 - The pure rules modules (`derive`, `levelengine`, `choices`, `abilityscores`,
-  `equipment`, `actions`, `charstore`, `sidekick`) are unit-tested; keep them
-  DOM-free and tested.
+  `equipment`, `actions`, `charstore`, `defenses`, `sidekick`) are unit-tested;
+  keep them DOM-free and tested.
 - A sidekick is just a character with `isSidekick: true` and a `refCreature`, so
   derivation, the feature timeline, spell slots, the store, autosave and
   save/load all work unchanged. The store is shared but each page lists only its
@@ -114,8 +114,14 @@ template, run `node node/generate-pages.js` and commit both.
   The character pages print as a plain sheet; the sidekick prints as a
   **stat-block card** (small-caps name, red rules, abilities six across,
   full trait/action text, reference tables and controls suppressed).
+- **Defenses & senses** (all three pages): resistances, immunities, vulnerabilities,
+  condition immunities and senses, read structurally from species/feat/item
+  (`charactersheet-defenses.js`) and grouped with their source. Gear's are
+  *derived from what is equipped*, never stored; a "choose one" trait's
+  resistance is derived from the pick. `getAllDefenses(state)` is the one
+  view-level entry point.
 - Equipped magic items feed derivations globally: AC, saving throws, spell save
-  DC and spell attack, and weapon attack/damage (`derive.js`).
+  DC and spell attack, weapon attack/damage, and the defenses above (`derive.js`).
 - All three pages share one character store, so a character built in the builder
   is immediately playable on the sheet.
 

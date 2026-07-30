@@ -1,6 +1,7 @@
 import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SCHEMA_VERSION, CHAR_SHEET_SKILLS, EXPENDABLE_RESOURCES, getSkillKeyByName} from "./charactersheet-consts.js";
 import {getGrantedFeats, getProfListDisplay} from "./charactersheet-choices.js";
 import {getClassProficiencies, getEntityProficiencies, getMulticlassProficiencies} from "./charactersheet-proficiencies.js";
+import {getEntityDefenses} from "./charactersheet-defenses.js";
 import {
 	getCreatureTraitEntries,
 	getSidekickRoleOfCreature,
@@ -117,6 +118,7 @@ export class CharacterModel extends BaseComponent {
 			sourceFilter: {mode: "all", sources: {}}, // which books this character may pick content from
 			abilityBonusLog: [], // [{id, source, bonuses}] — provenance for ability-score increases
 			proficiencies: [], // [{id, kind, name, source}] — armor/weapon/tool/language, with what granted each
+			defenses: [], // [{id, kind, name, note, source}] — resistances/immunities/vulnerabilities/senses (gear is derived, not stored)
 			traitChoices: [], // [{id, source, trait, level, option, resist}] — "choose one" species traits
 
 			featuresText: "",
@@ -341,6 +343,33 @@ export class CharacterModel extends BaseComponent {
 
 	removeProficiency (id) {
 		this._state.proficiencies = (this._state.proficiencies || []).filter(it => it.id !== id);
+	}
+
+	/* -------------------------------------------- Defenses & senses -------------------------------------------- */
+
+	/**
+	 * Replace what one source grants, the way proficiencies work. Gear is *not* stored: an equipped
+	 * item's resistances are derived, so unequipping it takes them away again.
+	 */
+	setDefensesFromSource (source, entries) {
+		const kept = (this._state.defenses || []).filter(it => it.source !== source);
+		const added = (entries || [])
+			.filter(it => it?.name)
+			.map(it => ({id: CryptUtil.uid(), kind: it.kind, name: it.name, note: it.note || null, source}));
+		this._state.defenses = [...kept, ...added];
+	}
+
+	/** Add a single defense or sense (a resolved choice, or one added by hand). */
+	addDefense ({kind, name, source, note = null}) {
+		if (!name) return false;
+		const cur = this._state.defenses || [];
+		if (cur.some(it => it.kind === kind && it.name.toLowerCase() === name.toLowerCase() && it.source === source)) return false;
+		this._state.defenses = [...cur, {id: CryptUtil.uid(), kind, name, note, source}];
+		return true;
+	}
+
+	removeDefense (id) {
+		this._state.defenses = (this._state.defenses || []).filter(it => it.id !== id);
 	}
 
 	/* -------------------------------------------- "Choose one" trait picks -------------------------------------------- */
@@ -576,6 +605,7 @@ export class CharacterModel extends BaseComponent {
 		if (prev && prev !== doc.n) {
 			this.clearTraitChoicesFromSource(prev);
 			this.setProficienciesFromSource(prev, []);
+			this.setDefensesFromSource(prev, []);
 		}
 
 		this._state.speciesText = doc.n;
@@ -599,14 +629,9 @@ export class CharacterModel extends BaseComponent {
 		});
 
 		this.setProficienciesFromSource(race.name, getEntityProficiencies(race));
-
-		if (race.darkvision) this.appendToTextProp("proficienciesText", `Senses: Darkvision ${race.darkvision} ft.`);
-
-		[["resist", "Resistances"], ["immune", "Immunities"], ["vulnerable", "Vulnerabilities"], ["conditionImmune", "Condition Immunities"]]
-			.forEach(([prop, label]) => {
-				const vals = (race[prop] || []).filter(it => typeof it === "string");
-				if (vals.length) this.appendToTextProp("proficienciesText", `${label}: ${vals.join(", ")}`);
-			});
+		// Darkvision, resistances, immunities and the rest are structured now, so they are no longer
+		// copied into the notes box as well
+		this.setDefensesFromSource(race.name, getEntityDefenses(race));
 
 		const traitNames = (race.entries || [])
 			.filter(it => it && typeof it === "object" && it.name && !CharacterModel._RACE_TRAIT_NAMES_IGNORED.has(it.name))

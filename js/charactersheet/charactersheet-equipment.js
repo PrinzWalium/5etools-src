@@ -58,6 +58,11 @@ export function getInventoryItemMeta (ent) {
 	if (ent.reqAttune) out.requiresAttunement = true;
 	// Wands, staves, rings of spell storing, ... — enough to make the character a spell user
 	if (ent.attachedSpells) out.grantsSpells = true;
+	// What the item defends against while worn, kept in the data's own shape so one reader serves
+	// species, feats and gear alike (`charactersheet-defenses.js`)
+	["resist", "immune", "vulnerable", "conditionImmune", "senses"].forEach(key => {
+		if (ent[key]?.length) out[key] = ent[key];
+	});
 	return out;
 }
 

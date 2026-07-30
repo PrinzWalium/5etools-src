@@ -8,6 +8,7 @@ import {CharacterWizard} from "./charactersheet-wizard.js";
 import {CHOICE_TYPE_ABILITY, CHOICE_TYPE_LANGUAGE, CHOICE_TYPE_SKILL, CHOICE_TYPE_TOOL, getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats, getPendingChoices, getResistChoices} from "./charactersheet-choices.js";
 import {pPickAbilities, pPickList, pResolveEntitySpellGrants, pResolveFeat} from "./charactersheet-featgrant.js";
 import {PROF_KIND_LANGUAGE, PROF_KIND_TOOL, PROF_KINDS, groupProficienciesByKind} from "./charactersheet-proficiencies.js";
+import {DEFENSE_KINDS, DEFENSE_KIND_RESIST, DEFENSE_KIND_SENSE, getAllDefenses, groupDefensesByKind} from "./charactersheet-defenses.js";
 import {getTraitChoiceResist, getTraitChoices} from "./charactersheet-traitchoices.js";
 import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterPredicate, getOutOfFilterSources, isSourceAllowed, isSourceFilterInactive} from "./charactersheet-sources.js";
 
@@ -88,8 +89,11 @@ export class CharacterPageBase {
 
 		this._comp._addHookBase("level", () => this._pMaybePromptLevelUp());
 		this._comp._addHookBase("proficiencies", () => this._renderProficiencies());
+		this._comp._addHookBase("defenses", () => this._renderDefenses());
+		// Trait picks imply resistances, and equipped gear grants them for as long as it is worn
+		this._comp._addHookBase("inventory", () => this._renderDefenses());
 		this._comp._addHookBase("refSpecies", () => this._pRefreshTraitChoices());
-		this._comp._addHookBase("traitChoices", () => this._renderTraitChoices());
+		this._comp._addHookBase("traitChoices", () => { this._renderTraitChoices(); this._renderDefenses(); });
 		// Level gates the later picks (an Aasimar's Celestial Revelation, ...)
 		this._comp._addHookBase("level", () => this._renderTraitChoices());
 		this._comp._addHookAllBase(() => this._onStateChange());
@@ -517,6 +521,96 @@ export class CharacterPageBase {
 		this._comp.addProficiency({kind: kind.kind, name: name.trim(), source: null});
 	}
 
+	/* -------------------------------------------- Defenses & senses -------------------------------------------- */
+
+	/**
+	 * Resistances, immunities, vulnerabilities, condition immunities and senses, grouped and
+	 * attributed. What equipped gear grants is folded in here rather than stored, so taking the ring
+	 * off takes the resistance with it — the chip says as much.
+	 */
+	_renderDefenses () {
+		const wrp = document.getElementById("cs-defense-list");
+		if (!wrp) return;
+		wrp.innerHTML = "";
+
+		const groups = groupDefensesByKind(getAllDefenses(this._comp._getState()));
+		if (!groups.length) {
+			wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small no-print">None yet &mdash; a species, feat or magic item fills these in, or add one by hand.</div>`);
+		}
+
+		groups.forEach(grp => {
+			const row = document.createElement("div");
+			row.className = "cs__prof-group";
+
+			const lbl = document.createElement("span");
+			lbl.className = "cs__lbl cs__prof-group-lbl";
+			lbl.textContent = grp.label;
+			row.appendChild(lbl);
+
+			grp.items.forEach(it => {
+				const chip = document.createElement("span");
+				chip.className = "cs__prof-chip";
+				if (it.isFromItem) chip.classList.add("cs__prof-chip--optional");
+
+				const from = it.sources.length ? `From: ${it.sources.join(", ")}` : "Added by hand";
+				const explanation = [
+					from,
+					it.note ? `(${it.note})` : null,
+					it.isFromItem ? "— while that gear is equipped" : null,
+				].filter(Boolean).join(" ");
+				chip.title = explanation;
+				chip.classList.add("cs__has-breakdown");
+				chip.dataset.csBreakdown = `${it.name} — ${explanation}`;
+
+				const name = document.createElement("span");
+				name.textContent = it.note ? `${it.name}*` : it.name;
+				chip.appendChild(name);
+
+				// Only a stored entry can be removed; gear is removed by unequipping it
+				if (it.ids.length) {
+					const btnRm = document.createElement("button");
+					btnRm.type = "button";
+					btnRm.className = "cs__prof-chip-rm no-print";
+					btnRm.title = "Remove";
+					btnRm.innerHTML = "&times;";
+					btnRm.addEventListener("click", () => it.ids.forEach(id => this._comp.removeDefense(id)));
+					chip.appendChild(btnRm);
+				}
+
+				row.appendChild(chip);
+			});
+
+			wrp.appendChild(row);
+		});
+
+		const btnAdd = document.createElement("button");
+		btnAdd.type = "button";
+		btnAdd.className = "ve-btn ve-btn-xxs ve-btn-default no-print ve-mt-1";
+		btnAdd.id = "cs-defense-add";
+		btnAdd.title = "Add a resistance, immunity or sense granted by the story or a ruling";
+		btnAdd.innerHTML = `<span class="glyphicon glyphicon-plus"></span> Add Defense`;
+		btnAdd.addEventListener("click", () => this._pOnAddDefense());
+		wrp.appendChild(btnAdd);
+	}
+
+	async _pOnAddDefense () {
+		const kind = await InputUiUtil.pGetUserEnum({
+			values: DEFENSE_KINDS,
+			isResolveItem: true,
+			fnDisplay: it => it.label,
+			title: "Add a defense or sense",
+			placeholder: "Which kind?",
+		});
+		if (kind == null) return;
+
+		const name = await InputUiUtil.pGetUserString({
+			title: kind.kind === DEFENSE_KIND_SENSE ? "Add a sense (e.g. Darkvision 60 ft.)" : `Add ${kind.label.replace(/s$/, "")}`,
+		});
+		if (!name?.trim()) return;
+
+		this._comp.addDefense({kind: kind.kind, name: name.trim(), source: null});
+	}
+
 	/**
 	 * The upstream `pGetUserRaceSearch`/`pGetUserBackgroundSearch` helpers take no options, so there is
 	 * no way to pass a source filter into them. Rather than edit an upstream file (which would add an
@@ -570,12 +664,12 @@ export class CharacterPageBase {
 
 	/**
 	 * Resolve a species' damage-resistance choice — a Dragonborn's draconic ancestry and the few
-	 * species built the same way. Resistances have no structured store, so they become notes.
+	 * species built the same way — into structured entries alongside its fixed ones.
 	 */
 	async _pResolveResistChoices (ent) {
 		for (const choice of getResistChoices({groups: ent.resist, sourceName: ent.name})) {
 			const picked = await pPickList({count: choice.count, from: choice.from, title: `${ent.name}: ${choice.label}`});
-			if (picked?.length) this._comp.appendToTextProp("proficienciesText", `Resistances (${ent.name}): ${picked.join(", ")}`);
+			(picked || []).forEach(name => this._comp.addDefense({kind: DEFENSE_KIND_RESIST, name, source: ent.name}));
 		}
 	}
 
