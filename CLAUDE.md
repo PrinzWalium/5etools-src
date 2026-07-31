@@ -121,6 +121,10 @@ template, run `node node/generate-pages.js` and commit both.
   - **Traits & Actions** is a list of editable rows (kind, name, text) with an
     Add button — seeded per stat-block entry, tagged when a level granted it.
   - Every seeded value stays hand-editable; nothing is locked.
+- **Reference cards** (`charactersheet.html`, the *Cards* button): the character's
+  known spells and attacks printed as index cards, built on demand
+  (`charactersheet-cards.js` + `-cardspanel.js`) and visible only on paper. The
+  card carries the character's own DC/attack bonus, not a formula.
 - **Print / PDF** (all pages, the *Print* button): the browser's print-to-PDF.
   The character pages print as a plain sheet; the sidekick prints as a
   **stat-block card** (small-caps name, red rules, abilities six across,

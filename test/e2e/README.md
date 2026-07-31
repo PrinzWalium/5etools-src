@@ -34,6 +34,7 @@ Failures print the check that failed, and every open page is screenshotted into
 | `upkeep` | A wand's charges across rests, a quiver's arrows and their recovery, and the reminder left by a skipped ability increase |
 | `turnhelper` | The Actions panel greys out what live state has taken away — slots, charges, ammunition, concentration, conditions |
 | `audit` | The Build Check reports a broken rule and an unclaimed choice, and says so when there is neither |
+| `cards` | The Cards button builds a printable deck of the character's own spells and attacks, then puts the page back |
 | `defenses` | Resistances/immunities/senses come from species, trait picks and worn gear, credited to each, and gear's go when it comes off |
 | `sidekick` | Both sidekick rulesets: an Essentials Kit type + role with its level table and level-up box, and any stat block + a Tasha's class; traits as editable rows |
 

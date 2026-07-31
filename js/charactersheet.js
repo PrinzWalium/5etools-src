@@ -9,6 +9,7 @@ import {CharacterInventoryPanel} from "./charactersheet/charactersheet-inventory
 import {CharacterSpellsPanel} from "./charactersheet/charactersheet-spellspanel.js";
 import {CharacterActionsPanel} from "./charactersheet/charactersheet-actionspanel.js";
 import {CharacterPageBase} from "./charactersheet/charactersheet-pagebase.js";
+import {CharacterCardsPanel} from "./charactersheet/charactersheet-cardspanel.js";
 
 /** Renders the attacks table from the model's `attacks` collection. */
 class _AttacksRenderableCollection extends RenderableCollectionBase {
@@ -135,6 +136,9 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._spellsPanel.init();
 		this._actionsPanel = new CharacterActionsPanel({comp: this._comp, wrp: document.getElementById("cs-actions")});
 		this._actionsPanel.init();
+		// Built only when asked for: the deck needs the whole spell list loaded
+		this._cardsPanel = new CharacterCardsPanel({comp: this._comp, wrp: document.getElementById("cs-cards")});
+		this._bindClick("cs-btn-cards", () => this._cardsPanel.pPrint());
 
 		this._comp._addHookBase("pickTags", () => this._renderPickLinks());
 		this._comp._addHookBase("deathSuccess", () => this._renderDeathSaves());

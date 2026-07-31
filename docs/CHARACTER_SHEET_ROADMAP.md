@@ -77,10 +77,12 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
 
 ## Ideas worth building, easiest first
 
-- [ ] **Printable spell and action cards.** The character's known spells as index-card-sized cards
-      — name, level, casting time, range, components, duration, effect — printed from the sheet.
-      A real table artifact people buy elsewhere; here it is the existing print work pointed at
-      `spellsKnown`. An afternoon.
+- [x] **Printable spell and action cards.** The *Cards* button on the sheet prints the character's
+      known spells and attacks as index-card-sized cards, two across a page: name, level and school,
+      casting time, range, components, duration, the spell's own text and its at-higher-levels
+      clause — plus *their* save DC or attack bonus rather than a formula to work out. Concentration
+      and ritual are flagged. The deck is built only when asked for, since it needs the whole spell
+      list loaded, and exists only on paper.
 - [ ] **Level-up preview.** Show the diff *before* committing: "+1d8+2 HP · Extra Attack · one new
       spell to pick · 3rd-level slots 0→2 · proficiency bonus unchanged". Every sheet walks you
       through a level-up; none shows the outcome first or lets you back out cleanly. Cheap because
