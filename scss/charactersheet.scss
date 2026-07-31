@@ -793,6 +793,115 @@
 		border-color: rgb(255 255 255 / 12%);
 	}
 
+	// Reference cards exist only on paper: built on demand, never shown on screen
+	.cs__cards {
+		display: none;
+	}
+
+	// The build check: a broken rule in red, an unclaimed choice in amber, both as plain sentences
+	.cs__audit-row {
+		font-size: 0.9em;
+		line-height: 1.35;
+		padding-left: 10px;
+		border-left: 3px solid rgb(200 140 40 / 70%);
+		margin-bottom: 3px;
+	}
+
+	.cs__audit-row--broken {
+		border-left-color: rgb(200 60 60 / 75%);
+	}
+
+	// What the character cannot do right now: dimmed and struck, with the reason beside it, rather
+	// than hidden — knowing the option exists but is spent is the point
+	.cs__act-row--blocked {
+		opacity: 0.5;
+
+		.cs__act-reason {
+			color: #a33;
+		}
+	}
+
+	.ve-night-mode .cs__act-row--blocked .cs__act-reason {
+		color: #e88;
+	}
+
+	.cs__act-row--warn .cs__act-reason {
+		color: #a70;
+	}
+
+	.ve-night-mode .cs__act-row--warn .cs__act-reason {
+		color: #ec9;
+	}
+
+	.cs__act-reason {
+		font-style: italic;
+		margin-left: 4px;
+	}
+
+	// Conditions and exhaustion apply to the whole turn, so they sit above the list
+	.cs__turn-notes {
+		margin-bottom: 6px;
+		padding: 4px 8px;
+		border-radius: 3px;
+		border: 1px solid rgb(200 140 40 / 45%);
+		background: rgb(200 140 40 / 10%);
+	}
+
+	.cs__turn-notes--stop {
+		border-color: rgb(200 60 60 / 55%);
+		background: rgb(200 60 60 / 12%);
+		font-weight: bold;
+	}
+
+	// A wand's charges and a quiver's arrows, tracked inline on the item's own row
+	.cs__inv-charges,
+	.cs__inv-ammo {
+		gap: 2px;
+		margin-left: 4px;
+		white-space: nowrap;
+	}
+
+	.cs__inv-charges-val {
+		min-width: 30px;
+		text-align: center;
+		font-variant-numeric: tabular-nums;
+	}
+
+	// An ability-score grant that was skipped, still waiting to be assigned
+	.cs__offer {
+		margin-bottom: 6px;
+		padding: 5px 8px;
+		border-radius: 3px;
+		border: 1px solid rgb(200 140 40 / 45%);
+		background: rgb(200 140 40 / 10%);
+		font-size: 0.9em;
+	}
+
+	.cs__offer-actions {
+		gap: 6px;
+		margin-top: 3px;
+	}
+
+	// The concentration save a hit calls for: loud enough not to be missed, quiet enough to ignore
+	.cs__conc-prompt {
+		margin: 0 0 6px;
+		padding: 5px 8px;
+		border-radius: 3px;
+		border: 1px solid rgb(200 60 60 / 45%);
+		background: rgb(200 60 60 / 9%);
+		font-size: 0.9em;
+	}
+
+	.ve-night-mode .cs__conc-prompt {
+		border-color: rgb(240 130 130 / 40%);
+		background: rgb(240 130 130 / 12%);
+	}
+
+	.cs__conc-prompt-actions {
+		gap: 6px;
+		margin-top: 3px;
+	}
+
 	/* -------------------------------------------- Sidekick builder -------------------------------------------- */
 
 	// "What this sidekick gains at each level" — a reference table, so it is dense on purpose
@@ -833,6 +942,83 @@
 	// Levels not yet reached, dimmed rather than hidden so the DM can see what is coming
 	.cs__sk-row--future {
 		opacity: 0.55;
+	}
+
+	// The level-up box: what the next level brings, and the button that takes it
+	.cs__sk-next,
+	.cs__sk-catchup {
+		padding: 6px 8px;
+		border-radius: 3px;
+		border: 1px solid rgb(60 120 200 / 35%);
+		background: rgb(60 120 200 / 8%);
+	}
+
+	.ve-night-mode .cs__sk-next,
+	.ve-night-mode .cs__sk-catchup {
+		border-color: rgb(120 170 240 / 35%);
+		background: rgb(120 170 240 / 10%);
+	}
+
+	.cs__sk-catchup {
+		border-color: rgb(200 140 40 / 45%);
+		background: rgb(200 140 40 / 10%);
+	}
+
+	.cs__sk-next-hdr {
+		font-weight: bold;
+		text-transform: uppercase;
+		font-size: 0.8em;
+		letter-spacing: 0.04em;
+		opacity: 0.8;
+	}
+
+	// Traits & actions, one editable row each
+	.cs__sk-trait {
+		padding: 4px 0;
+		border-top: 1px solid rgb(0 0 0 / 8%);
+
+		&:first-child {
+			border-top: 0;
+		}
+	}
+
+	.ve-night-mode .cs__sk-trait {
+		border-top-color: rgb(255 255 255 / 10%);
+	}
+
+	.cs__sk-trait-top {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-bottom: 2px;
+	}
+
+	.cs__sk-trait-section {
+		width: auto;
+		flex: 0 0 auto;
+		max-width: 110px;
+	}
+
+	.cs__sk-trait-name {
+		flex: 1 1 auto;
+		font-weight: bold;
+	}
+
+	.cs__sk-trait-tag {
+		flex: 0 0 auto;
+		font-size: 0.75em;
+		white-space: nowrap;
+	}
+
+	.cs__sk-trait-text {
+		min-height: 0;
+		resize: vertical;
+	}
+
+	// The role's own wording, shown under the type selects
+	#cs-sk-role-hint {
+		margin-top: 2px;
+		line-height: 1.35;
 	}
 
 	// A textarea's text, mirrored into a flowing element for print (see `_bindPrintPrep`)
@@ -981,8 +1167,39 @@
 
 		// ... and an empty list section is just a heading on paper
 		.cs__page--sidekick .cs__panel:has(#cs-attacks-body:empty),
+		.cs__page--sidekick .cs__panel:has(#cs-sk-traits:empty),
 		.cs__page--sidekick .cs__panel:has(#cs-spell-body.ve-hidden) {
 			display: none !important;
+		}
+
+		// A trait prints as a stat block writes it: bold name, then the text, run together
+		.cs__page--sidekick .cs__sk-trait {
+			border: 0;
+			padding: 0;
+			margin-bottom: 4px;
+			break-inside: avoid;
+		}
+
+		.cs__page--sidekick .cs__sk-trait-top {
+			display: inline;
+			margin: 0;
+		}
+
+		.cs__page--sidekick .cs__sk-trait-name {
+			display: inline !important;
+			width: auto !important;
+			border: 0 !important;
+			padding: 0 !important;
+			font-style: italic;
+			font-weight: bold;
+		}
+
+		.cs__page--sidekick .cs__sk-trait-text {
+			display: none !important;
+		}
+
+		.cs__page--sidekick .cs__sk-trait .cs__print-text {
+			display: inline;
 		}
 
 		// Controls are for the screen; the card shows their values
@@ -1090,6 +1307,80 @@
 			width: 100% !important;
 			flex: 0 0 100%;
 			max-width: 100%;
+		}
+	}
+
+	// Reference cards: index-card sized, two across a portrait page, each one whole or on the next
+	// page. While printing them the sheet itself is out of the way entirely.
+	@media print {
+		.cs__printing-cards .container,
+		.cs__printing-cards .cs__toolbar,
+		.cs__printing-cards #charsheet {
+			display: none !important;
+		}
+
+		.cs__printing-cards .cs__cards {
+			display: grid !important;
+			grid-template-columns: repeat(2, 3.4in);
+			gap: 0.15in;
+			justify-content: center;
+		}
+
+		.cs__cards-owner {
+			grid-column: 1 / -1;
+			font-size: 9pt;
+			text-align: center;
+			margin-bottom: 4px;
+			opacity: 0.7;
+		}
+
+		.cs__card {
+			width: 3.4in;
+			min-height: 2.3in;
+			padding: 8px 10px;
+			border: 1px solid #922610;
+			border-radius: 4px;
+			font-size: 8pt;
+			line-height: 1.3;
+			break-inside: avoid;
+			overflow: hidden;
+		}
+
+		.cs__card-name {
+			font-family: var(--font-family-stat-block-name, serif);
+			font-size: 12pt;
+			font-variant: small-caps;
+			color: #922610;
+			line-height: 1.1;
+		}
+
+		.cs__card-sub {
+			font-style: italic;
+			margin-bottom: 4px;
+		}
+
+		.cs__card-flags {
+			font-style: normal;
+			font-weight: bold;
+		}
+
+		.cs__card-meta {
+			border-top: 1px solid rgb(146 38 16 / 40%);
+			border-bottom: 1px solid rgb(146 38 16 / 40%);
+			padding: 3px 0;
+			margin-bottom: 4px;
+		}
+
+		.cs__card-meta-lbl {
+			font-weight: bold;
+		}
+
+		.cs__card-body p {
+			margin: 0 0 3px;
+		}
+
+		.cs__card-higher {
+			font-style: italic;
 		}
 	}
 }

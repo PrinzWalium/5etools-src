@@ -1,4 +1,13 @@
-import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS, PROF_STATE_EXPERTISE, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
+import {
+	CHAR_SHEET_ABILITIES,
+	CHAR_SHEET_SKILLS,
+	CONCENTRATION_MIN_DC,
+	EXHAUSTION_MAX_LEVEL,
+	EXHAUSTION_PENALTY_PER_LEVEL,
+	EXHAUSTION_SPEED_PENALTY_FT_PER_LEVEL,
+	PROF_STATE_EXPERTISE,
+	PROF_STATE_PROFICIENT,
+} from "./charactersheet-consts.js";
 import {getChosenFeatureEffects} from "./charactersheet-features.js";
 import {getExpectedHp} from "./charactersheet-levelengine.js";
 
@@ -87,16 +96,50 @@ export function hasSpellcasting (state, {isClassCaster = false} = {}) {
 	return (state.inventory || []).some(it => it?.grantsSpells);
 }
 
+/** Exhaustion, 0–6. At 6 the character dies, which the sheet states rather than enforces. */
+export function getExhaustionLevel (state) {
+	return Math.max(0, Math.min(EXHAUSTION_MAX_LEVEL, Math.floor(Number(state?.exhaustion) || 0)));
+}
+
+/**
+ * What exhaustion takes off every d20 test: −2 per level (2024 rules). Ability checks, saving
+ * throws and attack rolls are all d20 tests; a set value like a spell save DC is not.
+ */
+export function getExhaustionPenalty (state) {
+	const level = getExhaustionLevel(state);
+	// Guarded so a rested character's penalty is 0 rather than -0, which would print as "−0"
+	return level ? -EXHAUSTION_PENALTY_PER_LEVEL * level : 0;
+}
+
+/** ... and off the character's speed: −5 feet per level. */
+export function getExhaustionSpeedPenalty (state) {
+	return EXHAUSTION_SPEED_PENALTY_FT_PER_LEVEL * getExhaustionLevel(state);
+}
+
+/**
+ * The Constitution saving throw DC to keep concentrating after taking damage: 10, or half the
+ * damage, whichever is higher.
+ */
+export function getConcentrationSaveDc (damage) {
+	return Math.max(CONCENTRATION_MIN_DC, Math.floor((Number(damage) || 0) / 2));
+}
+
 export function deriveCharacterSheet (state) {
 	const totalLevel = getTotalLevel(state);
 	const pb = getProfBonus(state);
 	const magic = getEquippedMagicBonuses(state);
+	const exhaustion = getExhaustionPenalty(state);
+	const partExhaustion = {label: `Exhaustion ${getExhaustionLevel(state)}`, value: exhaustion};
 
 	const abilities = {};
 	CHAR_SHEET_ABILITIES.forEach(([abv]) => {
+		const mod = getAbilityModifier(state, abv);
 		abilities[abv] = {
 			score: Number(state[`abil_${abv}`]) || 10,
-			mod: getAbilityModifier(state, abv),
+			mod,
+			// An ability *check* is a d20 test, so exhaustion applies to it \u2014 but not to the modifier
+			// the rest of the sheet is built from (a save DC is not rolled, and is unaffected)
+			checkMod: mod + exhaustion,
 			scoreParts: getAbilityScoreParts(state, abv),
 		};
 	});
@@ -104,7 +147,7 @@ export function deriveCharacterSheet (state) {
 	const saves = {};
 	CHAR_SHEET_ABILITIES.forEach(([abv]) => {
 		const isProf = !!state[`save_${abv}`];
-		const mod = abilities[abv].mod + (isProf ? pb : 0) + magic.savingThrow;
+		const mod = abilities[abv].mod + (isProf ? pb : 0) + magic.savingThrow + exhaustion;
 		saves[abv] = {
 			isProf,
 			mod,
@@ -112,6 +155,7 @@ export function deriveCharacterSheet (state) {
 				{label: Parser.attAbvToFull(abv), value: abilities[abv].mod, isKeep: true},
 				isProf ? {label: "Proficiency", value: pb} : null,
 				{label: "Magic items", value: magic.savingThrow},
+				partExhaustion,
 			),
 		};
 	});
@@ -124,10 +168,11 @@ export function deriveCharacterSheet (state) {
 		skills[key] = {
 			profState,
 			ability,
-			mod: abilities[ability].mod + (pb * profMult),
+			mod: abilities[ability].mod + (pb * profMult) + exhaustion,
 			parts: _mkParts(
 				{label: Parser.attAbvToFull(ability), value: abilities[ability].mod, isKeep: true},
 				profMult ? {label: profLabel, value: pb * profMult} : null,
+				partExhaustion,
 			),
 		};
 	});
@@ -136,8 +181,9 @@ export function deriveCharacterSheet (state) {
 	const spell = spellAbility
 		? {
 			ability: spellAbility,
+			// The DC is set, not rolled, so exhaustion leaves it alone; the attack roll is a d20 test
 			dc: 8 + pb + abilities[spellAbility].mod + magic.spellSaveDc,
-			atkMod: pb + abilities[spellAbility].mod + magic.spellAttack,
+			atkMod: pb + abilities[spellAbility].mod + magic.spellAttack + exhaustion,
 			dcParts: _mkParts(
 				{label: "Base", value: 8, isRaw: true},
 				{label: "Proficiency", value: pb},
@@ -148,6 +194,7 @@ export function deriveCharacterSheet (state) {
 				{label: "Proficiency", value: pb},
 				{label: Parser.attAbvToFull(spellAbility), value: abilities[spellAbility].mod, isKeep: true},
 				{label: "Magic items", value: magic.spellAttack},
+				partExhaustion,
 			),
 		}
 		: null;
@@ -165,11 +212,14 @@ export function deriveCharacterSheet (state) {
 			{label: "Base", value: 10, isRaw: true},
 			...skills.perception.parts,
 		),
-		initiative: abilities.dex.mod + initMisc,
+		// Initiative is a Dexterity check, so exhaustion drags it down too
+		initiative: abilities.dex.mod + initMisc + exhaustion,
 		initiativeParts: _mkParts(
 			{label: "Dexterity", value: abilities.dex.mod, isKeep: true},
 			{label: "Misc", value: initMisc},
+			partExhaustion,
 		),
+		exhaustion: {level: getExhaustionLevel(state), penalty: exhaustion, speedPenaltyFt: getExhaustionSpeedPenalty(state)},
 		spell,
 		armorClass: deriveArmorClass(state),
 		// Max HP is a typed value (players roll, DMs grant extras); this is what the rules would give
@@ -311,15 +361,18 @@ export function getWeaponAttack (state, item) {
 	}
 
 	const abilName = Parser.attAbvToFull(abv);
+	const exhaustion = getExhaustionPenalty(state);
 	return {
 		name: item.name || "",
-		atkBonus: abilMod + pb + bonusAttack + featureAttack,
+		// An attack roll is a d20 test; the damage it deals is not
+		atkBonus: abilMod + pb + bonusAttack + featureAttack + exhaustion,
 		damage,
 		atkParts: _mkParts(
 			{label: abilName, value: abilMod, isKeep: true},
 			{label: "Proficiency", value: pb},
 			{label: "Magic weapon", value: bonusAttack},
 			{label: "Archery (fighting style)", value: featureAttack},
+			{label: `Exhaustion ${getExhaustionLevel(state)}`, value: exhaustion},
 		),
 		damageParts: _mkParts(
 			{label: item.dmg1 || "", isText: !!item.dmg1},
@@ -335,13 +388,15 @@ export function getUnarmedStrike (state) {
 	const strMod = getAbilityModifier(state, "str");
 	const dmg = 1 + strMod;
 	const pb = getProfBonus(state);
+	const exhaustion = getExhaustionPenalty(state);
 	return {
 		name: "Unarmed Strike",
-		atkBonus: strMod + pb,
+		atkBonus: strMod + pb + exhaustion,
 		damage: `${Math.max(0, dmg)} bludgeoning`,
 		atkParts: _mkParts(
 			{label: "Strength", value: strMod, isKeep: true},
 			{label: "Proficiency", value: pb},
+			{label: `Exhaustion ${getExhaustionLevel(state)}`, value: exhaustion},
 		),
 	};
 }

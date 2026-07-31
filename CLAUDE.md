@@ -23,7 +23,7 @@ Each page's controller keeps only its own DOM assembly + rendering.
 - `js/charactersheet.js`, `js/charbuilder.js`, `js/sidekick.js` — the three page entry points
 - `js/charactersheet/*.js` — the shared modules: pure rules (`derive`,
   `levelengine`, `choices`, `abilityscores`, `equipment`, `actions`, `charstore`,
-  `sidekick`, `consts`), data access (`classdata`), the model (`model`), the page
+  `defenses`, `sidekick`, `consts`), data access (`classdata`), the model (`model`), the page
   base (`pagebase`), and the panel renderers (`classpanel`, `inventorypanel`,
   `spellspanel`, `actionspanel`, `wizard`)
 - `css/charactersheet.css`, `scss/charactersheet.scss` (shared by all three pages)
@@ -66,8 +66,8 @@ template, run `node node/generate-pages.js` and commit both.
   not hardcoded — except the PHB multiclass spell-slot table, which is a fixed
   core rule in `charactersheet-levelengine.js`.
 - The pure rules modules (`derive`, `levelengine`, `choices`, `abilityscores`,
-  `equipment`, `actions`, `charstore`, `sidekick`) are unit-tested; keep them
-  DOM-free and tested.
+  `equipment`, `actions`, `charstore`, `defenses`, `sidekick`) are unit-tested;
+  keep them DOM-free and tested.
 - A sidekick is just a character with `isSidekick: true` and a `refCreature`, so
   derivation, the feature timeline, spell slots, the store, autosave and
   save/load all work unchanged. The store is shared but each page lists only its
@@ -79,7 +79,8 @@ template, run `node node/generate-pages.js` and commit both.
 
 ## What the feature covers (so you don't rebuild it)
 
-- **Builder** (`charbuilder.html`): guided wizard; species/background/class pickers;
+- **Builder** (`charbuilder.html`): a **Build Check** panel (`charactersheet-audit.js`)
+  reporting what breaks a rule and what is unclaimed; guided wizard; species/background/class pickers;
   ability scores; the class/leveling panel (subclass, ASI/feat with prerequisite
   warnings, optional features, **Expertise** chooser, features timeline); the
   class-filtered **spell manager** (learnable-only, known vs prepared counts,
@@ -90,19 +91,52 @@ template, run `node node/generate-pages.js` and commit both.
   attacks with a **Wield** button and an automatic **Unarmed Strike**, an
   **Actions** panel (action/bonus/reaction economy), spell slots, death saves,
   **rests** (short/long), and a **conditions & concentration** tracker.
-- **Sidekick builder** (`sidekick.html`): a DM tool. Pick any bestiary creature
-  and it seeds abilities, AC, HP, speed, skill/save proficiencies, senses and
-  the trait/action text; pick one of the three TCE sidekick classes and the
-  ordinary class panel drives its feature timeline and (for the Spellcaster)
-  spell slots. Every seeded value stays hand-editable — nothing is locked. A
-  "How Sidekicks Level" box shows a 20-level table with the current level marked,
-  plus a toggle that renders the book's own TCE "Sidekicks" rules.
+  **Exhaustion** applies the 2024 −2/level to every d20 test (checks, saves,
+  skills, initiative, passive Perception, weapon and spell attacks — never a
+  save DC or damage); ability boxes therefore expose both `mod` and `checkMod`.
+  Losing hit points while concentrating raises a **concentration-save prompt**
+  (DC 10 or half the damage) from a `hpCur` hook in the page base.
+  Inventory rows track **charges** (spent per click; a rest restores what the
+  item's `recharge`/`rechargeAmount` say, rolled) and **ammunition** (*Fire*,
+  plus the recover-half-after-a-battle rule).
+  The **Actions panel is a turn helper**: `charactersheet-availability.js` grades
+  each entry against live state (slots, charges, ammo, concentration,
+  conditions) and the panel greys the blocked ones with their reason.
+- An ability increase that was **skipped** becomes a `pendingAbilityOffers`
+  entry rendered beside the scores, not a note in a box — *Assign now* re-walks
+  the original packages. Old characters' notes migrate into offers on load
+  (`getStateWithMigratedAbilityNotes`, in `charstore`).
+- **Sidekick builder** (`sidekick.html`, navbar → Dungeon Master): a DM tool
+  covering **both** sidekick rulesets, read from data in each case.
+  - *Essentials Kit*: pick a **type** (Expert/Spellcaster/Warrior) and it seeds
+    the sheet from that ESK stat block; pick the **role** the block asks for
+    (healer/mage, attacker/defender) and it filters which of the block's entries
+    apply and sets the spellcasting ability. The `Sidekicks|ESK` variantrule's
+    three tables drive a **level-up box**: exact HP maximum + the level's
+    features, applied on a click, plus a "catch up to level N" for a sidekick
+    that started high.
+  - *Tasha's*: pick any bestiary creature + one of the three TCE sidekick
+    classes, and the ordinary class panel drives the 1–20 feature timeline and
+    spell slots. This is also the path past ESK's 6th-level ceiling.
+  - **Traits & Actions** is a list of editable rows (kind, name, text) with an
+    Add button — seeded per stat-block entry, tagged when a level granted it.
+  - Every seeded value stays hand-editable; nothing is locked.
+- **Reference cards** (`charactersheet.html`, the *Cards* button): the character's
+  known spells and attacks printed as index cards, built on demand
+  (`charactersheet-cards.js` + `-cardspanel.js`) and visible only on paper. The
+  card carries the character's own DC/attack bonus, not a formula.
 - **Print / PDF** (all pages, the *Print* button): the browser's print-to-PDF.
   The character pages print as a plain sheet; the sidekick prints as a
   **stat-block card** (small-caps name, red rules, abilities six across,
   full trait/action text, reference tables and controls suppressed).
+- **Defenses & senses** (all three pages): resistances, immunities, vulnerabilities,
+  condition immunities and senses, read structurally from species/feat/item
+  (`charactersheet-defenses.js`) and grouped with their source. Gear's are
+  *derived from what is equipped*, never stored; a "choose one" trait's
+  resistance is derived from the pick. `getAllDefenses(state)` is the one
+  view-level entry point.
 - Equipped magic items feed derivations globally: AC, saving throws, spell save
-  DC and spell attack, and weapon attack/damage (`derive.js`).
+  DC and spell attack, weapon attack/damage, and the defenses above (`derive.js`).
 - All three pages share one character store, so a character built in the builder
   is immediately playable on the sheet.
 

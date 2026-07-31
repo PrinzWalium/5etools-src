@@ -1,6 +1,6 @@
 import "../../js/parser.js";
 import "../../js/utils.js";
-import {CHAR_STORE_VERSION, getCharacterLabel, getMigratedStore, getNewStore} from "../../js/charactersheet/charactersheet-charstore.js";
+import {CHAR_STORE_VERSION, getCharacterLabel, getMigratedStore, getNewStore, getStateWithMigratedAbilityNotes} from "../../js/charactersheet/charactersheet-charstore.js";
 
 describe("Multi-character store migration", () => {
 	it("Should pass a current store through unchanged", () => {
@@ -38,5 +38,36 @@ describe("Multi-character store migration", () => {
 		expect(getCharacterLabel({fields: {"cs-name": "Legacy Larry"}})).toBe("Legacy Larry");
 		expect(getCharacterLabel(null)).toBe("Unnamed Character");
 		expect(getCharacterLabel({version: 2, state: {name: "  "}})).toBe("Unnamed Character");
+	});
+});
+
+describe("Migration: the note left by a skipped ability increase", () => {
+	it("Turns the old note into an offer that can be acted on", () => {
+		const state = getStateWithMigratedAbilityNotes({proficienciesText: "Ability Scores (Dwarf): +2 Con, +1 Wis — assign manually"});
+		expect(state.pendingAbilityOffers).toEqual([expect.objectContaining({source: "Dwarf", offer: "+2 Con, +1 Wis", packages: null})]);
+		expect(state.proficienciesText).toBe("");
+	});
+
+	it("Keeps every other line of the notes box", () => {
+		const state = getStateWithMigratedAbilityNotes({proficienciesText: [
+			"Languages: Dwarvish",
+			"Ability Scores (Soldier): +2 Str — assign manually",
+			"Tools: Smith's Tools",
+		].join("\n")});
+		expect(state.proficienciesText).toBe("Languages: Dwarvish\nTools: Smith's Tools");
+		expect(state.pendingAbilityOffers).toHaveLength(1);
+	});
+
+	it("Leaves a notes box with no such line alone", () => {
+		const state = {proficienciesText: "Languages: Dwarvish"};
+		expect(getStateWithMigratedAbilityNotes(state)).toBe(state);
+	});
+
+	it("Does not add the same offer twice", () => {
+		const state = getStateWithMigratedAbilityNotes({
+			proficienciesText: "Ability Scores (Dwarf): +2 Con — assign manually",
+			pendingAbilityOffers: [{id: "x", source: "Dwarf", offer: "+2 Con", packages: null}],
+		});
+		expect(state.pendingAbilityOffers).toHaveLength(1);
 	});
 });

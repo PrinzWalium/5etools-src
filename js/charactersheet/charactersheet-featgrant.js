@@ -3,6 +3,7 @@ import {CHAR_SHEET_ABILITIES, CHAR_SHEET_SKILLS, PROF_STATE_EXPERTISE, PROF_STAT
 import {getDynamicSpellGrants, getSpellGrantGroups, isSpellMatchingFilter} from "./charactersheet-levelengine.js";
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {getEntityProficiencies} from "./charactersheet-proficiencies.js";
+import {getEntityDefenses} from "./charactersheet-defenses.js";
 
 /**
  * Shared, interactive resolution of a feat's grants — used by the class panel (ASI/feat slots) and
@@ -58,6 +59,7 @@ export function applyFeatFixedGrants (comp, feat) {
 	});
 
 	comp.setProficienciesFromSource(feat.name, getEntityProficiencies(feat));
+	comp.setDefensesFromSource(feat.name, getEntityDefenses(feat));
 
 	// The outright grants are stored structurally above; only the unresolved choices need a note
 	const pts = [];

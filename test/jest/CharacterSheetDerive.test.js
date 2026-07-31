@@ -1,5 +1,5 @@
 import "../../js/parser.js";
-import {deriveArmorClass, deriveCharacterSheet, formatBreakdown, getAbilityScoreParts, getEquippedMagicBonuses, getProfBonus, getTotalLevel, getUnarmedStrike, getWeaponAttack, hasSpellcasting} from "../../js/charactersheet/charactersheet-derive.js";
+import {deriveArmorClass, deriveCharacterSheet, formatBreakdown, getAbilityScoreParts, getConcentrationSaveDc, getEquippedMagicBonuses, getProfBonus, getTotalLevel, getUnarmedStrike, getWeaponAttack, hasSpellcasting} from "../../js/charactersheet/charactersheet-derive.js";
 
 const getBaseState = (overrides = {}) => ({
 	level: 1,
@@ -358,5 +358,93 @@ describe("Spellcasting presence", () => {
 		expect(hasSpellcasting({spellAbility: "int"})).toBe(true);
 		expect(hasSpellcasting({spellsText: "  "})).toBe(false);
 		expect(hasSpellcasting({spellsText: "Ritual: Find Familiar"})).toBe(true);
+	});
+});
+
+describe("Derive: exhaustion", () => {
+	// 2024 rules: each level of exhaustion takes 2 off every d20 test and 5 feet off speed
+	const getExhausted = level => deriveCharacterSheet(getBaseState({
+		level: 5,
+		exhaustion: level,
+		abil_str: 16,
+		abil_dex: 14,
+		abil_con: 14,
+		save_con: true,
+		skill_athletics: 1,
+		skill_perception: 1,
+		spellAbility: "int",
+	}));
+
+	it("Costs nothing at all while the character is rested", () => {
+		const rested = getExhausted(0);
+		expect(rested.exhaustion).toEqual({level: 0, penalty: 0, speedPenaltyFt: 0});
+		expect(rested.saves.con.mod).toBe(5);
+		expect(rested.skills.athletics.mod).toBe(6);
+		expect(rested.initiative).toBe(2);
+	});
+
+	it("Takes 2 per level off saving throws, skills and ability checks", () => {
+		const tired = getExhausted(2);
+		expect(tired.exhaustion).toEqual({level: 2, penalty: -4, speedPenaltyFt: 10});
+		expect(tired.saves.con.mod).toBe(1); // 5 − 4
+		expect(tired.skills.athletics.mod).toBe(2); // 6 − 4
+		expect(tired.abilities.str.checkMod).toBe(-1); // +3 − 4
+	});
+
+	it("Leaves the ability modifier itself alone, so nothing derived from it double-counts", () => {
+		const tired = getExhausted(2);
+		expect(tired.abilities.str.mod).toBe(3);
+		expect(tired.abilities.str.score).toBe(16);
+	});
+
+	it("Takes it off attack rolls, both weapon and unarmed", () => {
+		const state = getBaseState({level: 5, abil_str: 16, exhaustion: 1});
+		expect(getUnarmedStrike(state).atkBonus).toBe(3 + 3 - 2);
+		expect(getWeaponAttack(state, {name: "Longsword", dmg1: "1d8", dmgType: "S"}).atkBonus).toBe(3 + 3 - 2);
+		// ... but not off the damage it deals
+		expect(getWeaponAttack(state, {name: "Longsword", dmg1: "1d8", dmgType: "S"}).damage).toBe("1d8+3 slashing");
+	});
+
+	it("Takes it off spell attacks, but not off the spell save DC", () => {
+		const tired = getExhausted(3);
+		const rested = getExhausted(0);
+		expect(tired.spell.dc).toBe(rested.spell.dc);
+		expect(tired.spell.atkMod).toBe(rested.spell.atkMod - 6);
+	});
+
+	it("Drags down initiative and passive Perception, which are checks too", () => {
+		const tired = getExhausted(1);
+		expect(tired.initiative).toBe(0); // dex +2 − 2
+		expect(tired.passivePerception).toBe(getExhausted(0).passivePerception - 2);
+	});
+
+	it("Says so in the breakdown", () => {
+		expect(getExhausted(2).saves.con.parts.some(it => /Exhaustion 2/.test(it.label))).toBe(true);
+		expect(getExhausted(0).saves.con.parts.some(it => /Exhaustion/.test(it.label))).toBe(false);
+	});
+
+	it("Stops at six, and ignores nonsense", () => {
+		expect(getExhausted(9).exhaustion.penalty).toBe(-12);
+		expect(deriveCharacterSheet(getBaseState({exhaustion: -3})).exhaustion.level).toBe(0);
+		expect(deriveCharacterSheet(getBaseState({exhaustion: null})).exhaustion.level).toBe(0);
+	});
+});
+
+describe("Derive: the concentration save after damage", () => {
+	it("Is DC 10 for anything up to 20 damage", () => {
+		expect(getConcentrationSaveDc(1)).toBe(10);
+		expect(getConcentrationSaveDc(11)).toBe(10);
+		expect(getConcentrationSaveDc(20)).toBe(10);
+	});
+
+	it("Is half the damage once that is higher", () => {
+		expect(getConcentrationSaveDc(21)).toBe(10);
+		expect(getConcentrationSaveDc(22)).toBe(11);
+		expect(getConcentrationSaveDc(45)).toBe(22); // rounded down
+	});
+
+	it("Tolerates nonsense", () => {
+		expect(getConcentrationSaveDc(0)).toBe(10);
+		expect(getConcentrationSaveDc(null)).toBe(10);
 	});
 });

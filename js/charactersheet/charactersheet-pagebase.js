@@ -1,13 +1,14 @@
-import {CHAR_SHEET_ABILITIES, CHAR_SHEET_CONDITIONS, CHAR_SHEET_SKILLS, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
+import {CHAR_SHEET_ABILITIES, CHAR_SHEET_CONDITIONS, CHAR_SHEET_SKILLS, EXHAUSTION_MAX_LEVEL, PROF_STATE_PROFICIENT} from "./charactersheet-consts.js";
 import {CharacterModel} from "./charactersheet-model.js";
 import {getCharacterLabel, getMigratedStore, getNewStore} from "./charactersheet-charstore.js";
 import {getLevelUpHp} from "./charactersheet-levelengine.js";
-import {formatBreakdown} from "./charactersheet-derive.js";
+import {deriveCharacterSheet, formatBreakdown, getConcentrationSaveDc} from "./charactersheet-derive.js";
 import {CharacterSheetClassData} from "./charactersheet-classdata.js";
 import {CharacterWizard} from "./charactersheet-wizard.js";
 import {CHOICE_TYPE_ABILITY, CHOICE_TYPE_LANGUAGE, CHOICE_TYPE_SKILL, CHOICE_TYPE_TOOL, getAbilityChoices, getAbilityPackageDisplay, getFixedAbilityBonuses, getGrantedFeats, getPendingChoices, getResistChoices} from "./charactersheet-choices.js";
 import {pPickAbilities, pPickList, pResolveEntitySpellGrants, pResolveFeat} from "./charactersheet-featgrant.js";
 import {PROF_KIND_LANGUAGE, PROF_KIND_TOOL, PROF_KINDS, groupProficienciesByKind} from "./charactersheet-proficiencies.js";
+import {DEFENSE_KINDS, DEFENSE_KIND_RESIST, DEFENSE_KIND_SENSE, getAllDefenses, groupDefensesByKind} from "./charactersheet-defenses.js";
 import {getTraitChoiceResist, getTraitChoices} from "./charactersheet-traitchoices.js";
 import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterPredicate, getOutOfFilterSources, isSourceAllowed, isSourceFilterInactive} from "./charactersheet-sources.js";
 
@@ -88,14 +89,19 @@ export class CharacterPageBase {
 
 		this._comp._addHookBase("level", () => this._pMaybePromptLevelUp());
 		this._comp._addHookBase("proficiencies", () => this._renderProficiencies());
+		this._comp._addHookBase("defenses", () => this._renderDefenses());
+		this._comp._addHookBase("pendingAbilityOffers", () => this._renderAbilityOffers());
+		// Trait picks imply resistances, and equipped gear grants them for as long as it is worn
+		this._comp._addHookBase("inventory", () => this._renderDefenses());
 		this._comp._addHookBase("refSpecies", () => this._pRefreshTraitChoices());
-		this._comp._addHookBase("traitChoices", () => this._renderTraitChoices());
+		this._comp._addHookBase("traitChoices", () => { this._renderTraitChoices(); this._renderDefenses(); });
 		// Level gates the later picks (an Aasimar's Celestial Revelation, ...)
 		this._comp._addHookBase("level", () => this._renderTraitChoices());
 		this._comp._addHookAllBase(() => this._onStateChange());
 
 		this._bindBreakdownPopovers();
 		this._bindPrintPrep();
+		this._bindConcentrationWatch();
 		this._initStore();
 
 		this._doRenderAll();
@@ -213,9 +219,14 @@ export class CharacterPageBase {
 	_renderAbilitiesSavesSkills (derived) {
 		CHAR_SHEET_ABILITIES.forEach(([abv, name]) => {
 			const abil = derived.abilities[abv];
-			// The modifier comes from the score; the score itself is explained on its input
-			this._renderRoll(`cs-mod-${abv}`, abil.mod, `${name} check`,
-				[{label: `Score ${abil.score}`, isText: true}, ...abil.scoreParts.slice(1)], {isTapTarget: false});
+			// The modifier comes from the score; the score itself is explained on its input. The
+			// number shown is what an ability *check* rolls, so it carries any exhaustion penalty.
+			this._renderRoll(`cs-mod-${abv}`, abil.checkMod, `${name} check`,
+				[
+					{label: `Score ${abil.score}`, isText: true},
+					...abil.scoreParts.slice(1),
+					...(derived.exhaustion?.penalty ? [{label: `Exhaustion ${derived.exhaustion.level}`, value: derived.exhaustion.penalty}] : []),
+				], {isTapTarget: false});
 			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-abil-${abv}`), name, abil.scoreParts);
 			this._renderRoll(`cs-saveroll-${abv}`, derived.saves[abv].mod, `${name} save`, derived.saves[abv].parts, {isTapTarget: false});
 			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-savename-${abv}`), `${name} save`, derived.saves[abv].parts, derived.saves[abv].mod);
@@ -331,6 +342,87 @@ export class CharacterPageBase {
 		eleDelta.value = "0";
 	}
 
+	/* -------------------------------------------- Concentration -------------------------------------------- */
+
+	/**
+	 * Losing hit points while concentrating calls for a Constitution save, and forgetting it is the
+	 * single easiest thing to miss at the table. Watching `hpCur` rather than the Damage button means
+	 * typing a lower number into the field counts too.
+	 */
+	_bindConcentrationWatch () {
+		this._lastHpCur = Number(this._comp._state.hpCur) || 0;
+
+		this._comp._addHookBase("hpCur", () => {
+			const prev = this._lastHpCur;
+			const next = Number(this._comp._state.hpCur) || 0;
+			this._lastHpCur = next;
+
+			// Loading a character or switching to another is not damage
+			if (this._isLoading) return;
+			const damage = prev - next;
+			if (damage <= 0) return;
+			if (!(this._comp._state.concentration || "").trim()) return;
+
+			this._renderConcentrationPrompt(damage);
+		});
+
+		// Dropping the spell by hand also dismisses the prompt
+		this._comp._addHookBase("concentration", () => {
+			if (!(this._comp._state.concentration || "").trim()) this._hideConcentrationPrompt();
+		});
+	}
+
+	_hideConcentrationPrompt () {
+		document.getElementById("cs-conc-prompt")?.classList.add("ve-hidden");
+	}
+
+	_renderConcentrationPrompt (damage) {
+		const wrp = document.getElementById("cs-conc-prompt");
+		if (!wrp) return;
+
+		const dc = getConcentrationSaveDc(damage);
+		const save = deriveCharacterSheet(this._comp._getState()).saves.con;
+		const spell = this._comp._state.concentration;
+
+		wrp.innerHTML = `
+			<div class="cs__conc-prompt-line">
+				<span class="ve-bold">DC ${dc}</span> Constitution save to keep
+				<span class="ve-bold">${spell.qq()}</span>
+				<span class="ve-muted">(${damage} damage)</span>
+			</div>
+			<div class="cs__conc-prompt-actions ve-flex-v-center">
+				<span class="cs__roll cs__conc-roll"></span>
+				<button type="button" class="ve-btn ve-btn-xxs ve-btn-default" data-cs-conc="keep">Kept it</button>
+				<button type="button" class="ve-btn ve-btn-xxs ve-btn-danger" data-cs-conc="lose">Lost it</button>
+			</div>`;
+
+		wrp.querySelector(".cs__conc-roll").innerHTML = Renderer.get()
+			.render(`{@d20 ${save.mod}|${CharacterPageBase.fmtBonus(save.mod)}|Concentration (Constitution save)}`);
+		wrp.querySelector("[data-cs-conc=keep]").addEventListener("click", () => this._hideConcentrationPrompt());
+		wrp.querySelector("[data-cs-conc=lose]").addEventListener("click", () => {
+			this._comp._state.concentration = "";
+			this._hideConcentrationPrompt();
+		});
+
+		wrp.classList.remove("ve-hidden");
+	}
+
+	/** What exhaustion is costing this character, stated next to the counter. */
+	_renderExhaustionNote (derived) {
+		const ele = document.getElementById("cs-exhaustion-note");
+		if (!ele) return;
+
+		const {level, penalty, speedPenaltyFt} = derived.exhaustion;
+		if (!level) { ele.textContent = ""; return; }
+
+		ele.textContent = level >= EXHAUSTION_MAX_LEVEL
+			? "dead"
+			: `${penalty} to d20 tests, −${speedPenaltyFt} ft. speed`;
+		ele.title = level >= EXHAUSTION_MAX_LEVEL
+			? "The sixth level of exhaustion is death"
+			: `Every ability check, saving throw and attack roll is reduced by ${Math.abs(penalty)}`;
+	}
+
 	/** Bind the species/background/class search buttons shared by both pages. */
 	_bindBuildPickers () {
 		this._bindClick("cs-pick-species", () => this._onPickSpecies());
@@ -430,6 +522,96 @@ export class CharacterPageBase {
 		this._comp.addProficiency({kind: kind.kind, name: name.trim(), source: null});
 	}
 
+	/* -------------------------------------------- Defenses & senses -------------------------------------------- */
+
+	/**
+	 * Resistances, immunities, vulnerabilities, condition immunities and senses, grouped and
+	 * attributed. What equipped gear grants is folded in here rather than stored, so taking the ring
+	 * off takes the resistance with it — the chip says as much.
+	 */
+	_renderDefenses () {
+		const wrp = document.getElementById("cs-defense-list");
+		if (!wrp) return;
+		wrp.innerHTML = "";
+
+		const groups = groupDefensesByKind(getAllDefenses(this._comp._getState()));
+		if (!groups.length) {
+			wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small no-print">None yet &mdash; a species, feat or magic item fills these in, or add one by hand.</div>`);
+		}
+
+		groups.forEach(grp => {
+			const row = document.createElement("div");
+			row.className = "cs__prof-group";
+
+			const lbl = document.createElement("span");
+			lbl.className = "cs__lbl cs__prof-group-lbl";
+			lbl.textContent = grp.label;
+			row.appendChild(lbl);
+
+			grp.items.forEach(it => {
+				const chip = document.createElement("span");
+				chip.className = "cs__prof-chip";
+				if (it.isFromItem) chip.classList.add("cs__prof-chip--optional");
+
+				const from = it.sources.length ? `From: ${it.sources.join(", ")}` : "Added by hand";
+				const explanation = [
+					from,
+					it.note ? `(${it.note})` : null,
+					it.isFromItem ? "— while that gear is equipped" : null,
+				].filter(Boolean).join(" ");
+				chip.title = explanation;
+				chip.classList.add("cs__has-breakdown");
+				chip.dataset.csBreakdown = `${it.name} — ${explanation}`;
+
+				const name = document.createElement("span");
+				name.textContent = it.note ? `${it.name}*` : it.name;
+				chip.appendChild(name);
+
+				// Only a stored entry can be removed; gear is removed by unequipping it
+				if (it.ids.length) {
+					const btnRm = document.createElement("button");
+					btnRm.type = "button";
+					btnRm.className = "cs__prof-chip-rm no-print";
+					btnRm.title = "Remove";
+					btnRm.innerHTML = "&times;";
+					btnRm.addEventListener("click", () => it.ids.forEach(id => this._comp.removeDefense(id)));
+					chip.appendChild(btnRm);
+				}
+
+				row.appendChild(chip);
+			});
+
+			wrp.appendChild(row);
+		});
+
+		const btnAdd = document.createElement("button");
+		btnAdd.type = "button";
+		btnAdd.className = "ve-btn ve-btn-xxs ve-btn-default no-print ve-mt-1";
+		btnAdd.id = "cs-defense-add";
+		btnAdd.title = "Add a resistance, immunity or sense granted by the story or a ruling";
+		btnAdd.innerHTML = `<span class="glyphicon glyphicon-plus"></span> Add Defense`;
+		btnAdd.addEventListener("click", () => this._pOnAddDefense());
+		wrp.appendChild(btnAdd);
+	}
+
+	async _pOnAddDefense () {
+		const kind = await InputUiUtil.pGetUserEnum({
+			values: DEFENSE_KINDS,
+			isResolveItem: true,
+			fnDisplay: it => it.label,
+			title: "Add a defense or sense",
+			placeholder: "Which kind?",
+		});
+		if (kind == null) return;
+
+		const name = await InputUiUtil.pGetUserString({
+			title: kind.kind === DEFENSE_KIND_SENSE ? "Add a sense (e.g. Darkvision 60 ft.)" : `Add ${kind.label.replace(/s$/, "")}`,
+		});
+		if (!name?.trim()) return;
+
+		this._comp.addDefense({kind: kind.kind, name: name.trim(), source: null});
+	}
+
 	/**
 	 * The upstream `pGetUserRaceSearch`/`pGetUserBackgroundSearch` helpers take no options, so there is
 	 * no way to pass a source filter into them. Rather than edit an upstream file (which would add an
@@ -483,12 +665,12 @@ export class CharacterPageBase {
 
 	/**
 	 * Resolve a species' damage-resistance choice — a Dragonborn's draconic ancestry and the few
-	 * species built the same way. Resistances have no structured store, so they become notes.
+	 * species built the same way — into structured entries alongside its fixed ones.
 	 */
 	async _pResolveResistChoices (ent) {
 		for (const choice of getResistChoices({groups: ent.resist, sourceName: ent.name})) {
 			const picked = await pPickList({count: choice.count, from: choice.from, title: `${ent.name}: ${choice.label}`});
-			if (picked?.length) this._comp.appendToTextProp("proficienciesText", `Resistances (${ent.name}): ${picked.join(", ")}`);
+			(picked || []).forEach(name => this._comp.addDefense({kind: DEFENSE_KIND_RESIST, name, source: ent.name}));
 		}
 	}
 
@@ -707,7 +889,7 @@ export class CharacterPageBase {
 			textNo: "Skip",
 		});
 		if (!isApply) {
-			this._comp.appendToTextProp("proficienciesText", `Ability Scores (${name}): ${ptOffer} — assign manually`);
+			this._comp.addPendingAbilityOffer({source: name, offer: ptOffer, packages: choice.packages});
 			return;
 		}
 
@@ -732,7 +914,7 @@ export class CharacterPageBase {
 			const from = (pkg.weighted.from.length ? pkg.weighted.from : allAbvs).filter(abv => !taken.has(abv));
 			if (!from.length) break;
 			const [abv] = await pPickAbilities({count: 1, from, title: `${name}: which ability gets ${weight >= 0 ? "+" : ""}${weight}?`}) || [];
-			if (abv == null) return this._noteUnassignedAbilities(name, ptOffer);
+			if (abv == null) return this._noteUnassignedAbilities(name, ptOffer, choice.packages);
 			bonuses[abv] = (bonuses[abv] || 0) + weight;
 			taken.add(abv);
 		}
@@ -741,15 +923,66 @@ export class CharacterPageBase {
 		if (pkg.choose) {
 			const from = (pkg.choose.from.length ? pkg.choose.from : allAbvs).filter(abv => !taken.has(abv));
 			const picked = await pPickAbilities({count: pkg.choose.count, from, title: `${name}: increase which ability?`});
-			if (!picked) return this._noteUnassignedAbilities(name, ptOffer);
+			if (!picked) return this._noteUnassignedAbilities(name, ptOffer, choice.packages);
 			picked.forEach(abv => bonuses[abv] = (bonuses[abv] || 0) + pkg.choose.amount);
 		}
 
-		if (Object.keys(bonuses).length) this._comp.applyAbilityBonuses(bonuses, {source: name});
+		if (Object.keys(bonuses).length) {
+			this._comp.applyAbilityBonuses(bonuses, {source: name});
+			this._comp.clearPendingAbilityOffers(name);
+		}
 	}
 
-	_noteUnassignedAbilities (name, ptOffer) {
-		this._comp.appendToTextProp("proficienciesText", `Ability Scores (${name}): ${ptOffer} — assign manually`);
+	_noteUnassignedAbilities (name, ptOffer, packages = null) {
+		this._comp.addPendingAbilityOffer({source: name, offer: ptOffer, packages});
+	}
+
+	/**
+	 * Ability increases that were offered and skipped. Shown as something still to do rather than as
+	 * a note in a box that never goes away: assigning one settles it, and so does dismissing it.
+	 */
+	_renderAbilityOffers () {
+		const wrp = document.getElementById("cs-ability-offers");
+		if (!wrp) return;
+		wrp.innerHTML = "";
+
+		(this._comp._state.pendingAbilityOffers || []).forEach(offer => {
+			const box = document.createElement("div");
+			box.className = "cs__offer no-print";
+			box.innerHTML = `<div><span class="ve-bold">${offer.source.qq()}</span> grants <span class="ve-bold">${offer.offer.qq()}</span>, not yet assigned.</div>`;
+
+			const actions = document.createElement("div");
+			actions.className = "cs__offer-actions ve-flex-v-center";
+
+			// Without the packages (an offer carried over from an older character) there is nothing to
+			// walk, so the only honest options are to do it by hand and dismiss this
+			if (offer.packages?.length) {
+				const btnAssign = document.createElement("button");
+				btnAssign.type = "button";
+				btnAssign.className = "ve-btn ve-btn-xxs ve-btn-primary";
+				btnAssign.textContent = "Assign now";
+				btnAssign.addEventListener("click", () => this._pOnAssignPendingOffer(offer));
+				actions.appendChild(btnAssign);
+			}
+
+			const btnDismiss = document.createElement("button");
+			btnDismiss.type = "button";
+			btnDismiss.className = "ve-btn ve-btn-xxs ve-btn-default";
+			btnDismiss.textContent = offer.packages?.length ? "Dismiss" : "Done — dismiss";
+			btnDismiss.title = "Remove this reminder; the scores are yours to set by hand";
+			btnDismiss.addEventListener("click", () => this._comp.removePendingAbilityOffer(offer.id));
+			actions.appendChild(btnDismiss);
+
+			box.appendChild(actions);
+			wrp.appendChild(box);
+		});
+	}
+
+	async _pOnAssignPendingOffer (offer) {
+		// Walking the choice again settles it on success, and re-records it on a cancel
+		this._comp.removePendingAbilityOffer(offer.id);
+		await this._pResolveAbilityChoice({packages: offer.packages}, offer.source);
+		this._renderAbilityOffers();
 	}
 
 	async _onPickClass () {

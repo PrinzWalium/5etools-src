@@ -1,11 +1,18 @@
 import * as fs from "fs";
 import "../../js/parser.js";
 import {
+	getAmmoRecovered,
+	getChargesAfterRest,
 	getCoinDisplay,
 	getEquipmentChoiceGroups,
 	getEquipmentOptionDisplay,
+	getInventoryItemMeta,
 	getItemUidParts,
 	getNormalisedEquipmentEntry,
+	getRechargeRest,
+	isAmmunitionType,
+	parseRechargeAmount,
+	rollRechargeAmount,
 } from "../../js/charactersheet/charactersheet-equipment.js";
 import {getEncumbrance} from "../../js/charactersheet/charactersheet-derive.js";
 
@@ -71,5 +78,66 @@ describe("Encumbrance", () => {
 
 	it("Should handle an empty inventory", () => {
 		expect(getEncumbrance({abil_str: 10, inventory: []})).toEqual({totalWeightLb: 0, capacityLb: 150});
+	});
+});
+
+describe("Equipment: an item's charges", () => {
+	it("Knows which rest gives them back", () => {
+		expect(["dawn", "dusk", "midnight", "restLong"].map(getRechargeRest)).toEqual(["long", "long", "long", "long"]);
+		expect(getRechargeRest("restShort")).toBe("short");
+		// "special" means the item's own text decides, so nothing happens automatically
+		expect(getRechargeRest("special")).toBeNull();
+		expect(getRechargeRest(null)).toBeNull();
+	});
+
+	it("Reads the amount, whether a number or a dice tag", () => {
+		expect(parseRechargeAmount(3)).toEqual({flat: 3});
+		expect(parseRechargeAmount("3")).toEqual({flat: 3});
+		expect(parseRechargeAmount("{@dice 1d6 + 4}")).toEqual({count: 1, faces: 6, bonus: 4});
+		expect(parseRechargeAmount("{@dice 2d4}")).toEqual({count: 2, faces: 4, bonus: 0});
+		expect(parseRechargeAmount("{@dice 1d6 - 1}")).toEqual({count: 1, faces: 6, bonus: -1});
+		expect(parseRechargeAmount(null)).toBeNull();
+	});
+
+	it("Rolls the dice, and gives everything back when the item says nothing", () => {
+		// A roll of 1 on every die: 1d6 + 4 → 5
+		expect(rollRechargeAmount("{@dice 1d6 + 4}", {rng: () => 0})).toBe(5);
+		// ... and the maximum: 1d6 + 4 → 10
+		expect(rollRechargeAmount("{@dice 1d6 + 4}", {rng: () => 0.999})).toBe(10);
+		expect(rollRechargeAmount(null, {chargesMax: 7})).toBe(7);
+	});
+
+	it("Restores charges only on the rest that recharges the item", () => {
+		const wand = {chargesMax: 7, chargesUsed: 5, recharge: "dawn", rechargeAmount: "{@dice 1d6 + 1}"};
+		expect(getChargesAfterRest(wand, "short")).toBe(5);
+		expect(getChargesAfterRest(wand, "long", {rng: () => 0})).toBe(3); // regained 2 of 5
+	});
+
+	it("Never restores past full, and leaves an item with no charges alone", () => {
+		expect(getChargesAfterRest({chargesMax: 3, chargesUsed: 2, recharge: "dawn"}, "long")).toBe(0);
+		expect(getChargesAfterRest({chargesUsed: 4}, "long")).toBe(4);
+	});
+
+	it("Reads charges off the item data", () => {
+		const meta = getInventoryItemMeta({name: "Wand of Fireballs", charges: 7, recharge: "dawn", rechargeAmount: "{@dice 1d6 + 1}"});
+		expect(meta).toMatchObject({chargesMax: 7, recharge: "dawn", rechargeAmount: "{@dice 1d6 + 1}"});
+		expect(getInventoryItemMeta({name: "Longsword"}).chargesMax).toBeUndefined();
+	});
+});
+
+describe("Equipment: ammunition", () => {
+	it("Recognises ammunition by its item type", () => {
+		expect(isAmmunitionType("A")).toBe(true);
+		expect(isAmmunitionType("A|XPHB")).toBe(true);
+		expect(isAmmunitionType("AF|DMG")).toBe(true);
+		expect(isAmmunitionType("R")).toBe(false);
+		expect(getInventoryItemMeta({name: "Arrows (20)", type: "A|XPHB"}).isAmmo).toBe(true);
+	});
+
+	it("Recovers half of what was spent, rounded down", () => {
+		expect(getAmmoRecovered(7)).toBe(3);
+		expect(getAmmoRecovered(2)).toBe(1);
+		expect(getAmmoRecovered(1)).toBe(0);
+		expect(getAmmoRecovered(0)).toBe(0);
 	});
 });

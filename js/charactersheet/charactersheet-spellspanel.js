@@ -321,16 +321,8 @@ export class CharacterSpellsPanel {
 
 	/* -------------------------------------------- Slots -------------------------------------------- */
 
-	async _pGetLoadedClasses () {
-		const out = [];
-		for (const entry of this._comp._state.classes) {
-			const cls = await CharacterSheetClassData.pGetClass({name: entry.name, source: entry.source}).catch(() => null);
-			const sc = entry.subclass
-				? await CharacterSheetClassData.pGetSubclass({className: entry.name, classSource: entry.source, shortName: entry.subclass.shortName, source: entry.subclass.source})
-				: null;
-			out.push({entry, cls, sc});
-		}
-		return out;
+	_pGetLoadedClasses () {
+		return CharacterSheetClassData.pGetLoadedClasses(this._comp._state.classes);
 	}
 
 	async _pRenderSlots () {

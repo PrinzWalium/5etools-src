@@ -55,6 +55,17 @@ export const EXPENDABLE_RESOURCES = {
 	"Bardic Inspiration": "long",
 };
 
+/**
+ * Exhaustion (2024): each level takes 2 off every d20 test and 5 feet off speed, and the sixth
+ * level kills. The sheet applies the first two and states the third rather than enforcing it.
+ */
+export const EXHAUSTION_MAX_LEVEL = 6;
+export const EXHAUSTION_PENALTY_PER_LEVEL = 2;
+export const EXHAUSTION_SPEED_PENALTY_FT_PER_LEVEL = 5;
+
+/** Concentration survives damage on a Constitution save of DC 10, or half the damage if higher. */
+export const CONCENTRATION_MIN_DC = 10;
+
 /** The standard conditions (Exhaustion is tracked separately as a 0–6 level). */
 export const CHAR_SHEET_CONDITIONS = [
 	"Blinded", "Charmed", "Deafened", "Frightened", "Grappled", "Incapacitated", "Invisible",

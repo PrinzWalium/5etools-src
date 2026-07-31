@@ -30,7 +30,13 @@ Failures print the check that failed, and every open page is screenshotted into
 | `spellpanel` | The spell panel appears only for a character with spells, from any source |
 | `sourcefilter` | Presets narrow the pickers; content already on a character is kept and flagged |
 | `weaponmastery` | Masteries are picked by weapon *type*, without owning the weapon |
-| `sidekick` | A stat block seeds the sheet, a sidekick class drives its features and level table, and every seeded value stays editable |
+| `conditions` | Exhaustion drags every d20 test down and says so; damage while concentrating prompts the save at the right DC |
+| `upkeep` | A wand's charges across rests, a quiver's arrows and their recovery, and the reminder left by a skipped ability increase |
+| `turnhelper` | The Actions panel greys out what live state has taken away — slots, charges, ammunition, concentration, conditions |
+| `audit` | The Build Check reports a broken rule and an unclaimed choice, and says so when there is neither |
+| `cards` | The Cards button builds a printable deck of the character's own spells and attacks, then puts the page back |
+| `defenses` | Resistances/immunities/senses come from species, trait picks and worn gear, credited to each, and gear's go when it comes off |
+| `sidekick` | Both sidekick rulesets: an Essentials Kit type + role with its level table and level-up box, and any stat block + a Tasha's class; traits as editable rows |
 
 ## Writing a new one
 

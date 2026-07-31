@@ -91,7 +91,7 @@
 		<a href="charactersheet.html" class="ve-btn ve-btn-sm ve-btn-default ve-ml-auto" title="Open the character sheet"><span class="glyphicon glyphicon-th-list"></span> Character Sheet</a>
 	</div>
 
-	<div class="cs__toolbar-note ve-muted ve-small ve-mb-2 no-print">A sidekick is a stat block plus levels in a sidekick class. Pick a creature, pick a class, then change anything you like &mdash; nothing here is locked.</div>
+	<div class="cs__toolbar-note ve-muted ve-small ve-mb-2 no-print">Pick a sidekick type &mdash; Expert, Spellcaster or Warrior &mdash; or start from any stat block in the bestiary. Then change anything you like: nothing here is locked.</div>
 
 	<form id="charsheet" autocomplete="off">
 		<div class="cs__hdr row ve-flex">
@@ -102,22 +102,31 @@
 			</div>
 			<div class="ve-col-8">
 				<div class="cs__hdr-grid">
-					<div class="cs__field">
-						<span class="cs__lbl">Base Creature <span class="cs__pick-link" id="cs-link-species"></span></span>
-						<div class="cs__pick-group">
-							<input type="text" id="cs-species" class="ve-form-control ve-input-xs" placeholder="e.g. Guard">
-							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn" id="cs-pick-creature" title="Choose a stat block to build from"><span class="glyphicon glyphicon-search"></span></button>
-						</div>
-					</div>
 					<label class="cs__field no-print">
-						<span class="cs__lbl">Sidekick Class</span>
-						<select id="cs-sk-class" class="ve-form-control ve-input-xs"><!-- populated by JS --></select>
+						<span class="cs__lbl">Sidekick Type</span>
+						<select id="cs-sk-type" class="ve-form-control ve-input-xs" title="The Essentials Kit's three sidekicks"><!-- populated by JS --></select>
+					</label>
+					<label class="cs__field no-print cs__field--role ve-hidden" id="cs-sk-role-field">
+						<span class="cs__lbl" id="cs-sk-role-lbl">Specialisation</span>
+						<select id="cs-sk-role" class="ve-form-control ve-input-xs"><!-- populated by JS --></select>
 					</label>
 					<label class="cs__field cs__field--inline" title="A sidekick's level is normally the party's average level">
 						<span class="cs__lbl">Level</span>
 						<input type="number" id="cs-level" min="1" max="20" value="1" class="ve-form-control ve-input-xs cs__ipt-num">
 					</label>
+					<div class="cs__field">
+						<span class="cs__lbl">Base Creature <span class="cs__pick-link" id="cs-link-species"></span></span>
+						<div class="cs__pick-group">
+							<input type="text" id="cs-species" class="ve-form-control ve-input-xs" placeholder="e.g. Guard">
+							<button type="button" class="ve-btn ve-btn-xs ve-btn-default cs__pick-btn" id="cs-pick-creature" title="Choose any stat block to build from"><span class="glyphicon glyphicon-search"></span></button>
+						</div>
+					</div>
+					<label class="cs__field no-print" title="Tasha's sidekick classes — an alternative to the Essentials Kit types, and the way to take a sidekick past 6th level">
+						<span class="cs__lbl">Sidekick Class <span class="ve-muted">(Tasha's)</span></span>
+						<select id="cs-sk-class" class="ve-form-control ve-input-xs"><!-- populated by JS --></select>
+					</label>
 				</div>
+				<div class="ve-muted ve-small no-print" id="cs-sk-role-hint"><!-- populated by JS --></div>
 			</div>
 		</div>
 
@@ -128,6 +137,7 @@
 				<div class="cs__panel">
 					<h5 class="cs__panel-title">Ability Scores</h5>
 					<div class="cs__abilities" id="cs-abilities"><!-- populated by JS --></div>
+					<div id="cs-ability-offers"><!-- populated by JS --></div>
 				</div>
 
 				<div class="cs__panel cs__panel--inline">
@@ -227,8 +237,14 @@
 				</div>
 
 				<div class="cs__panel">
-					<h5 class="cs__panel-title">Traits &amp; Actions</h5>
-					<textarea id="cs-features" class="ve-form-control cs__textarea cs__textarea--lg" placeholder="The stat block's traits and actions land here when you pick a creature. Edit freely."></textarea>
+					<div class="cs__panel-title-row ve-flex-v-center ve-flex-h-between">
+						<h5 class="cs__panel-title ve-mb-0">Traits &amp; Actions</h5>
+						<div class="ve-flex-v-center no-print">
+							<button type="button" id="cs-sk-trait-add" class="ve-btn ve-btn-xs ve-btn-default" title="Add a trait, action, bonus action or reaction"><span class="glyphicon glyphicon-plus"></span> Add</button>
+						</div>
+					</div>
+					<div id="cs-sk-traits"><!-- populated by JS --></div>
+					<textarea id="cs-features" class="ve-form-control cs__textarea cs__textarea--md ve-mt-2" placeholder="Anything else worth noting..."></textarea>
 				</div>
 
 				<div class="cs__panel">
@@ -237,9 +253,11 @@
 						<span class="cs__lbl">Concentrating on</span>
 						<input type="text" id="cs-concentration" class="ve-form-control ve-input-xs" placeholder="e.g. Bless">
 					</label>
+					<div id="cs-conc-prompt" class="cs__conc-prompt ve-hidden no-print"><!-- populated by JS --></div>
 					<label class="cs__field cs__field--inline ve-mb-1" title="0–6; a long rest reduces it by one">
 						<span class="cs__lbl">Exhaustion</span>
 						<input type="number" id="cs-exhaustion" min="0" max="6" value="0" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs">
+						<span class="ve-muted ve-small ve-ml-2" id="cs-exhaustion-note"><!-- populated by JS --></span>
 					</label>
 					<div class="cs__conditions ve-flex ve-flex-wrap" id="cs-conditions"><!-- populated by JS --></div>
 					<textarea id="cs-personality" class="ve-form-control cs__textarea cs__textarea--md ve-mt-2" placeholder="Who is this sidekick? Loyalties, quirks, who controls it..."></textarea>
@@ -247,18 +265,19 @@
 			</div>
 
 			<div class="ve-col-4 cs__col">
-				<div class="cs__panel">
-					<h5 class="cs__panel-title">Class Features by Level</h5>
-					<div id="cs-class-panel"><!-- populated by JS --></div>
-				</div>
-
 				<div class="cs__panel no-print" id="cs-sk-levelling">
 					<div class="cs__panel-title-row ve-flex-v-center ve-flex-h-between">
-						<h5 class="cs__panel-title ve-mb-0">How Sidekicks Level</h5>
+						<h5 class="cs__panel-title ve-mb-0">Levelling Up</h5>
 						<button type="button" id="cs-sk-rules-toggle" class="ve-btn ve-btn-xxs ve-btn-default no-print" title="Show the full rules from the book">Full rules</button>
 					</div>
+					<div id="cs-sk-level-next" class="ve-mb-2"><!-- populated by JS --></div>
 					<div id="cs-sk-level-table"><!-- populated by JS --></div>
 					<div id="cs-sk-rules" class="ve-hidden ve-small ve-mt-2"><!-- populated by JS --></div>
+				</div>
+
+				<div class="cs__panel" id="cs-sk-class-panel-wrp">
+					<h5 class="cs__panel-title">Class Features by Level</h5>
+					<div id="cs-class-panel"><!-- populated by JS --></div>
 				</div>
 
 				<div class="cs__panel">
@@ -299,6 +318,11 @@
 					<h5 class="cs__panel-title">Equipment</h5>
 					<div id="cs-inventory"><!-- populated by JS --></div>
 					<textarea id="cs-equipment" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Gear, treasure..."></textarea>
+				</div>
+
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Defenses &amp; Senses</h5>
+					<div id="cs-defense-list"><!-- populated by JS --></div>
 				</div>
 
 				<div class="cs__panel">

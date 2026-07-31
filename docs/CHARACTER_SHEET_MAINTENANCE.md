@@ -36,7 +36,35 @@ git remote add upstream https://github.com/5etools-mirror-3/5etools-src.git
 can also be started by hand from the repo's **Actions** tab. It merges upstream
 into `main`, regenerates the pages, and runs the Character Sheet's lint and
 tests. If all of that passes it pushes to `main`; if the merge conflicts, or a
-check fails, it pushes **nothing** and opens a pull request for you instead.
+check fails, it pushes **nothing** and opens a pull request for you instead —
+and the run itself goes red, so the one morning that needs you does not look
+like every other morning.
+
+### Reading the green tick
+
+Most nights upstream has not moved, and the job stops at its second step:
+everything after "Check whether there is anything to merge" is **skipped**. That
+green tick means "there was nothing to do" — on its own it never shows that the
+merge, the regeneration, the lint or the tests still work.
+
+Two ways to actually exercise it:
+
+- **From the Actions tab.** Run it with **force** ticked to take the merge path
+  even when there is nothing new (the merge is then a no-op, but `npm ci`, the
+  page regeneration, the lint and the unit tests all run for real), and
+  **dry run** ticked to keep the result off `main`.
+- **Locally, including the conflict path**, which no run in the Actions tab can
+  trigger on purpose:
+
+  ```bash
+  bash scripts/rehearse-upstream-sync.sh clean      # upstream changes a shared partial
+  bash scripts/rehearse-upstream-sync.sh conflict   # upstream edits js/navigation.js beside ours
+  ```
+
+  Each builds a synthetic upstream one commit ahead of the real one, in a
+  throwaway clone, and replays the workflow's own steps over it. `clean` should
+  merge, regenerate, lint and test; `conflict` should leave the markers
+  committed, build nothing and push nothing.
 
 > **Never use GitHub's "Sync fork → Discard commits" button.**
 >
@@ -87,9 +115,11 @@ Your fork adds these three lines (they put the fork's pages in the Player menu):
 
 ```js
 this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "charbuilder.html", aText: "Character Builder"});
-this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "sidekick.html", aText: "Sidekick Builder"});
 this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "charactersheet.html", aText: "Character Sheet"});
+this._addElement_li({keyPath: [NavBar._CAT_DUNGEON_MASTER], page: "sidekick.html", aText: "Sidekick Builder"});
 ```
+
+(The sidekick builder sits in the *Dungeon Master* menu, the other two in *Player*.)
 
 **On conflict:** keep upstream's surrounding menu entries *and* these lines.
 
