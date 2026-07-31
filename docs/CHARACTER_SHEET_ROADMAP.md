@@ -158,7 +158,16 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
 - [x] **Protect `main`.** Branch rulesets are in place for `main` and `beta`, so the
       "Sync fork → Discard commits" button can no longer wipe the fork.
       (It already did once; see `CHARACTER_SHEET_MAINTENANCE.md`.)
-- [ ] **Prove the nightly upstream sync.** `.github/workflows/sync-upstream.yml` has never fired.
-      Run it once by hand from the Actions tab.
+- [x] **Prove the nightly upstream sync.** It had fired — three times, all green — and proved
+      nothing: upstream had not moved, so every run skipped ten of its twelve steps. Both real
+      paths are now exercised by `scripts/rehearse-upstream-sync.sh`, which replays the workflow's
+      own steps over a synthetic upstream in a throwaway clone: a clean merge (regenerates 56
+      pages, lints, tests, would push) and a conflict in `js/navigation.js` (markers committed,
+      nothing built, nothing pushed). Rehearsing the two side by side turned up a real defect —
+      a conflicted night finished **green**, because the merge failure was swallowed by the step's
+      own `if`, so the one morning needing attention looked like every other. It now ends red.
+      The workflow also gained `force` / `dry_run` dispatch inputs, so the merge path can be run
+      on demand instead of only on a night upstream happens to move, and it now lints
+      `js/sidekick.js` along with the other two entry points.
 - [ ] **Port the remaining ad-hoc smokes** — magic-item bonuses, multiclass Expertise, origin
       feats, the session/store round-trip — into `test/e2e/` as their coverage is needed.
