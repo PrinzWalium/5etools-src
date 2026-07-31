@@ -31,7 +31,13 @@ Each page's controller keeps only its own DOM assembly + rendering.
   `.../template-page-charbuilder.hbs`, `.../template-page-sidekick.hbs`
 - `test/jest/CharacterSheet*.test.js` — unit tests for the pure modules
 - `test/e2e/` — browser tests driving the real pages (see `test/e2e/README.md`)
-- `.github/workflows/charactersheet-ci.yml`, `.github/workflows/sync-upstream.yml`
+- `.github/workflows/` — `charactersheet-ci.yml`, `sync-upstream.yml`, and
+  `docker-image.yml` (the `:latest` / `:beta` image build). Upstream ships only
+  `main.yml` and `pages.yml`; leave those alone.
+- `scripts/` — upstream has no such directory. `update-from-upstream.sh` (the
+  preferred way to take an upstream update) and `rehearse-upstream-sync.sh`
+  (replays the sync workflow's steps over a synthetic upstream, so the merge and
+  conflict paths can be tested without waiting for upstream to move).
 
 **Shared upstream files the fork edits (the ONLY upstream-merge conflict points):**
 1. `js/navigation.js` — three `_addElement_li({... page: "….html" ...})` lines
@@ -193,6 +199,14 @@ pages, runs Character Sheet lint + tests, makes a safety backup branch). If a
 conflict occurs it will be in one of the 4 shared files above — resolve by
 keeping BOTH the fork's registration line(s) and upstream's changes, per
 `docs/CHARACTER_SHEET_MAINTENANCE.md`.
+
+It also happens nightly, unattended, via `.github/workflows/sync-upstream.yml`.
+Read its green tick carefully: on a night when upstream has not moved it skips
+everything after its second step, so success means only "nothing to do". To
+exercise it for real, dispatch it with `force` (and `dry_run` to keep the result
+off `main`), or run `bash scripts/rehearse-upstream-sync.sh clean|conflict`,
+which replays its steps over a synthetic upstream in a throwaway clone — the
+only way to reach the conflict path deliberately.
 
 ## Verifying Character Sheet changes
 
