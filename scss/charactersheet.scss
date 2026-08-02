@@ -275,6 +275,68 @@
 		color: #ddd;
 	}
 
+	// A breakdown lists one contribution per line, so the rule behind each has somewhere to sit
+	.cs__breakdown-head {
+		font-weight: bold;
+		margin-bottom: 4px;
+	}
+
+	.cs__breakdown-row {
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
+	}
+
+	.cs__breakdown-row--rule {
+		margin-top: 4px;
+		padding-top: 4px;
+		border-top: 1px solid rgb(0 0 0 / 12%);
+	}
+
+	.ve-night-mode .cs__breakdown-row--rule {
+		border-top-color: rgb(255 255 255 / 18%);
+	}
+
+	.cs__breakdown-label {
+		flex: 1 1 auto;
+	}
+
+	.cs__breakdown-value {
+		flex: 0 0 auto;
+		font-variant-numeric: tabular-nums;
+	}
+
+	// Looks and behaves like the entity links elsewhere on the sheet, because it does the same thing.
+	// This file is compiled without the shared variables, so the link blues are written out, as the
+	// rest of the sheet's colours are.
+	.cs__cite-btn {
+		flex: 0 0 auto;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: #337ab7;
+		font: inherit;
+		text-decoration: underline dotted;
+		cursor: pointer;
+
+		&:hover { text-decoration: underline; }
+	}
+
+	.ve-night-mode .cs__cite-btn {
+		color: #7db6e8;
+	}
+
+	.cs__cite-body {
+		p:last-child { margin-bottom: 0; }
+	}
+
+	.cs__cite-source {
+		margin-top: 8px;
+		font-size: 0.85em;
+		font-style: italic;
+		opacity: 0.75;
+	}
+
 	.cs__hdr-name .cs__ipt-name {
 		font-size: 1.4em;
 		font-weight: bold;

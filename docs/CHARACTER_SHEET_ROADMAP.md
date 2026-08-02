@@ -95,12 +95,16 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       weapon mastery, a missing class/species/background). It reports and never blocks — a DM
       ruling beats it. The counts come from the same pure functions the class panel uses to *offer*
       those choices, so the audit cannot drift from what the panel asks for.
-- [ ] **Every number cites its rule.** The breakdowns already say "Dexterity +3, Proficiency +2,
-      Archery +2"; a click should show the rule's own text — the Archery entry, the armor's rules,
-      the exhaustion table. This app *contains the books*, so it can trace a number to its source
-      paragraph in a way no licensed sheet can. The work is the mapping: a feat, item or class
-      feature is an addressable entity, but "Proficiency" is prose in a chapter and needs a curated
-      pointer.
+- [x] **Every number cites its rule.** A breakdown is now a list rather than a line, and beside each
+      contribution sits the rule that lets it count — one click away from the book's own paragraph,
+      with its source and page. The mapping turned out to need no curated prose at all: the 2024
+      rules glossary states Proficiency, Ability Score and Modifier, Armor Class, Passive Perception,
+      Initiative and the rest as their own addressable entries, so a "Proficiency +3" part points at
+      the actual rule, and gear, fighting styles and the exhaustion condition point at themselves. A
+      magic bonus names the item responsible when exactly one is — with two contributing there is no
+      single rule to show, and it stays unlinked rather than inventing one. So does a house-ruled
+      Misc. A unit test asserts every catalogue entry exists in the shipped data, so a citation
+      cannot rot into an empty modal.
 - [ ] **A session journal the sheet writes itself.** The sheet sees every HP swing, death save,
       rest, spent slot, condition and charge, and records none of it. It could: "Session 12 — took
       47 damage across three fights, went down once, burned six slots, two long rests, gained a

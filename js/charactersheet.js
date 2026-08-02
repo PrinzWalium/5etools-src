@@ -83,7 +83,7 @@ class _AttacksRenderableCollection extends RenderableCollectionBase {
 		const dmg = (entity.damage || "").trim();
 
 		meta.dispHit.innerHTML = Renderer.get().render(`{@hit ${bonus}|${CharacterPageBase.fmtBonus(bonus)}|${name || "Attack"}}`);
-		CharacterPageBase.setBreakdownTitle(meta.dispHit, `${name || "Attack"} to hit`, entity.atkParts, bonus);
+		CharacterPageBase.setBreakdownTitle(meta.dispHit, `${name || "Attack"} to hit`, entity.atkParts, bonus, {citeKind: "attack"});
 
 		if (dmg && /\d\s*d\s*\d/i.test(dmg)) {
 			meta.dispDmg.innerHTML = Renderer.get().render(`{@dice ${dmg}|${dmg}|${name || "Damage"}}`);
@@ -198,9 +198,13 @@ class CharacterSheetPage extends CharacterPageBase {
 		const eleComputed = document.getElementById("cs-ac-computed");
 		if (!eleComputed) return;
 		eleComputed.textContent = `${armorClass.ac}`;
-		eleComputed.title = armorClass.note === "manual"
-			? "Manual AC"
-			: `Armor Class: ${formatBreakdown(armorClass.parts, armorClass.ac, {isTotalValue: true})}`;
+		if (armorClass.note === "manual") {
+			eleComputed.title = "Manual AC";
+			CharacterPageBase.setBreakdownTitle(eleComputed, "Armor Class", null);
+		} else {
+			CharacterPageBase.setBreakdownTitle(eleComputed, "Armor Class", armorClass.parts, armorClass.ac,
+				{isTotalValue: true, citeKind: "ac"});
+		}
 		// In manual mode the number is editable; otherwise it is computed from equipped gear.
 		const isManual = (this._comp._state.acMode || "auto") === "manual";
 		const eleManual = document.getElementById("cs-ac");
@@ -271,7 +275,7 @@ class CharacterSheetPage extends CharacterPageBase {
 			const u = derived.unarmedStrike;
 			const hitRoll = Renderer.get().render(`{@d20 ${u.atkBonus}|${CharacterPageBase.fmtBonus(u.atkBonus)}|Unarmed Strike}`);
 			eleUnarmed.innerHTML = `<span class="ve-muted">Unarmed Strike:</span> ${hitRoll} <span class="ve-muted">to hit,</span> ${u.damage.qq()}`;
-			CharacterPageBase.setBreakdownTitle(eleUnarmed, "Unarmed Strike", u.atkParts, u.atkBonus);
+			CharacterPageBase.setBreakdownTitle(eleUnarmed, "Unarmed Strike", u.atkParts, u.atkBonus, {citeKind: "attack"});
 		}
 
 		this._renderCombatNotes();
@@ -293,15 +297,15 @@ class CharacterSheetPage extends CharacterPageBase {
 		const initParts = [...derived.initiativeParts];
 		const featureInit = initiative - derived.initiative;
 		if (featureInit) initParts.push({label: "Features", value: featureInit});
-		CharacterPageBase.setBreakdownTitle(eleInit, "Initiative", initParts, initiative);
+		CharacterPageBase.setBreakdownTitle(eleInit, "Initiative", initParts, initiative, {citeKind: "initiative"});
 
 		const eleDc = document.getElementById("cs-spell-dc");
 		const eleAtk = document.getElementById("cs-spell-atk");
 		if (derived.spell) {
 			eleDc.textContent = `${derived.spell.dc}`;
-			CharacterPageBase.setBreakdownTitle(eleDc, "Spell save DC", derived.spell.dcParts, derived.spell.dc, {isTotalValue: true});
+			CharacterPageBase.setBreakdownTitle(eleDc, "Spell save DC", derived.spell.dcParts, derived.spell.dc, {isTotalValue: true, citeKind: "spellDc"});
 			eleAtk.innerHTML = Renderer.get().render(`{@d20 ${derived.spell.atkMod}|${CharacterPageBase.fmtBonus(derived.spell.atkMod)}|Spell attack}`);
-			CharacterPageBase.setBreakdownTitle(eleAtk, "Spell attack", derived.spell.atkParts, derived.spell.atkMod);
+			CharacterPageBase.setBreakdownTitle(eleAtk, "Spell attack", derived.spell.atkParts, derived.spell.atkMod, {citeKind: "spellAttack"});
 		} else {
 			eleDc.textContent = "—";
 			eleAtk.textContent = "—";

@@ -11,6 +11,7 @@ import {PROF_KIND_LANGUAGE, PROF_KIND_TOOL, PROF_KINDS, groupProficienciesByKind
 import {DEFENSE_KINDS, DEFENSE_KIND_RESIST, DEFENSE_KIND_SENSE, getAllDefenses, groupDefensesByKind} from "./charactersheet-defenses.js";
 import {getTraitChoiceResist, getTraitChoices} from "./charactersheet-traitchoices.js";
 import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterPredicate, getOutOfFilterSources, isSourceAllowed, isSourceFilterInactive} from "./charactersheet-sources.js";
+import {getBreakdownCitation, getPartCitations, isSameCitation, resolveCitation} from "./charactersheet-citations.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -78,6 +79,11 @@ export class CharacterPageBase {
 	}
 
 	static fmtBonus (n) { return `${n >= 0 ? "+" : "−"}${Math.abs(n)}`; }
+
+	/** Breakdown parts, keyed by the element showing them; see `setBreakdownTitle`. */
+	static _BREAKDOWN_PARTS = new WeakMap();
+	/** Where the page stood when the breakdown popover opened; see `_bindBreakdownPopovers`. */
+	static _breakdownScrollY = 0;
 
 	/* -------------------------------------------- Lifecycle -------------------------------------------- */
 
@@ -227,15 +233,15 @@ export class CharacterPageBase {
 					...abil.scoreParts.slice(1),
 					...(derived.exhaustion?.penalty ? [{label: `Exhaustion ${derived.exhaustion.level}`, value: derived.exhaustion.penalty}] : []),
 				], {isTapTarget: false});
-			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-abil-${abv}`), name, abil.scoreParts);
+			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-abil-${abv}`), name, abil.scoreParts, null, {citeKind: "abilityCheck"});
 			this._renderRoll(`cs-saveroll-${abv}`, derived.saves[abv].mod, `${name} save`, derived.saves[abv].parts, {isTapTarget: false});
-			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-savename-${abv}`), `${name} save`, derived.saves[abv].parts, derived.saves[abv].mod);
+			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-savename-${abv}`), `${name} save`, derived.saves[abv].parts, derived.saves[abv].mod, {citeKind: "save"});
 		});
 
 		CHAR_SHEET_SKILLS.forEach(skill => {
 			const {mod, profState} = derived.skills[skill.key];
 			this._renderRoll(`cs-skillroll-${skill.key}`, mod, skill.name, derived.skills[skill.key].parts, {isTapTarget: false});
-			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-skillname-${skill.key}`), skill.name, derived.skills[skill.key].parts, mod);
+			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-skillname-${skill.key}`), skill.name, derived.skills[skill.key].parts, mod, {citeKind: "skill"});
 
 			const btn = document.getElementById(`cs-skillprof-${skill.key}`);
 			btn.classList.toggle("cs__prof--1", profState === 1);
@@ -244,7 +250,7 @@ export class CharacterPageBase {
 
 		const elePassive = document.getElementById("cs-passive-perception");
 		elePassive.textContent = `${derived.passivePerception}`;
-		CharacterPageBase.setBreakdownTitle(elePassive, "Passive Perception", derived.passivePerceptionParts, derived.passivePerception, {isTotalValue: true});
+		CharacterPageBase.setBreakdownTitle(elePassive, "Passive Perception", derived.passivePerceptionParts, derived.passivePerception, {isTotalValue: true, citeKind: "passivePerception"});
 	}
 
 	/* -------------------------------------------- Shared DOM scaffolding -------------------------------------------- */
@@ -1040,12 +1046,13 @@ export class CharacterPageBase {
 	 * tap/click popover for touch devices, where `title` never appears. Cleared when there is nothing
 	 * to say.
 	 */
-	static setBreakdownTitle (ele, name, parts, total = null, {isTotalValue = false, isTapTarget = true} = {}) {
+	static setBreakdownTitle (ele, name, parts, total = null, {isTotalValue = false, isTapTarget = true, citeKind = null} = {}) {
 		if (!ele) return;
 		if (!parts?.length) {
 			ele.removeAttribute("title");
 			ele.classList.remove("cs__has-breakdown");
 			delete ele.dataset.csBreakdown;
+			CharacterPageBase._BREAKDOWN_PARTS.delete(ele);
 			return;
 		}
 
@@ -1057,6 +1064,10 @@ export class CharacterPageBase {
 		if (!isTapTarget) return;
 		ele.classList.add("cs__has-breakdown");
 		ele.dataset.csBreakdown = text;
+		// The popover needs the parts themselves, not the flattened line, so it can offer each one's
+		// rule. Kept beside the element rather than serialised into a data attribute: the sheet
+		// re-renders constantly, and a WeakMap lets the old entries go with the old nodes.
+		CharacterPageBase._BREAKDOWN_PARTS.set(ele, {name, parts, total, isTotalValue, citeKind});
 	}
 
 	/* -------------------------------------------- Print / PDF -------------------------------------------- */
@@ -1123,14 +1134,32 @@ export class CharacterPageBase {
 	 */
 	_bindBreakdownPopovers () {
 		document.addEventListener("click", evt => {
+			// A rule button lives inside the popover, so handle it before the dismiss logic below
+			const eleCite = evt.target.closest?.(".cs__cite-btn");
+			if (eleCite) {
+				evt.preventDefault();
+				return CharacterPageBase._pShowCitation(eleCite);
+			}
+
 			const ele = evt.target.closest?.("[data-cs-breakdown]");
-			if (!ele) return CharacterPageBase._closeBreakdownPopover();
+			if (!ele) {
+				// Clicks inside the popover itself must not dismiss it
+				if (evt.target.closest?.("#cs-breakdown-popover")) return;
+				return CharacterPageBase._closeBreakdownPopover();
+			}
 			// Let rollable links roll; the popover is for the surrounding value
 			if (evt.target.closest("a, button, input, select, textarea")) return;
 			evt.preventDefault();
 			CharacterPageBase._showBreakdownPopover(ele);
 		});
-		window.addEventListener("scroll", () => CharacterPageBase._closeBreakdownPopover(), {passive: true});
+		// Scrolling away should dismiss it, since it is positioned against a spot on the page. But the
+		// act of opening it can itself scroll — bringing the value into view first — and that trailing
+		// event must not close what the same gesture just opened. Compare positions rather than
+		// reacting to the event: a scroll that did not move the page is not a scroll away.
+		window.addEventListener("scroll", () => {
+			if (Math.abs(window.scrollY - CharacterPageBase._breakdownScrollY) <= 2) return;
+			CharacterPageBase._closeBreakdownPopover();
+		}, {passive: true});
 	}
 
 	static _closeBreakdownPopover () {
@@ -1139,11 +1168,14 @@ export class CharacterPageBase {
 
 	static _showBreakdownPopover (ele) {
 		CharacterPageBase._closeBreakdownPopover();
+		CharacterPageBase._breakdownScrollY = window.scrollY;
 
 		const pop = document.createElement("div");
 		pop.id = "cs-breakdown-popover";
 		pop.className = "cs__breakdown-pop";
-		pop.textContent = ele.dataset.csBreakdown;
+		const meta = CharacterPageBase._BREAKDOWN_PARTS.get(ele);
+		if (meta) pop.appendChild(CharacterPageBase._getBreakdownBody(meta));
+		else pop.textContent = ele.dataset.csBreakdown;
 		document.body.appendChild(pop);
 
 		const rect = ele.getBoundingClientRect();
@@ -1155,6 +1187,103 @@ export class CharacterPageBase {
 		const left = Math.max(6, Math.min(rect.left, window.innerWidth - popRect.width - 6));
 		pop.style.top = `${top + window.scrollY}px`;
 		pop.style.left = `${left + window.scrollX}px`;
+	}
+
+	/**
+	 * The popover's contents: a row per contribution, and beside each the rule that lets it count.
+	 * A part with no rule to point at is still listed — it just is not a button.
+	 */
+	static _getBreakdownBody ({name, parts, total, isTotalValue, citeKind}) {
+		const wrp = document.createElement("div");
+
+		const head = document.createElement("div");
+		head.className = "cs__breakdown-head";
+		head.textContent = total == null ? name : `${name} ${isTotalValue ? total : CharacterPageBase.fmtBonus(total)}`;
+		wrp.appendChild(head);
+
+		parts.forEach(part => {
+			const row = document.createElement("div");
+			row.className = "cs__breakdown-row";
+
+			const lbl = document.createElement("span");
+			lbl.className = "cs__breakdown-label";
+			lbl.textContent = part.label;
+			row.appendChild(lbl);
+
+			if (!part.isText) {
+				const val = document.createElement("span");
+				val.className = "cs__breakdown-value";
+				val.textContent = part.isRaw ? `${part.value}` : CharacterPageBase.fmtBonus(part.value);
+				row.appendChild(val);
+			}
+
+			const cite = resolveCitation(part.cite);
+			if (cite) row.appendChild(CharacterPageBase._getCiteButton(cite));
+			wrp.appendChild(row);
+		});
+
+		// The rule for the number as a whole, when the parts have not already named it
+		const ruleWhole = getBreakdownCitation(citeKind);
+		if (ruleWhole && !getPartCitations(parts).some(it => isSameCitation(it, ruleWhole))) {
+			const row = document.createElement("div");
+			row.className = "cs__breakdown-row cs__breakdown-row--rule";
+			const lbl = document.createElement("span");
+			lbl.className = "cs__breakdown-label";
+			lbl.textContent = "Rule";
+			row.appendChild(lbl);
+			row.appendChild(CharacterPageBase._getCiteButton(ruleWhole));
+			wrp.appendChild(row);
+		}
+
+		return wrp;
+	}
+
+	static _getCiteButton (cite) {
+		const btn = document.createElement("button");
+		btn.type = "button";
+		btn.className = "cs__cite-btn";
+		btn.textContent = cite.name;
+		btn.title = `Show the rule: ${cite.name}`;
+		btn.dataset.citeName = cite.name;
+		btn.dataset.citeSource = cite.source;
+		btn.dataset.citePage = cite.page;
+		return btn;
+	}
+
+	/**
+	 * Show a cited rule's own text. This app ships the books, so the paragraph is right there in the
+	 * data — no paraphrase, and the page number comes with it.
+	 */
+	static async _pShowCitation (btn) {
+		const {citeName: name, citeSource: source, citePage: page} = btn.dataset;
+		const {eleModalInner} = UiUtil.getShowModal({title: name, isHeaderBorder: true, isUncappedHeight: true});
+
+		const wrp = document.createElement("div");
+		wrp.className = "cs__cite-body";
+		wrp.textContent = "Loading…";
+		eleModalInner.appendChild(wrp);
+
+		const ent = await CharacterPageBase._pLoadCitation({name, source, page});
+		if (!ent) {
+			wrp.textContent = `Could not find "${name}" in ${source}.`;
+			return;
+		}
+
+		wrp.innerHTML = Renderer.get().setFirstSection(true).render({type: "entries", entries: ent.entries || []});
+
+		const src = document.createElement("div");
+		src.className = "cs__cite-source";
+		src.textContent = ent.page
+			? `${Parser.sourceJsonToFull(ent.source)}, p. ${ent.page}`
+			: Parser.sourceJsonToFull(ent.source);
+		wrp.appendChild(src);
+	}
+
+	static async _pLoadCitation ({name, source, page}) {
+		const builder = UrlUtil.URL_TO_HASH_BUILDER[page];
+		if (!builder) return null;
+		const hash = builder({name, source});
+		return DataLoader.pCacheAndGet(page, source, hash, {isCopy: true}).catch(() => null);
 	}
 
 	/* -------------------------------------------- Store controls (toolbar) -------------------------------------------- */

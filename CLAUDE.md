@@ -23,7 +23,7 @@ Each page's controller keeps only its own DOM assembly + rendering.
 - `js/charactersheet.js`, `js/charbuilder.js`, `js/sidekick.js` — the three page entry points
 - `js/charactersheet/*.js` — the shared modules: pure rules (`derive`,
   `levelengine`, `choices`, `abilityscores`, `equipment`, `actions`, `charstore`,
-  `defenses`, `sidekick`, `consts`), data access (`classdata`), the model (`model`), the page
+  `defenses`, `sidekick`, `citations`, `consts`), data access (`classdata`), the model (`model`), the page
   base (`pagebase`), and the panel renderers (`classpanel`, `inventorypanel`,
   `spellspanel`, `actionspanel`, `wizard`)
 - `css/charactersheet.css`, `scss/charactersheet.scss` (shared by all three pages)
@@ -127,6 +127,13 @@ template, run `node node/generate-pages.js` and commit both.
   - **Traits & Actions** is a list of editable rows (kind, name, text) with an
     Add button — seeded per stat-block entry, tagged when a level granted it.
   - Every seeded value stays hand-editable; nothing is locked.
+- **Every number cites its rule**: a breakdown popover lists one contribution per
+  line, and beside each is the rule that lets it count — clicking shows the book's
+  own text with its source and page. `charactersheet-citations.js` holds the
+  catalogue (the 2024 glossary states Proficiency, Armor Class, Passive Perception
+  etc. as addressable `variantrule` entries, so almost nothing is curated); a part
+  names its own rule in `derive.js` rather than anything guessing from the label.
+  A bonus with two possible causes stays unlinked instead of picking one.
 - **Reference cards** (`charactersheet.html`, the *Cards* button): the character's
   known spells and attacks printed as index cards, built on demand
   (`charactersheet-cards.js` + `-cardspanel.js`) and visible only on paper. The
