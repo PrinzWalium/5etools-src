@@ -25,6 +25,7 @@
 		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-print" type="button" title="Print, or save as PDF"><span class="glyphicon glyphicon-print"></span> Print</button>
 		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-cards" type="button" title="Print this character's spells and attacks as reference cards"><span class="glyphicon glyphicon-th-large"></span> Cards</button>
 		<button class="ve-btn ve-btn-sm ve-btn-danger" id="cs-btn-reset" type="button" title="Clear the sheet"><span class="glyphicon glyphicon-refresh"></span> Reset</button>
+			<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-homebrew" type="button" title="Add or remove homebrew; brew content then appears in every picker on this page"><span class="glyphicon glyphicon-folder-open"></span> Homebrew</button>
 		<a href="charbuilder.html" class="ve-btn ve-btn-sm ve-btn-default ve-ml-auto" title="Open the build-focused character builder"><span class="glyphicon glyphicon-list-alt"></span> Open Builder</a>
 	</div>
 
@@ -310,6 +311,11 @@
 					<div id="cs-prof-list" class="ve-mb-1"><!-- populated by JS --></div>
 					<textarea id="cs-proficiencies" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Armor, weapons, tools, languages..."></textarea>
 				</div>
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Appearance</h5>
+					<div id="cs-appearance"><!-- populated by JS --></div>
+				</div>
+
 				<div class="cs__panel">
 					<h5 class="cs__panel-title">Personality, Ideals, Bonds &amp; Flaws</h5>
 					<textarea id="cs-personality" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Roleplay notes, backstory, appearance..."></textarea>

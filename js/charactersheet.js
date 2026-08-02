@@ -319,5 +319,5 @@ class CharacterSheetPage extends CharacterPageBase {
 
 window.addEventListener("load", () => {
 	const page = new CharacterSheetPage();
-	page.init();
+	page.pInit();
 });

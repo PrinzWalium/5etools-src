@@ -24,6 +24,7 @@
 		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-save" type="button" title="Save the current character to a file"><span class="glyphicon glyphicon-download"></span> Save to File</button>
 		<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-load" type="button" title="Load a character from a file"><span class="glyphicon glyphicon-upload"></span> Load from File</button>
 		<button class="ve-btn ve-btn-sm ve-btn-danger" id="cs-btn-reset" type="button" title="Clear this character"><span class="glyphicon glyphicon-refresh"></span> Reset</button>
+			<button class="ve-btn ve-btn-sm ve-btn-default" id="cs-btn-homebrew" type="button" title="Add or remove homebrew; brew content then appears in every picker on this page"><span class="glyphicon glyphicon-folder-open"></span> Homebrew</button>
 		<a href="charactersheet.html" class="ve-btn ve-btn-sm ve-btn-default ve-ml-auto" title="Open the play-focused character sheet"><span class="glyphicon glyphicon-th-list"></span> Open Sheet</a>
 	</div>
 
@@ -132,6 +133,11 @@
 					<h5 class="cs__panel-title">Other Proficiencies &amp; Languages</h5>
 					<div id="cs-prof-list" class="ve-mb-1"><!-- populated by JS --></div>
 					<textarea id="cs-proficiencies" class="ve-form-control cs__textarea cs__textarea--md" placeholder="Armor, weapons, tools, languages..."></textarea>
+				</div>
+
+				<div class="cs__panel">
+					<h5 class="cs__panel-title">Appearance</h5>
+					<div id="cs-appearance"><!-- populated by JS --></div>
 				</div>
 
 				<div class="cs__panel">

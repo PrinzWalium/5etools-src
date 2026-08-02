@@ -98,5 +98,5 @@ class CharacterBuilderPage extends CharacterPageBase {
 
 window.addEventListener("load", () => {
 	const page = new CharacterBuilderPage();
-	page.init();
+	page.pInit();
 });

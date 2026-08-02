@@ -766,5 +766,5 @@ class _SidekickAttacks extends RenderableCollectionBase {
 
 window.addEventListener("load", () => {
 	const page = new SidekickPage();
-	page.init();
+	page.pInit();
 });

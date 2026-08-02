@@ -136,6 +136,14 @@ export class CharacterModel extends BaseComponent {
 			pendingAbilityOffers: [], // [{id, source, offer, packages}] — ability increases offered but not yet assigned
 			journal: [], // [{t, k, v, n}] — what happened at the table, grouped into sessions on read
 
+			portrait: "", // a data URL, downscaled on import — it shares localStorage with everything else
+			appearanceAge: "",
+			appearanceHeight: "",
+			appearanceWeight: "",
+			appearanceEyes: "",
+			appearanceSkin: "",
+			appearanceHair: "",
+
 			featuresText: "",
 			equipmentText: "",
 			proficienciesText: "",

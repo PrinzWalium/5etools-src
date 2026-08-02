@@ -13,6 +13,7 @@ import {getTraitChoiceResist, getTraitChoices} from "./charactersheet-traitchoic
 import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterPredicate, getOutOfFilterSources, isSourceAllowed, isSourceFilterInactive} from "./charactersheet-sources.js";
 import {getBreakdownCitation, getPartCitations, isSameCitation, resolveCitation} from "./charactersheet-citations.js";
 import {EV_DAMAGE, EV_DEATH_SAVE, EV_DOWN, EV_HEAL, EV_LEVEL} from "./charactersheet-journal.js";
+import {PORTRAIT_MIME, PORTRAIT_QUALITY, getPortraitTargetSize, isPortraitTooLarge} from "./charactersheet-portrait.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -89,6 +90,27 @@ export class CharacterPageBase {
 
 	/* -------------------------------------------- Lifecycle -------------------------------------------- */
 
+	/**
+	 * Load homebrew (and prerelease content, and the exclusion list) before the page builds itself.
+	 *
+	 * `charactersheet-classdata.js` has always asked the `DataLoader` for brew alongside site content,
+	 * and `SearchWidget` indexes brew for the species/background/item pickers — but none of it can
+	 * return anything until `BrewUtil2.pInit()` has run, and nothing on these three pages ever ran it.
+	 * So the builder appeared to ignore homebrew entirely when in fact it was only ever missing this.
+	 *
+	 * A brew that fails to load must not take the sheet down with it: a character is more important
+	 * than the content it could have picked from, so a failure is reported and the page carries on.
+	 */
+	async pInit () {
+		try {
+			await Promise.all([PrereleaseUtil.pInit(), BrewUtil2.pInit()]);
+			await ExcludeUtil.pInitialise();
+		} catch (e) {
+			JqueryUtil.doToast({type: "danger", content: `Homebrew could not be loaded${e?.message ? `: ${e.message}` : ""}. The rest of the sheet still works.`});
+		}
+		this.init();
+	}
+
 	init () {
 		this._buildDom();
 		this._bindInputs();
@@ -111,6 +133,7 @@ export class CharacterPageBase {
 		this._bindPrintPrep();
 		this._bindConcentrationWatch();
 		this._bindDeathSaveWatch();
+		this._buildAppearance();
 		this._initStore();
 
 		this._doRenderAll();
@@ -385,6 +408,108 @@ export class CharacterPageBase {
 		// Dropping the spell by hand also dismisses the prompt
 		this._comp._addHookBase("concentration", () => {
 			if (!(this._comp._state.concentration || "").trim()) this._hideConcentrationPrompt();
+		});
+	}
+
+	/* -------------------------------------------- Appearance & portrait -------------------------------------------- */
+
+	static _APPEARANCE_FIELDS = [
+		["age", "Age"],
+		["height", "Height"],
+		["weight", "Weight"],
+		["eyes", "Eyes"],
+		["skin", "Skin"],
+		["hair", "Hair"],
+	];
+
+	/**
+	 * The description fields the printed sheet has always had a box for, plus a portrait. Built here
+	 * rather than in each template, so the sheet and the builder cannot drift apart.
+	 */
+	_buildAppearance () {
+		const wrp = document.getElementById("cs-appearance");
+		if (!wrp) return;
+
+		wrp.innerHTML = `
+			<div class="cs__appearance">
+				<div class="cs__portrait-wrp">
+					<img id="cs-portrait-img" class="cs__portrait" alt="Character portrait">
+					<div id="cs-portrait-empty" class="cs__portrait cs__portrait--empty" title="No portrait chosen">No portrait</div>
+					<div class="cs__portrait-controls no-print">
+						<label class="ve-btn ve-btn-xs ve-btn-default" title="Choose an image; it is scaled down before it is stored">
+							Choose<input type="file" id="cs-portrait-file" accept="image/*" class="ve-hidden">
+						</label>
+						<button type="button" class="ve-btn ve-btn-xs ve-btn-danger" id="cs-portrait-clear" title="Remove the portrait">Clear</button>
+					</div>
+				</div>
+				<div class="cs__appearance-fields">
+					${CharacterPageBase._APPEARANCE_FIELDS
+		.map(([key, label]) => `<label class="cs__field"><span class="cs__lbl">${label}</span><input type="text" id="cs-appearance-${key}" class="ve-form-control ve-input-xs"></label>`)
+		.join("")}
+				</div>
+			</div>`;
+
+		CharacterPageBase._APPEARANCE_FIELDS
+			.forEach(([key]) => this._bindIptStr(`cs-appearance-${key}`, `appearance${key.uppercaseFirst()}`));
+
+		document.getElementById("cs-portrait-file")
+			?.addEventListener("change", evt => this._pOnPortraitPicked(evt.target));
+		this._bindClick("cs-portrait-clear", () => { this._comp._state.portrait = ""; });
+		this._comp._addHookBase("portrait", () => this._renderPortrait());
+		this._renderPortrait();
+	}
+
+	_renderPortrait () {
+		const img = document.getElementById("cs-portrait-img");
+		const empty = document.getElementById("cs-portrait-empty");
+		if (!img || !empty) return;
+		const src = this._comp._state.portrait || "";
+		img.src = src;
+		img.classList.toggle("ve-hidden", !src);
+		empty.classList.toggle("ve-hidden", !!src);
+	}
+
+	/**
+	 * Read the chosen image, scale it down and re-encode it before storing. A portrait shares
+	 * `localStorage` with every other character, so an untouched photo would be enough on its own to
+	 * break saving for all of them.
+	 */
+	async _pOnPortraitPicked (ipt) {
+		const file = ipt?.files?.[0];
+		if (!file) return;
+		ipt.value = ""; // so choosing the same file twice still fires
+
+		try {
+			const dataUrl = await CharacterPageBase._pScaleImageFile(file);
+			if (isPortraitTooLarge(dataUrl)) {
+				JqueryUtil.doToast({type: "danger", content: "That image is too large to store, even scaled down. Try a smaller one."});
+				return;
+			}
+			this._comp._state.portrait = dataUrl;
+		} catch (e) {
+			JqueryUtil.doToast({type: "danger", content: `Could not read that image${e?.message ? `: ${e.message}` : ""}.`});
+		}
+	}
+
+	static _pScaleImageFile (file) {
+		return new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onerror = () => reject(new Error("the file could not be read"));
+			reader.onload = () => {
+				const img = new Image();
+				img.onerror = () => reject(new Error("it is not an image"));
+				img.onload = () => {
+					const {width, height} = getPortraitTargetSize(img.naturalWidth, img.naturalHeight);
+					if (!width || !height) return reject(new Error("it has no size"));
+					const canvas = document.createElement("canvas");
+					canvas.width = width;
+					canvas.height = height;
+					canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+					resolve(canvas.toDataURL(PORTRAIT_MIME, PORTRAIT_QUALITY));
+				};
+				img.src = reader.result;
+			};
+			reader.readAsDataURL(file);
 		});
 	}
 
@@ -1327,6 +1452,11 @@ export class CharacterPageBase {
 		this._bindClick("cs-btn-load", () => this._onLoadFromFile());
 		this._bindClick("cs-btn-print", () => this._doPrint());
 		this._bindClick("cs-btn-reset", () => this._onReset());
+		// Opens 5etools' own manager, so brew added here is the same brew every other page sees
+		this._bindClick("cs-btn-homebrew", async () => {
+			const {ManageBrewUi} = await import("../utils-brew/utils-brew-ui-manage.js");
+			await ManageBrewUi.pDoManageBrew();
+		});
 
 		const sel = document.getElementById("cs-char-select");
 		if (sel) sel.addEventListener("change", () => this._switchCharacter(sel.value));

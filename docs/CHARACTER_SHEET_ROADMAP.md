@@ -70,10 +70,21 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       settles: tighter margins, a deliberate page break between play data and reference text.
 - [ ] **Accessibility.** Focus rings, labels on icon-only buttons, keyboard access to the feature
       cards. Noticed during the UI rework and deliberately left out of its scope.
-- [ ] **Character portrait and appearance fields.**
+- [x] **Character portrait and appearance fields.** An *Appearance* panel on the sheet and the
+      builder: age, height, weight, eyes, skin and hair, and a portrait. The portrait is downscaled
+      to 400px on its longest edge and re-encoded as JPEG before it is stored, and one over half a
+      megabyte is refused — every character in the store shares one `localStorage` quota, so an
+      untouched phone photo would break saving for all of them, not just the one it was added to.
 - [ ] **Sharing a character** with a DM — a link or an export they can open read-only.
-- [ ] **Homebrew.** 5etools has a homebrew loader; the builder ignores it entirely, so a
-      homebrew class or species cannot be picked.
+- [x] **Homebrew.** Not what this said it was. `charactersheet-classdata.js` had *always* asked the
+      `DataLoader` for brew alongside site content, and `SearchWidget` already indexes brew for the
+      species/background/item pickers — but none of it can return anything until `BrewUtil2.pInit()`
+      has run, and no character page ever ran it. So the builder was not ignoring homebrew; it was
+      missing one line of setup, and every brew-aware call it already made was dead code. The three
+      pages now initialise prerelease, brew and the exclusion list before building, and carry on with
+      a toast if that fails — a character matters more than the content it could have picked from.
+      A *Homebrew* button in each toolbar opens 5etools' own manager, so brew added here is the same
+      brew every other page sees.
 
 ## Ideas worth building, easiest first
 
@@ -179,5 +190,11 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       The workflow also gained `force` / `dry_run` dispatch inputs, so the merge path can be run
       on demand instead of only on a night upstream happens to move, and it now lints
       `js/sidekick.js` along with the other two entry points.
-- [ ] **Port the remaining ad-hoc smokes** — magic-item bonuses, multiclass Expertise, origin
-      feats, the session/store round-trip — into `test/e2e/` as their coverage is needed.
+- [x] **Port the remaining ad-hoc smokes.** All four are now `test/e2e/smokes.e2e.mjs`: a magic
+      item's AC bonus appearing and going again with the armour, Expertise offered and claimed, a
+      2024 background's origin feat, and the store surviving a reload with a second character beside
+      it. Writing them corrected three assumptions about the app that were simply wrong: Expertise
+      is *offered*, never taken automatically (the panel says "gain skill proficiencies first" when
+      there is nothing to double), an origin feat is offered rather than forced, and the shared
+      `resolveModals` helper clicks *Skip* by design — right for other suites, wrong for a suite
+      whose subject is the optional grant, so this one accepts instead.

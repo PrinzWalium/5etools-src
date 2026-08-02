@@ -23,7 +23,7 @@ Each page's controller keeps only its own DOM assembly + rendering.
 - `js/charactersheet.js`, `js/charbuilder.js`, `js/sidekick.js` — the three page entry points
 - `js/charactersheet/*.js` — the shared modules: pure rules (`derive`,
   `levelengine`, `choices`, `abilityscores`, `equipment`, `actions`, `charstore`,
-  `defenses`, `sidekick`, `citations`, `journal`, `consts`), data access (`classdata`), the model (`model`), the page
+  `defenses`, `sidekick`, `citations`, `journal`, `portrait`, `consts`), data access (`classdata`), the model (`model`), the page
   base (`pagebase`), and the panel renderers (`classpanel`, `inventorypanel`,
   `spellspanel`, `actionspanel`, `wizard`)
 - `css/charactersheet.css`, `scss/charactersheet.scss` (shared by all three pages)
@@ -134,6 +134,15 @@ template, run `node node/generate-pages.js` and commit both.
   etc. as addressable `variantrule` entries, so almost nothing is curated); a part
   names its own rule in `derive.js` rather than anything guessing from the label.
   A bonus with two possible causes stays unlinked instead of picking one.
+- **Homebrew** works on all three pages, but only because `pInit` (page base) runs
+  `PrereleaseUtil.pInit()` / `BrewUtil2.pInit()` / `ExcludeUtil.pInitialise()` before
+  `init()`. `classdata` and `SearchWidget` were always brew-aware; without that
+  setup every brew call returns nothing. The *Homebrew* toolbar button opens
+  5etools' own `ManageBrewUi`.
+- **Appearance** (sheet + builder): age/height/weight/eyes/skin/hair and a
+  portrait, built once in the page base so the two cannot drift. A portrait is
+  downscaled to 400px and re-encoded before storing (`charactersheet-portrait.js`
+  decides the size and is tested); the whole store shares one quota.
 - **Session journal** (`charactersheet.html`): the sheet records play as it
   happens — hit points lost and regained, going down, death saves, rests, spent
   slots and class resources, conditions, charges, ammunition, levels — and writes
