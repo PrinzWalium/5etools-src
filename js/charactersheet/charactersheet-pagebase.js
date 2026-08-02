@@ -12,6 +12,7 @@ import {DEFENSE_KINDS, DEFENSE_KIND_RESIST, DEFENSE_KIND_SENSE, getAllDefenses, 
 import {getTraitChoiceResist, getTraitChoices} from "./charactersheet-traitchoices.js";
 import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterPredicate, getOutOfFilterSources, isSourceAllowed, isSourceFilterInactive} from "./charactersheet-sources.js";
 import {getBreakdownCitation, getPartCitations, isSameCitation, resolveCitation} from "./charactersheet-citations.js";
+import {EV_DAMAGE, EV_DEATH_SAVE, EV_DOWN, EV_HEAL, EV_LEVEL} from "./charactersheet-journal.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -69,6 +70,7 @@ export class CharacterPageBase {
 	constructor () {
 		this._comp = new CharacterModel();
 		this._isLoading = false;
+		this._lastDeathSaves = {deathSuccess: 0, deathFail: 0};
 		this._saveTimer = null;
 		this._store = null; // {storeVersion, currentId, characters: {id: envelope}}
 		this._fnsSyncInput = []; // unconditional input-sync functions, for bulk state loads
@@ -108,6 +110,7 @@ export class CharacterPageBase {
 		this._bindBreakdownPopovers();
 		this._bindPrintPrep();
 		this._bindConcentrationWatch();
+		this._bindDeathSaveWatch();
 		this._initStore();
 
 		this._doRenderAll();
@@ -366,6 +369,13 @@ export class CharacterPageBase {
 			// Loading a character or switching to another is not damage
 			if (this._isLoading) return;
 			const damage = prev - next;
+
+			// The same swing the journal records: one hook, so the two can never disagree about
+			// what counts as damage
+			if (damage > 0) this._comp.logJournal(EV_DAMAGE, {v: damage});
+			else if (damage < 0) this._comp.logJournal(EV_HEAL, {v: -damage});
+			if (next <= 0 && prev > 0) this._comp.logJournal(EV_DOWN);
+
 			if (damage <= 0) return;
 			if (!(this._comp._state.concentration || "").trim()) return;
 
@@ -375,6 +385,30 @@ export class CharacterPageBase {
 		// Dropping the spell by hand also dismisses the prompt
 		this._comp._addHookBase("concentration", () => {
 			if (!(this._comp._state.concentration || "").trim()) this._hideConcentrationPrompt();
+		});
+	}
+
+	/** Set the loading guard, and stop the journal recording while it is on. */
+	_setLoading (isLoading) {
+		this._isLoading = isLoading;
+		this._comp.setJournalPaused(isLoading);
+	}
+
+	/**
+	 * A death save is worth remembering, but the counters also go back to zero on a long rest or a
+	 * heal — only a count going *up* is a save that was actually rolled.
+	 */
+	_bindDeathSaveWatch () {
+		["deathSuccess", "deathFail"].forEach(prop => {
+			this._comp._addHookBase(prop, () => {
+				const prev = this._lastDeathSaves[prop] || 0;
+				const next = Number(this._comp._state[prop]) || 0;
+				this._lastDeathSaves[prop] = next;
+				if (this._isLoading || next <= prev) return;
+				for (let i = prev; i < next; ++i) {
+					this._comp.logJournal(EV_DEATH_SAVE, {n: prop === "deathFail" ? "fail" : "success"});
+				}
+			});
 		});
 	}
 
@@ -1337,12 +1371,12 @@ export class CharacterPageBase {
 	_onStoreLoaded () {}
 
 	_doLoadState (saved) {
-		this._isLoading = true;
+		this._setLoading(true);
 		try {
 			const isApplied = this._comp.setStateFrom(saved);
 			if (!isApplied) JqueryUtil.doToast({type: "danger", content: "Could not load character&mdash;unknown save format."});
 		} finally {
-			this._isLoading = false;
+			this._setLoading(false);
 		}
 		this._applySourceFilter();
 		this._doRenderAll();
@@ -1585,11 +1619,11 @@ export class CharacterPageBase {
 		this._store.currentId = id;
 
 		const envelope = this._store.characters[id];
-		this._isLoading = true;
+		this._setLoading(true);
 		try {
 			this._comp._setState(this._comp._getDefaultState());
 		} finally {
-			this._isLoading = false;
+			this._setLoading(false);
 		}
 		if (envelope) this._doLoadState(envelope);
 		else this._doRenderAll();
@@ -1641,11 +1675,11 @@ export class CharacterPageBase {
 			textNo: "Cancel",
 		})) return;
 
-		this._isLoading = true;
+		this._setLoading(true);
 		try {
 			this._comp._setState(this._comp._getDefaultState());
 		} finally {
-			this._isLoading = false;
+			this._setLoading(false);
 		}
 		this._onStoreLoaded();
 		this._doRenderAll();
@@ -1660,6 +1694,8 @@ export class CharacterPageBase {
 		this._lastLevel = newLevel;
 
 		if (this._isLoading || this._suppressLevelPrompt > 0 || newLevel <= prevLevel) return;
+
+		for (let lvl = prevLevel + 1; lvl <= newLevel; ++lvl) this._comp.logJournal(EV_LEVEL, {v: lvl});
 
 		const primary = this._comp._state.classes.find(c => c.hdFaces);
 		if (!primary) return;

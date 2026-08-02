@@ -10,6 +10,7 @@ import {CharacterSpellsPanel} from "./charactersheet/charactersheet-spellspanel.
 import {CharacterActionsPanel} from "./charactersheet/charactersheet-actionspanel.js";
 import {CharacterPageBase} from "./charactersheet/charactersheet-pagebase.js";
 import {CharacterCardsPanel} from "./charactersheet/charactersheet-cardspanel.js";
+import {CharacterJournalPanel} from "./charactersheet/charactersheet-journalpanel.js";
 
 /** Renders the attacks table from the model's `attacks` collection. */
 class _AttacksRenderableCollection extends RenderableCollectionBase {
@@ -138,6 +139,8 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._actionsPanel.init();
 		// Built only when asked for: the deck needs the whole spell list loaded
 		this._cardsPanel = new CharacterCardsPanel({comp: this._comp, wrp: document.getElementById("cs-cards")});
+		this._journalPanel = new CharacterJournalPanel({comp: this._comp, wrp: document.getElementById("cs-journal")});
+		this._journalPanel.init();
 		this._bindClick("cs-btn-cards", () => this._cardsPanel.pPrint());
 
 		this._comp._addHookBase("pickTags", () => this._renderPickLinks());

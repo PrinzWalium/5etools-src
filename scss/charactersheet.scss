@@ -337,6 +337,47 @@
 		opacity: 0.75;
 	}
 
+	.cs__journal-controls {
+		display: flex;
+		gap: 6px;
+		margin-bottom: 6px;
+	}
+
+	.cs__journal-session {
+		padding: 5px 0;
+
+		& + & { border-top: 1px solid rgb(0 0 0 / 10%); }
+	}
+
+	.ve-night-mode .cs__journal-session + .cs__journal-session {
+		border-top-color: rgb(255 255 255 / 15%);
+	}
+
+	.cs__journal-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		gap: 8px;
+	}
+
+	.cs__journal-num {
+		font-weight: bold;
+	}
+
+	.cs__journal-date {
+		font-size: 0.85em;
+		opacity: 0.7;
+	}
+
+	.cs__journal-text {
+		font-size: 0.95em;
+	}
+
+	.cs__journal-empty {
+		font-style: italic;
+		font-size: 0.9em;
+	}
+
 	.cs__hdr-name .cs__ipt-name {
 		font-size: 1.4em;
 		font-weight: bold;

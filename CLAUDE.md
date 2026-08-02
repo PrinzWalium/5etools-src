@@ -23,7 +23,7 @@ Each page's controller keeps only its own DOM assembly + rendering.
 - `js/charactersheet.js`, `js/charbuilder.js`, `js/sidekick.js` — the three page entry points
 - `js/charactersheet/*.js` — the shared modules: pure rules (`derive`,
   `levelengine`, `choices`, `abilityscores`, `equipment`, `actions`, `charstore`,
-  `defenses`, `sidekick`, `citations`, `consts`), data access (`classdata`), the model (`model`), the page
+  `defenses`, `sidekick`, `citations`, `journal`, `consts`), data access (`classdata`), the model (`model`), the page
   base (`pagebase`), and the panel renderers (`classpanel`, `inventorypanel`,
   `spellspanel`, `actionspanel`, `wizard`)
 - `css/charactersheet.css`, `scss/charactersheet.scss` (shared by all three pages)
@@ -134,6 +134,14 @@ template, run `node node/generate-pages.js` and commit both.
   etc. as addressable `variantrule` entries, so almost nothing is curated); a part
   names its own rule in `derive.js` rather than anything guessing from the label.
   A bonus with two possible causes stays unlinked instead of picking one.
+- **Session journal** (`charactersheet.html`): the sheet records play as it
+  happens — hit points lost and regained, going down, death saves, rests, spent
+  slots and class resources, conditions, charges, ammunition, levels — and writes
+  each session up as a sentence. `charactersheet-journal.js` is pure: it groups
+  events into sessions (a six-hour silence, or an explicit *New session*), infers
+  fights from bursts of damage, and summarises. Recording is paused while loading
+  (`_setLoading` → `setJournalPaused`), or re-opening the sheet would log the
+  restored hit-point total as a fight. Capped at 1000 events, oldest dropped.
 - **Reference cards** (`charactersheet.html`, the *Cards* button): the character's
   known spells and attacks printed as index cards, built on demand
   (`charactersheet-cards.js` + `-cardspanel.js`) and visible only on paper. The

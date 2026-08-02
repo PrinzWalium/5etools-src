@@ -105,12 +105,18 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       single rule to show, and it stays unlinked rather than inventing one. So does a house-ruled
       Misc. A unit test asserts every catalogue entry exists in the shipped data, so a citation
       cannot rot into an empty modal.
-- [ ] **A session journal the sheet writes itself.** The sheet sees every HP swing, death save,
-      rest, spent slot, condition and charge, and records none of it. It could: "Session 12 — took
-      47 damage across three fights, went down once, burned six slots, two long rests, gained a
-      level, fired 23 arrows and recovered 11." Nothing else does this and it needs no sync, but it
-      is the biggest of the five: an event log in the model, session boundaries, storage growth,
-      and a summariser.
+- [x] **A session journal the sheet writes itself.** A *Session Journal* panel on the sheet, newest
+      session first, each written up as a sentence: "Took 47 damage across three fights, went down
+      once, burned six slots, two long rests, gained a level and fired 23 pieces of ammunition and
+      recovered 11." Nothing is typed — every hit point, death save, rest, spent slot, class
+      resource, condition, charge and arrow is recorded as it happens.
+      *Sessions* split on a six-hour silence, or wherever *New session* is pressed, because a player
+      who says a session ended knows better than a clock. *Fights* are inferred from bursts of
+      damage separated by quiet or by a rest — approximate by design, since the sheet is never told
+      initiative was rolled. *Storage* is capped at 1000 events, oldest dropped, so it cannot grow
+      forever beside the character. *Recording pauses while loading*, so re-opening the sheet and
+      restoring a saved hit-point total does not read as a fight — the same `hpCur` hook the
+      concentration prompt uses, so the two can never disagree about what damage is.
 
 ## Maybe
 
