@@ -143,36 +143,50 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       is nearly as good as live — but it costs every player a send at each level-up, and only the
       DM sees the benefit. Worth doing if that trade stops feeling annoying.
 
-- [ ] **Server-side characters.** The thing that would make the party sheet live, and let a player
-      pick up their character on another device. Sketched here so the shape is on record; not
-      committed to, because it is the first part of this project that could break for other people.
+- [ ] **Accounts and server-side characters** — *the client side is prepared; the server is a
+      separate project.* An account system that lets a player pick their character up on another
+      device, and makes the party sheet above live.
 
-  **The client barely changes.** Persistence is already behind a seam — `CharacterPageBase` owns
-  `_initStore` / `_persistNow` / `_doLoadState`, and the store format is a pure module. Define a
-  storage adapter (`list`, `load`, `save`, `delete`) with two implementations, `LocalStorage` and
-  `Remote`, and pick one at init. The model, the panels and the derivations never learn about it.
-  One new fork-owned module and a few lines in the page base: **no new upstream conflict points**,
-  the count stays at four.
+  **It lives in its own repository**, deployed behind the same subdomain on its own path by a
+  reverse proxy — *not* in this repo. That decision does the most work of any here:
 
-  **Local-first, never server-first.** Write to localStorage always, then queue a push. The UI
-  never blocks on the network, play survives the wifi dying mid-session, and with no sync URL
-  configured the app behaves exactly as it does today.
+  - the four shared upstream files stay four, and this repo gains no server, no second dependency
+    tree and no second CI;
+  - every later sync feature ships from that repo, with no change to 5etools-src at all;
+  - same-origin means the browser's own session cookie authenticates each call. No token in
+    `localStorage`, nothing for the client to store or leak, and no CORS to configure.
 
-  **The server is small.** A key-value store of character envelopes with ownership:
-  `POST /api/session` (join with a campaign invite code → long-lived token), then
-  `GET/PUT/DELETE /api/characters[/:id]`. Concurrency by a per-character version and `If-Match`;
-  on a 409 ask "keep mine / take theirs" rather than attempting a merge — characters are
-  single-writer in practice. The wire format is the existing save-file envelope, so an export is a
-  valid upload and there is no second schema to maintain.
+  **Authentication is OIDC against an existing Authentik instance.** The account app is a
+  confidential OIDC client; this fork never sees a token, an identity or a password — only whether
+  `pWhoAmI()` answers. Nothing here has to own credentials, resets or revocation.
 
-  **Deployment stays boring.** A Cloudflare Worker with D1/KV needs no container and no backups to
-  run; the alternative is a small container beside the existing image, which is yours to patch and
-  restore. Either way the client reads the sync URL from a runtime `config.js` the image can drop
-  in, so the Pages build keeps producing a working, sync-less site. The server lives in `server/`
-  with its own `package.json`, so the root dependency tree and CI are untouched.
+  **What is already in this repo** (`charactersheet-sync.js`, fork-owned, tested):
 
-  **The real cost is not the code** — that is a weekend. It is owning uptime, backups, restores and
-  token revocation, for data that today cannot be lost except by the user's own browser.
+  - the adapter contract — `pWhoAmI`, `pList`, `pLoad`, `pSave`, `pDelete`, `getLoginUrl`;
+  - the mount path as configuration, defaulting to `/online`, overridable by
+    `window.CHARACTER_SYNC_PATH` or a `<meta name="character-sync-path">` a proxy can inject, and
+    settable to `""` to switch the whole thing off;
+  - `_pLoadSyncAdapter` in the page base, which loads `<base>/client.js` during `pInit` and keeps
+    the adapter only if it implements the whole contract. A half-implemented one is refused with a
+    reason rather than allowed to take storage over and fail partway;
+  - a `SyncConflictError` carrying what the server holds, so a clash asks *keep mine / take theirs*
+    rather than attempting a merge — characters are single-writer in practice.
+
+  **Nothing deployed is a supported state, not a fallback.** No account app, a 404, a script that
+  throws — each leaves the pages exactly as they are today, which is what the static Pages build
+  needs. A browser suite (`test/e2e/sync.e2e.mjs`) holds that: no adapter, no console error, and a
+  character still edited and persisted locally across a reload.
+
+  **What the other repository still owns:** the OIDC dance, sessions, character envelopes with
+  ownership, campaign invite codes, and the `client.js` implementing the adapter. The wire format is
+  the existing save-file envelope, so an export is a valid upload and there is no second schema.
+  Concurrency by a per-character version and `If-Match`. Writes stay **local-first**: `localStorage`
+  always, then a queued push, so the UI never blocks on the network and play survives the wifi
+  dying mid-session.
+
+  **The real cost is still not the code.** It is owning uptime, backups and restores for data that
+  today cannot be lost except by the user's own browser. Delegating identity to Authentik removes
+  the worst of the liability, not all of it.
 
 ## Housekeeping
 

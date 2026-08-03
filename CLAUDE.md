@@ -23,7 +23,7 @@ Each page's controller keeps only its own DOM assembly + rendering.
 - `js/charactersheet.js`, `js/charbuilder.js`, `js/sidekick.js` — the three page entry points
 - `js/charactersheet/*.js` — the shared modules: pure rules (`derive`,
   `levelengine`, `choices`, `abilityscores`, `equipment`, `actions`, `charstore`,
-  `defenses`, `sidekick`, `citations`, `journal`, `portrait`, `consts`), data access (`classdata`), the model (`model`), the page
+  `defenses`, `sidekick`, `citations`, `journal`, `portrait`, `sync`, `consts`), data access (`classdata`), the model (`model`), the page
   base (`pagebase`), and the panel renderers (`classpanel`, `inventorypanel`,
   `spellspanel`, `actionspanel`, `wizard`)
 - `css/charactersheet.css`, `scss/charactersheet.scss` (shared by all three pages)
@@ -52,6 +52,7 @@ Each page's controller keeps only its own DOM assembly + rendering.
 4. `package.json` — a `test:e2e` script and the `playwright-core` dev dependency (two lines)
 
 Exact snippets and resolution steps: `docs/CHARACTER_SHEET_MAINTENANCE.md`.
+The account-system contract (a *separate* repo): `docs/ACCOUNT_SYSTEM.md`.
 The sidekick builder's own user-facing guide: `docs/SIDEKICK_BUILDER.md`.
 
 ## Critical gotcha: the page HTML is generated
@@ -134,6 +135,13 @@ template, run `node node/generate-pages.js` and commit both.
   etc. as addressable `variantrule` entries, so almost nothing is curated); a part
   names its own rule in `derive.js` rather than anything guessing from the label.
   A bonus with two possible causes stays unlinked instead of picking one.
+- **Accounts are a seam, not a feature here.** `charactersheet-sync.js` holds the
+  adapter contract and the mount path (configurable; default `/online`); the page
+  base loads `<base>/client.js` in `pInit` and keeps `window.CharacterSyncAdapter`
+  only if it implements the whole contract. The account system itself — OIDC
+  against Authentik, sessions, storage — is a **separate repository** behind a
+  reverse proxy on the same subdomain. Nothing deployed is a supported state, so
+  never make sync a precondition for anything. See `docs/ACCOUNT_SYSTEM.md`.
 - **Homebrew** works on all three pages, but only because `pInit` (page base) runs
   `PrereleaseUtil.pInit()` / `BrewUtil2.pInit()` / `ExcludeUtil.pInitialise()` before
   `init()`. `classdata` and `SearchWidget` were always brew-aware; without that

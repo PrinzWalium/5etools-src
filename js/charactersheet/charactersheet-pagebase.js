@@ -14,6 +14,7 @@ import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterP
 import {getBreakdownCitation, getPartCitations, isSameCitation, resolveCitation} from "./charactersheet-citations.js";
 import {EV_DAMAGE, EV_DEATH_SAVE, EV_DOWN, EV_HEAL, EV_LEVEL} from "./charactersheet-journal.js";
 import {PORTRAIT_MIME, PORTRAIT_QUALITY, getPortraitTargetSize, isPortraitTooLarge} from "./charactersheet-portrait.js";
+import {getMissingAdapterMethods, getSyncBasePath, getSyncClientUrl, isAdapterValid, isSameOrigin} from "./charactersheet-sync.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -108,8 +109,61 @@ export class CharacterPageBase {
 		} catch (e) {
 			JqueryUtil.doToast({type: "danger", content: `Homebrew could not be loaded${e?.message ? `: ${e.message}` : ""}. The rest of the sheet still works.`});
 		}
+		await this._pLoadSyncAdapter();
 		this.init();
 	}
+
+	/**
+	 * Look for an account system on the configured path and, if one answers, keep its adapter.
+	 *
+	 * Everything about this is optional. No account app deployed, a 404, a script that throws, an
+	 * adapter missing half its methods — each leaves `_syncAdapter` null and the pages exactly as
+	 * they are without it. That is the supported static deployment, not a degraded one.
+	 *
+	 * See `charactersheet-sync.js` for the contract; the implementation lives in its own repository.
+	 */
+	async _pLoadSyncAdapter () {
+		this._syncAdapter = null;
+
+		const basePath = getSyncBasePath();
+		const url = getSyncClientUrl(basePath);
+		if (!url) return;
+
+		try {
+			await new Promise((resolve, reject) => {
+				const script = document.createElement("script");
+				script.src = url;
+				script.async = true;
+				script.onload = resolve;
+				// Nothing deployed there is the ordinary case, so this is not worth a toast
+				script.onerror = () => reject(new Error("no account system is deployed there"));
+				document.head.appendChild(script);
+			});
+		} catch (e) {
+			return;
+		}
+
+		const adapter = window.CharacterSyncAdapter;
+		if (!adapter) return;
+
+		if (!isAdapterValid(adapter)) {
+			// Half an adapter would take over storage and then fail partway, which is worse than none
+			JqueryUtil.doToast({
+				type: "danger",
+				content: `The account system at ${basePath} is incomplete (missing ${getMissingAdapterMethods(adapter).join(", ")}); characters stay in this browser.`,
+			});
+			return;
+		}
+
+		if (!isSameOrigin(basePath)) {
+			JqueryUtil.doToast({type: "warning", content: `The account system is on another origin (${basePath}), so the session cookie may not be sent.`});
+		}
+
+		this._syncAdapter = adapter;
+	}
+
+	/** Whether an account system is connected. The panels ask this rather than poking at the adapter. */
+	get isSyncEnabled () { return !!this._syncAdapter; }
 
 	init () {
 		this._buildDom();

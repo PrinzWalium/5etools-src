@@ -766,5 +766,7 @@ class _SidekickAttacks extends RenderableCollectionBase {
 
 window.addEventListener("load", () => {
 	const page = new SidekickPage();
+	// Exposed so the browser tests can ask the page about itself (e.g. whether sync is connected)
+	window.__csPage = page;
 	page.pInit();
 });

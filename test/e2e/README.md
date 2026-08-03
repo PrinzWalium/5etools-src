@@ -39,6 +39,7 @@ Failures print the check that failed, and every open page is screenshotted into
 | `journal` | Play is recorded and written up per session, splits where asked, and reloading the sheet records nothing |
 | `appearance` | The portrait is downscaled, stored, cleared and survives a reload; the brew utilities are initialised |
 | `smokes` | Magic-item bonuses, Expertise offered and claimed, a background's origin feat, and the store round-trip |
+| `sync` | With no account system deployed, the seam is inert: nothing loaded, nothing logged, storage still local |
 | `defenses` | Resistances/immunities/senses come from species, trait picks and worn gear, credited to each, and gear's go when it comes off |
 | `sidekick` | Both sidekick rulesets: an Essentials Kit type + role with its level table and level-up box, and any stat block + a Tasha's class; traits as editable rows |
 
