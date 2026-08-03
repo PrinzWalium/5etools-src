@@ -233,3 +233,86 @@ export class SyncConflictError extends Error {
 }
 
 export const isSyncConflict = err => err?.name === "SyncConflictError";
+
+/* -------------------------------------------- Push and pull -------------------------------------------- */
+
+/**
+ * What the browser remembers about a character's online copy.
+ *
+ * Only the version it last agreed with. That single number is what makes a save able to say "I am
+ * replacing version 4" and so what turns two devices editing one character into a question instead
+ * of a silent loss. It lives beside the characters in the same store, keyed by the same id, because
+ * a character and its version have to travel together.
+ */
+export const getSyncMeta = (store, id) => store?.syncMeta?.[id] || null;
+
+export function setSyncMeta (store, id, meta) {
+	if (!store) return store;
+	store.syncMeta = store.syncMeta || {};
+	store.syncMeta[id] = {...meta};
+	return store;
+}
+
+export function deleteSyncMeta (store, id) {
+	if (store?.syncMeta) delete store.syncMeta[id];
+	return store;
+}
+
+/**
+ * Line up what is in this browser against what is on the server.
+ *
+ * Deliberately does *not* try to work out which side is newer. There is no clock worth trusting
+ * across two devices and a server, and a wrong guess here would overwrite somebody's evening. The
+ * page offers the two directions and lets a person choose; `where` is the whole of the state.
+ *
+ * @return rows sorted by name — `where` is `"both"`, `"local"` (not uploaded yet) or `"online"`
+ *         (not in this browser).
+ */
+export function planSync ({localCharacters = {}, remote = [], syncMeta = {}, fnLabel = () => "Unnamed Character"} = {}) {
+	const byId = new Map();
+
+	Object.entries(localCharacters).forEach(([id, envelope]) => {
+		byId.set(id, {
+			id,
+			name: fnLabel(envelope),
+			where: "local",
+			localVersion: syncMeta?.[id]?.version ?? null,
+			remoteVersion: null,
+			isSidekick: !!(envelope?.state?.isSidekick),
+		});
+	});
+
+	(remote || []).forEach(entry => {
+		const row = byId.get(entry.id);
+		if (row) {
+			row.where = "both";
+			row.remoteVersion = entry.version;
+			// The server's label wins for a character that is only online; locally the store's is fresher
+			return;
+		}
+		byId.set(entry.id, {
+			id: entry.id,
+			name: entry.name || "Unnamed Character",
+			where: "online",
+			localVersion: null,
+			remoteVersion: entry.version,
+			isSidekick: !!entry.isSidekick,
+		});
+	});
+
+	return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Characters this browser has that the server has never seen — what a first sign-in offers to upload. */
+export const getUnsyncedRows = rows => (rows || []).filter(it => it.where === "local");
+
+/**
+ * The name a "keep both" copy takes.
+ *
+ * Keeping both is the safety valve under every conflict, so it has to produce something a person can
+ * tell apart at a glance in a character list, and it must not stack up suffixes on a second round.
+ */
+export function getKeptBothName (name) {
+	const base = String(name || "Unnamed Character").replace(/ \(this device(?: \d+)?\)$/, "");
+	return `${base} (this device)`;
+}

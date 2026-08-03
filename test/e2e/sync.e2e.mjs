@@ -95,6 +95,97 @@ export async function run ({browser, check}) {
 		(await broken.locator(".ve-ui-modal__inner").last().innerText()).includes("502 Bad Gateway"));
 	check("a failing account system is still not a page error", broken.errors.length === 0, broken.errors.slice(0, 2).join(" | "));
 	await broken.close();
+
+	await runStorage({browser, check});
+}
+
+/**
+ * With an account system that really stores characters.
+ *
+ * The pure planning is unit-tested; what needs a browser is that the buttons move a character in the
+ * direction they say, and that a conflict asks rather than picks.
+ */
+async function runStorage ({browser, check}) {
+	const page = await openWithStubAdapter(browser, {user: {id: "u1", name: "Ada", role: "user"}, isStorage: true});
+
+	await setField(page, "cs-name", "Pushable");
+	await page.waitForTimeout(800);
+
+	const openPanel = async () => {
+		await page.click("#cs-sync-badge");
+		await page.waitForTimeout(600);
+		return page.locator(".ve-ui-modal__inner").last();
+	};
+
+	const badge = await page.locator("#cs-sync-badge").innerText();
+	check("a working account system reads as fully online", !/only copy/.test(badge) && badge.includes("Ada"), badge);
+
+	let panel = await openPanel();
+	check("it lists the character as being in this browser only",
+		(await panel.innerText()).includes("this browser only"), (await panel.innerText()).slice(0, 200));
+
+	await panel.locator("button:has-text('Upload')").first().click();
+	await page.waitForTimeout(900);
+	check("uploading puts it on the server",
+		(await page.evaluate(() => Object.keys(window.__stubStore.characters).length)) === 1);
+	check("and the row now says it is in both", (await panel.innerText()).includes("in both"), (await panel.innerText()).slice(0, 200));
+
+	const stored = await page.evaluate(() => Object.values(window.__stubStore.characters)[0].envelope.state.name);
+	check("with the character's own name", stored === "Pushable", stored);
+
+	await page.keyboard.press("Escape");
+	await page.waitForTimeout(300);
+
+	// ---------- pulling what the server holds ----------
+	await page.evaluate(() => {
+		const entry = Object.values(window.__stubStore.characters)[0];
+		entry.envelope = {...entry.envelope, state: {...entry.envelope.state, name: "Changed Elsewhere"}};
+		entry.version += 1;
+	});
+
+	panel = await openPanel();
+	await panel.locator("button:has-text('Pull')").first().click();
+	await page.waitForTimeout(1200);
+	check("pulling replaces this browser's copy",
+		(await getState(page)).name === "Changed Elsewhere", JSON.stringify((await getState(page)).name));
+
+	await page.keyboard.press("Escape");
+	await page.waitForTimeout(300);
+
+	// ---------- a conflict asks, and never picks ----------
+	await setField(page, "cs-name", "Mine");
+	await page.waitForTimeout(800);
+	await page.evaluate(() => {
+		const entry = Object.values(window.__stubStore.characters)[0];
+		entry.envelope = {...entry.envelope, state: {...entry.envelope.state, name: "Theirs"}};
+		entry.version += 1; // the server has moved on without us
+	});
+
+	panel = await openPanel();
+	await panel.locator("button:has-text('Push')").first().click();
+	await page.waitForTimeout(1000);
+
+	const prompt = page.locator(".ve-ui-modal__inner").last();
+	const promptText = await prompt.innerText();
+	check("a conflict is a question, not a decision", /changed in two places/i.test(promptText), promptText.slice(0, 200));
+
+	const options = await prompt.locator("select option").allInnerTexts();
+	check("with keep-mine, keep-theirs and keep-both offered",
+		options.join("|").includes("Keep both") && options.join("|").includes("Keep the online copy"), options.join(" | "));
+
+	await prompt.locator("select").selectOption({label: "Keep both"});
+	await prompt.locator("button:has-text('OK')").first().click();
+	await page.waitForTimeout(1800);
+
+	const names = await page.evaluate(() => {
+		const store = JSON.parse(localStorage.getItem("charactersheet-characters"));
+		return Object.values(store.characters).map(it => it?.state?.name).filter(Boolean);
+	});
+	check("keeping both loses nothing: the online copy and a marked local copy",
+		names.includes("Theirs") && names.some(n => /\(this device\)/.test(n)), JSON.stringify(names));
+
+	check("no page errors (storage)", page.errors.length === 0, page.errors.slice(0, 3).join(" | "));
+	await page.close();
 }
 
 /**
@@ -103,24 +194,63 @@ export async function run ({browser, check}) {
  * Serving the script rather than injecting the adapter directly is the point: it exercises the same
  * path a real deployment takes, including the fork refusing to look anywhere else.
  */
-async function openWithStubAdapter (browser, {user = null, failWith = null} = {}) {
+async function openWithStubAdapter (browser, {user = null, failWith = null, isStorage = false} = {}) {
 	const page = await browser.newPage();
 	const errors = [];
 	page.on("pageerror", e => errors.push(e.message));
 	page.errors = errors;
 
-	await page.route("**/online/client.js", route => route.fulfill({
-		contentType: "text/javascript",
-		body: `window.CharacterSyncAdapter = {
+	const whoAmI = failWith ? `Promise.reject(new Error(${JSON.stringify(failWith)}))` : `Promise.resolve(${JSON.stringify(user)})`;
+
+	// An in-memory stand-in for the account system, with the same version rules as the real one, so
+	// the page's conflict handling is driven rather than described
+	const storage = `
+		window.__stubStore = {characters: {}};
+		window.CharacterSyncAdapter = {
+			getCapabilities: function () { return {characters: true}; },
+			pWhoAmI: function () { return ${whoAmI}; },
+			pList: function () {
+				return Promise.resolve(Object.entries(window.__stubStore.characters).map(function (e) {
+					return {id: e[0], name: e[1].envelope.state.name || "Unnamed Character", version: e[1].version};
+				}));
+			},
+			pLoad: function (id) {
+				var e = window.__stubStore.characters[id];
+				return e ? Promise.resolve({envelope: e.envelope, version: e.version}) : Promise.reject(new Error("not found"));
+			},
+			pSave: function (id, envelope, opts) {
+				var known = (opts || {}).version;
+				var cur = window.__stubStore.characters[id];
+				if (cur && cur.version !== known) {
+					var err = new Error("This character was changed elsewhere.");
+					err.name = "SyncConflictError";
+					err.serverVersion = cur.version;
+					err.serverEnvelope = cur.envelope;
+					return Promise.reject(err);
+				}
+				var next = cur ? cur.version + 1 : 1;
+				window.__stubStore.characters[id] = {envelope: envelope, version: next};
+				return Promise.resolve({version: next});
+			},
+			pDelete: function (id) { delete window.__stubStore.characters[id]; return Promise.resolve(); },
+			getLoginUrl: function () { return "/online/login"; },
+			getLogoutUrl: function () { return "/online/logout"; },
+		};`;
+
+	const readOnly = `window.CharacterSyncAdapter = {
 			getCapabilities: function () { return {characters: false}; },
-			pWhoAmI: function () { return ${failWith ? `Promise.reject(new Error(${JSON.stringify(failWith)}))` : `Promise.resolve(${JSON.stringify(user)})`}; },
+			pWhoAmI: function () { return ${whoAmI}; },
 			pList: function () { return Promise.reject(new Error("no")); },
 			pLoad: function () { return Promise.reject(new Error("no")); },
 			pSave: function () { return Promise.reject(new Error("no")); },
 			pDelete: function () { return Promise.reject(new Error("no")); },
 			getLoginUrl: function () { return "/online/login"; },
 			getLogoutUrl: function () { return "/online/logout"; },
-		};`,
+		};`;
+
+	await page.route("**/online/client.js", route => route.fulfill({
+		contentType: "text/javascript",
+		body: isStorage ? storage : readOnly,
 	}));
 
 	await page.goto(SHEET_URL, {waitUntil: "load"});

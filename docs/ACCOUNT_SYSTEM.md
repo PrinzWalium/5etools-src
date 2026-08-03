@@ -109,6 +109,32 @@ than found in the console.
 **With no account system deployed there is no badge at all.** Decorating a static build with a red
 badge would report the absence of a feature as a fault.
 
+## Push and pull
+
+Clicking the badge, when signed in to a service that stores characters, opens the panel that moves
+them. Each character is listed as being **in both**, **this browser only**, or **online only**, with
+a *Push* / *Pull* button as appropriate, plus one button to upload everything not yet online — which
+is what a first sign-in amounts to.
+
+**Nothing moves on its own, in either direction.** Deciding which side is "newer" would mean
+trusting clocks across two devices and a server, and being wrong once means overwriting somebody's
+evening. `planSync` therefore reports only *where* each character is and leaves the choice to a
+person.
+
+A push states the version it is replacing — remembered per character in the store's `syncMeta`. If
+the server holds a newer one it refuses, and the page asks:
+
+| Choice | What happens |
+| --- | --- |
+| Keep this browser's copy | Save again over the version the server actually holds |
+| Keep the online copy | The server's envelope replaces the local one |
+| Keep both | The local copy becomes a **new character**, renamed *(this device)*, and is uploaded; the original takes the server's copy |
+
+*Keep both* is the safety valve: it is the only answer that cannot lose anything, and the one to
+reach for mid-session.
+
+There is no merge. A character is one document, and mine/theirs/both are the only honest options.
+
 ## Endpoints the client script is expected to use
 
 Given a base of `/online`, `getSyncEndpoints` documents the shape:

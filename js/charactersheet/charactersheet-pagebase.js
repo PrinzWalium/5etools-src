@@ -14,7 +14,7 @@ import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterP
 import {getBreakdownCitation, getPartCitations, isSameCitation, resolveCitation} from "./charactersheet-citations.js";
 import {EV_DAMAGE, EV_DEATH_SAVE, EV_DOWN, EV_HEAL, EV_LEVEL} from "./charactersheet-journal.js";
 import {PORTRAIT_MIME, PORTRAIT_QUALITY, getPortraitTargetSize, isPortraitTooLarge} from "./charactersheet-portrait.js";
-import {getMissingAdapterMethods, getSyncBasePath, getSyncCapabilities, getSyncClientUrl, getSyncStatus, isAdapterValid, isSameOrigin} from "./charactersheet-sync.js";
+import {deleteSyncMeta, getKeptBothName, getMissingAdapterMethods, getSyncBasePath, getSyncCapabilities, getSyncClientUrl, getSyncMeta, getSyncStatus, getUnsyncedRows, isAdapterValid, isSameOrigin, isSyncConflict, planSync, setSyncMeta} from "./charactersheet-sync.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -228,7 +228,7 @@ export class CharacterPageBase {
 		btn.innerHTML = `<span class="cs__sync-dot"></span>${status.label.qq()}`;
 	}
 
-	/** The whole truth about the connection, including whatever went wrong. */
+	/** The whole truth about the connection, including whatever went wrong — and the push/pull panel. */
 	_doShowSyncDetail () {
 		const status = this._syncStatus;
 		if (!status) return;
@@ -244,6 +244,13 @@ export class CharacterPageBase {
 			eleModalInner.insertAdjacentHTML("beforeend", `<a class="ve-btn ve-btn-primary ve-btn-sm ve-self-flex-start" href="${this._syncAdapter.getLoginUrl().qq()}">Sign in</a>`);
 		}
 
+		if (status.kind === "signedIn" && getSyncCapabilities(this._syncAdapter).characters) {
+			const wrpChars = document.createElement("div");
+			wrpChars.className = "ve-flex-col ve-mb-2";
+			eleModalInner.appendChild(wrpChars);
+			this._pRenderSyncCharacters(wrpChars);
+		}
+
 		if (status.canSignOut && typeof this._syncAdapter?.getLogoutUrl === "function") {
 			const btn = document.createElement("button");
 			btn.className = "ve-btn ve-btn-default ve-btn-sm ve-self-flex-start";
@@ -255,6 +262,181 @@ export class CharacterPageBase {
 				await this._pRefreshSyncStatus();
 			});
 			eleModalInner.appendChild(btn);
+		}
+	}
+
+	/* -------------------------------------------- Push and pull -------------------------------------------- */
+
+	/**
+	 * Both directions, by hand.
+	 *
+	 * Nothing uploads or downloads on its own. Working out which side is "newer" would mean trusting
+	 * clocks across two devices and a server, and being wrong once means overwriting somebody's
+	 * evening — so the page shows what is where and a person chooses. That is also why there is no
+	 * merge: a character is one document, and the only honest options are mine, theirs, or both.
+	 */
+	async _pRenderSyncCharacters (wrp) {
+		wrp.innerHTML = `<div class="ve-muted ve-small">Loading…</div>`;
+
+		let remote;
+		try {
+			remote = await this._syncAdapter.pList();
+		} catch (e) {
+			wrp.innerHTML = `<div class="ve-muted ve-small">Could not list your online characters: ${(e?.message || String(e)).qq()}</div>`;
+			return;
+		}
+
+		// The current character is only written to the store on persist, so read it live
+		this._persistNow();
+		const rows = planSync({
+			localCharacters: this._store.characters,
+			remote,
+			syncMeta: this._store.syncMeta,
+			fnLabel: envelope => getCharacterLabel(envelope),
+		});
+
+		wrp.innerHTML = "";
+		wrp.insertAdjacentHTML("beforeend", `<div class="bold ve-mb-1">Characters</div>`);
+
+		const unsynced = getUnsyncedRows(rows);
+		if (unsynced.length) {
+			const btnAll = document.createElement("button");
+			btnAll.className = "ve-btn ve-btn-primary ve-btn-xs ve-self-flex-start ve-mb-2";
+			btnAll.type = "button";
+			btnAll.textContent = `Upload ${unsynced.length} character${unsynced.length === 1 ? "" : "s"} not yet online`;
+			btnAll.addEventListener("click", async () => {
+				for (const row of unsynced) await this._pPushCharacter(row.id);
+				this._pRenderSyncCharacters(wrp);
+			});
+			wrp.appendChild(btnAll);
+		}
+
+		rows.forEach(row => wrp.appendChild(this._getSyncRow(row, wrp)));
+
+		if (!rows.length) wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">Nothing here or online yet.</div>`);
+	}
+
+	_getSyncRow (row, wrp) {
+		const ele = document.createElement("div");
+		ele.className = "ve-flex-v-center ve-mb-1";
+
+		const WHERE = {
+			both: {text: "in both", tone: "ve-muted"},
+			local: {text: "this browser only", tone: "ve-muted"},
+			online: {text: "online only", tone: "ve-muted"},
+		}[row.where];
+
+		ele.insertAdjacentHTML("beforeend",
+			`<span style="flex: 1; min-width: 0;"><span class="bold">${row.name.qq()}</span>`
+			+ `<span class="${WHERE.tone} ve-small ve-ml-1">${WHERE.text}</span></span>`);
+
+		const addBtn = (text, title, fn) => {
+			const btn = document.createElement("button");
+			btn.className = "ve-btn ve-btn-default ve-btn-xs ve-ml-1";
+			btn.type = "button";
+			btn.textContent = text;
+			btn.title = title;
+			btn.addEventListener("click", async () => {
+				btn.disabled = true;
+				try { await fn(); } finally { this._pRenderSyncCharacters(wrp); }
+			});
+			ele.appendChild(btn);
+		};
+
+		if (row.where !== "online") addBtn("Push", "Upload this browser's copy", () => this._pPushCharacter(row.id));
+		if (row.where !== "local") addBtn("Pull", "Download the online copy into this browser", () => this._pPullCharacter(row.id));
+
+		return ele;
+	}
+
+	/** Upload, stating the version being replaced. A refusal is a conflict, and gets asked about. */
+	async _pPushCharacter (id) {
+		const envelope = this._store.characters[id] ?? {version: 2, state: {}};
+		const known = getSyncMeta(this._store, id);
+
+		try {
+			const {version} = await this._syncAdapter.pSave(id, envelope, {version: known?.version ?? null});
+			setSyncMeta(this._store, id, {version, at: Date.now()});
+			this._persistNow();
+			JqueryUtil.doToast({type: "success", content: `${getCharacterLabel(envelope)} saved online.`});
+		} catch (e) {
+			if (isSyncConflict(e)) return this._pResolveSyncConflict(id, envelope, e);
+			JqueryUtil.doToast({type: "danger", content: `Could not save online: ${e?.message || e}`});
+		}
+	}
+
+	async _pPullCharacter (id) {
+		try {
+			const {envelope, version} = await this._syncAdapter.pLoad(id);
+			this._doAdoptEnvelope(id, envelope, version);
+			JqueryUtil.doToast({type: "success", content: `${getCharacterLabel(envelope)} downloaded.`});
+		} catch (e) {
+			JqueryUtil.doToast({type: "danger", content: `Could not download: ${e?.message || e}`});
+		}
+	}
+
+	/**
+	 * Take the server's copy of a character into the store.
+	 *
+	 * The ordering here is the whole of it. `_persistNow` writes the *live component* back over the
+	 * current character's entry, so putting an envelope in the store and then persisting quietly
+	 * undoes it — the character on screen wins. The character being edited therefore has to be
+	 * reloaded through `_switchCharacter` instead, which is also the only way the screen can come to
+	 * match what was downloaded.
+	 */
+	_doAdoptEnvelope (id, envelope, version) {
+		this._store.characters[id] = envelope;
+		setSyncMeta(this._store, id, {version, at: Date.now()});
+
+		if (id === this._store.currentId) this._switchCharacter(id, {isSkipPersist: true});
+		else this._persistNow();
+	}
+
+	/**
+	 * Two devices changed one character. Ask; never pick.
+	 *
+	 * "Keep both" exists because it is the only answer that cannot lose anything, and it is the one
+	 * to reach for when the question is hard to answer at the table.
+	 */
+	async _pResolveSyncConflict (id, mine, err) {
+		const name = getCharacterLabel(mine);
+		// The enum prompt renders no description, so the situation has to fit in the title and the
+		// option labels — which is no bad discipline for a question asked mid-session
+		const choice = await InputUiUtil.pGetUserEnum({
+			title: `“${name}” was changed in two places — nothing has been overwritten`,
+			placeholder: "Which copy should be kept?",
+			values: ["Keep this browser's copy", "Keep the online copy", "Keep both"],
+			isResolveItem: true,
+			fnDisplay: it => it,
+		});
+		if (choice == null) return;
+
+		if (choice === "Keep the online copy") {
+			this._doAdoptEnvelope(id, err.serverEnvelope, err.serverVersion);
+			return;
+		}
+
+		if (choice === "Keep both") {
+			// This browser's copy becomes a new character, so neither version is anybody's loss
+			const copyId = CryptUtil.uid();
+			const copy = JSON.parse(JSON.stringify(mine));
+			if (copy.state) copy.state.name = getKeptBothName(name);
+			this._store.characters[copyId] = copy;
+
+			// Adopt first: the copy is safely in the store, and this is what puts the server's
+			// version on screen before anything persists over it
+			this._doAdoptEnvelope(id, err.serverEnvelope, err.serverVersion);
+			await this._pPushCharacter(copyId);
+			return;
+		}
+
+		// Keep mine: save again over the version the server actually holds
+		try {
+			const {version} = await this._syncAdapter.pSave(id, mine, {version: err.serverVersion});
+			setSyncMeta(this._store, id, {version, at: Date.now()});
+			this._persistNow();
+		} catch (e) {
+			JqueryUtil.doToast({type: "danger", content: `Could not save online: ${e?.message || e}`});
 		}
 	}
 
@@ -1923,6 +2105,8 @@ export class CharacterPageBase {
 		})) return;
 
 		delete this._store.characters[this._store.currentId];
+		// The remembered online version goes with it; an online copy that survives can still be pulled
+		deleteSyncMeta(this._store, this._store.currentId);
 		const remaining = Object.entries(this._store.characters)
 			.filter(([, envelope]) => this._isCharacterListed(envelope?.state ?? envelope))
 			.map(([id]) => id);

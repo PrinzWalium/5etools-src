@@ -9,6 +9,11 @@ import {
 	getSyncClientUrl,
 	getSyncEndpoints,
 	getSyncStatus,
+	getKeptBothName,
+	getSyncMeta,
+	getUnsyncedRows,
+	planSync,
+	setSyncMeta,
 	isAdapterValid,
 	isSameOrigin,
 	isSyncConflict,
@@ -215,6 +220,83 @@ describe("Character Sheet — the account-system seam", () => {
 		it("Should always say where it looked", () => {
 			expect(getSyncStatus({basePath: "/accounts", isLoaded: true, user: null}).lines[0])
 				.toEqual({label: "Account system", value: "/accounts"});
+		});
+	});
+
+	describe("planSync", () => {
+		const label = envelope => envelope?.state?.name || "Unnamed Character";
+
+		it("Should line up what is here against what is online", () => {
+			const rows = planSync({
+				localCharacters: {a: {state: {name: "Ada"}}, b: {state: {name: "Bob"}}},
+				remote: [{id: "b", name: "Bob", version: 3}, {id: "c", name: "Cleo", version: 1}],
+				syncMeta: {b: {version: 3}},
+				fnLabel: label,
+			});
+
+			expect(rows.map(it => [it.name, it.where])).toEqual([["Ada", "local"], ["Bob", "both"], ["Cleo", "online"]]);
+			expect(rows.find(it => it.id === "b").remoteVersion).toBe(3);
+			expect(rows.find(it => it.id === "c").localVersion).toBeNull();
+		});
+
+		// Guessing which side is newer would mean trusting clocks across two devices and a server
+		it("Should not try to decide which side is newer", () => {
+			const rows = planSync({
+				localCharacters: {a: {state: {name: "Ada"}}},
+				remote: [{id: "a", name: "Ada", version: 9}],
+				syncMeta: {a: {version: 2}},
+				fnLabel: label,
+			});
+			expect(rows[0].where).toBe("both");
+			expect(Object.keys(rows[0])).not.toContain("isNewer");
+		});
+
+		it("Should cope with nothing on either side", () => {
+			expect(planSync({})).toEqual([]);
+		});
+
+		// This is what a first sign-in offers to upload
+		it("Should pick out what has never been uploaded", () => {
+			const rows = planSync({
+				localCharacters: {a: {state: {name: "Ada"}}, b: {state: {name: "Bob"}}},
+				remote: [{id: "b", name: "Bob", version: 1}],
+				fnLabel: label,
+			});
+			expect(getUnsyncedRows(rows).map(it => it.id)).toEqual(["a"]);
+		});
+
+		it("Should carry the sidekick flag, so each page can list its own kind", () => {
+			const rows = planSync({
+				localCharacters: {a: {state: {name: "Sid", isSidekick: true}}},
+				remote: [{id: "b", name: "Kid", version: 1, isSidekick: true}],
+				fnLabel: label,
+			});
+			expect(rows.every(it => it.isSidekick)).toBe(true);
+		});
+	});
+
+	describe("the remembered online version", () => {
+		it("Should be stored beside the characters, keyed the same way", () => {
+			const store = {characters: {}};
+			setSyncMeta(store, "a", {version: 4, at: 123});
+			expect(getSyncMeta(store, "a")).toEqual({version: 4, at: 123});
+			expect(getSyncMeta(store, "b")).toBeNull();
+			expect(getSyncMeta(null, "a")).toBeNull();
+		});
+	});
+
+	describe("getKeptBothName", () => {
+		it("Should mark the copy so it can be told apart in a list", () => {
+			expect(getKeptBothName("Ada")).toBe("Ada (this device)");
+		});
+
+		// Two conflicts in a row must not produce "Ada (this device) (this device)"
+		it("Should not stack up suffixes", () => {
+			expect(getKeptBothName("Ada (this device)")).toBe("Ada (this device)");
+		});
+
+		it("Should still name an unnamed character", () => {
+			expect(getKeptBothName("")).toBe("Unnamed Character (this device)");
 		});
 	});
 });
