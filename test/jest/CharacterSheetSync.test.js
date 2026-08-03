@@ -5,8 +5,10 @@ import {
 	SyncConflictError,
 	getMissingAdapterMethods,
 	getSyncBasePath,
+	getSyncCapabilities,
 	getSyncClientUrl,
 	getSyncEndpoints,
+	getSyncStatus,
 	isAdapterValid,
 	isSameOrigin,
 	isSyncConflict,
@@ -144,6 +146,75 @@ describe("Character Sheet — the account-system seam", () => {
 		it("Should not mistake an ordinary failure for a conflict", () => {
 			expect(isSyncConflict(new Error("network down"))).toBe(false);
 			expect(isSyncConflict(null)).toBe(false);
+		});
+	});
+
+	describe("getSyncCapabilities", () => {
+		it("Should assume everything works when an adapter says nothing", () => {
+			expect(getSyncCapabilities({})).toEqual({characters: true});
+			expect(getSyncCapabilities(null)).toEqual({characters: true});
+		});
+
+		it("Should believe an adapter that says character storage is not open yet", () => {
+			expect(getSyncCapabilities({getCapabilities: () => ({characters: false})})).toEqual({characters: false});
+			expect(getSyncCapabilities({capabilities: {characters: false}})).toEqual({characters: false});
+		});
+
+		// A throwing adapter must not take the page down on the way to drawing a badge
+		it("Should treat a broken declaration as no declaration", () => {
+			expect(getSyncCapabilities({getCapabilities: () => { throw new Error("nope"); }})).toEqual({characters: true});
+		});
+	});
+
+	describe("getSyncStatus", () => {
+		// A static build has no account system, and decorating it with a red badge would report the
+		// absence of a feature as a fault
+		it("Should be off, and so invisible, when nothing is deployed", () => {
+			expect(getSyncStatus({}).kind).toBe("off");
+			expect(getSyncStatus({basePath: "/online", isLoaded: false}).kind).toBe("off");
+		});
+
+		it("Should report a half-implemented adapter as an error, naming what is missing", () => {
+			const status = getSyncStatus({basePath: "/online", isLoaded: true, missingMethods: ["pSave", "pDelete"]});
+			expect(status.kind).toBe("error");
+			expect(status.tone).toBe("bad");
+			expect(status.lines.some(l => /pSave, pDelete/.test(l.value))).toBe(true);
+		});
+
+		it("Should carry the failure's own message, so the popover can show it", () => {
+			const status = getSyncStatus({basePath: "/online", isLoaded: true, error: new Error("502 Bad Gateway")});
+			expect(status.kind).toBe("error");
+			expect(status.lines.some(l => l.value === "502 Bad Gateway")).toBe(true);
+		});
+
+		it("Should offer a sign-in when connected but signed out", () => {
+			const status = getSyncStatus({basePath: "/online", isLoaded: true, user: null});
+			expect(status.kind).toBe("signedOut");
+			expect(status.canSignIn).toBe(true);
+			expect(status.canSignOut).toBe(false);
+		});
+
+		it("Should name whoever is signed in, and their role", () => {
+			const status = getSyncStatus({basePath: "/online", isLoaded: true, user: {id: "u1", name: "Ada", role: "admin"}});
+			expect(status.kind).toBe("signedIn");
+			expect(status.tone).toBe("ok");
+			expect(status.label).toBe("Online \u2014 Ada");
+			expect(status.lines.some(l => l.label === "Role" && l.value === "admin")).toBe(true);
+			expect(status.canSignOut).toBe(true);
+		});
+
+		// Signed in to a service that does not store characters yet is not "online" in the sense a
+		// player would read it, so it must not look like it
+		it("Should say plainly when characters are not stored online yet", () => {
+			const status = getSyncStatus({basePath: "/online", isLoaded: true, user: {name: "Ada"}, capabilities: {characters: false}});
+			expect(status.kind).toBe("signedIn");
+			expect(status.tone).toBe("warn");
+			expect(status.lines.some(l => l.label === "Characters" && /only copy/.test(l.value))).toBe(true);
+		});
+
+		it("Should always say where it looked", () => {
+			expect(getSyncStatus({basePath: "/accounts", isLoaded: true, user: null}).lines[0])
+				.toEqual({label: "Account system", value: "/accounts"});
 		});
 	});
 });

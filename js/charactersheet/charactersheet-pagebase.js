@@ -14,7 +14,7 @@ import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterP
 import {getBreakdownCitation, getPartCitations, isSameCitation, resolveCitation} from "./charactersheet-citations.js";
 import {EV_DAMAGE, EV_DEATH_SAVE, EV_DOWN, EV_HEAL, EV_LEVEL} from "./charactersheet-journal.js";
 import {PORTRAIT_MIME, PORTRAIT_QUALITY, getPortraitTargetSize, isPortraitTooLarge} from "./charactersheet-portrait.js";
-import {getMissingAdapterMethods, getSyncBasePath, getSyncClientUrl, isAdapterValid, isSameOrigin} from "./charactersheet-sync.js";
+import {getMissingAdapterMethods, getSyncBasePath, getSyncCapabilities, getSyncClientUrl, getSyncStatus, isAdapterValid, isSameOrigin} from "./charactersheet-sync.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -111,6 +111,8 @@ export class CharacterPageBase {
 		}
 		await this._pLoadSyncAdapter();
 		this.init();
+		// After `init`, so the badge lands on an assembled toolbar whichever way the load went
+		this._renderSyncBadge();
 	}
 
 	/**
@@ -124,6 +126,7 @@ export class CharacterPageBase {
 	 */
 	async _pLoadSyncAdapter () {
 		this._syncAdapter = null;
+		this._syncStatus = getSyncStatus({});
 
 		const basePath = getSyncBasePath();
 		const url = getSyncClientUrl(basePath);
@@ -148,10 +151,7 @@ export class CharacterPageBase {
 
 		if (!isAdapterValid(adapter)) {
 			// Half an adapter would take over storage and then fail partway, which is worse than none
-			JqueryUtil.doToast({
-				type: "danger",
-				content: `The account system at ${basePath} is incomplete (missing ${getMissingAdapterMethods(adapter).join(", ")}); characters stay in this browser.`,
-			});
+			this._syncStatus = getSyncStatus({basePath, isLoaded: true, missingMethods: getMissingAdapterMethods(adapter)});
 			return;
 		}
 
@@ -160,10 +160,109 @@ export class CharacterPageBase {
 		}
 
 		this._syncAdapter = adapter;
+		this._syncBasePath = basePath;
+		await this._pRefreshSyncStatus();
+	}
+
+	/**
+	 * Ask the account system who we are, and work out what to show.
+	 *
+	 * A failure here is a connection problem, not a page problem: it becomes the badge's text, so it
+	 * can be read on purpose rather than found in the console.
+	 */
+	async _pRefreshSyncStatus () {
+		const basePath = this._syncBasePath;
+		const adapter = this._syncAdapter;
+		if (!adapter) return;
+
+		let user = null;
+		let error = null;
+		try {
+			user = await adapter.pWhoAmI();
+		} catch (e) {
+			error = e;
+		}
+
+		this._syncStatus = getSyncStatus({
+			basePath,
+			isLoaded: true,
+			user,
+			error,
+			capabilities: getSyncCapabilities(adapter),
+		});
+		this._renderSyncBadge();
+	}
+
+	/**
+	 * A badge in the toolbar saying whether the account system is there, and who it thinks you are.
+	 *
+	 * Built here rather than in the three page templates so the pages cannot drift, and so that
+	 * adding it needs no change to generated HTML. Nothing is rendered when there is no account
+	 * system: that is this repo's ordinary state, not a fault to report.
+	 */
+	_renderSyncBadge () {
+		const status = this._syncStatus;
+		const toolbar = document.querySelector(".cs__toolbar");
+		if (!toolbar) return;
+
+		let btn = document.getElementById("cs-sync-badge");
+		if (status?.kind === "off" || !status) {
+			btn?.remove();
+			return;
+		}
+
+		if (!btn) {
+			btn = document.createElement("button");
+			btn.id = "cs-sync-badge";
+			btn.type = "button";
+			btn.className = "cs__sync-badge no-print";
+			btn.addEventListener("click", () => this._doShowSyncDetail());
+			// Before whatever is pushed to the right-hand end, so the badge sits with the buttons
+			const rhs = toolbar.querySelector(".ve-ml-auto");
+			if (rhs) toolbar.insertBefore(btn, rhs);
+			else toolbar.appendChild(btn);
+		}
+
+		btn.className = `cs__sync-badge cs__sync-badge--${status.tone} no-print`;
+		btn.title = `${status.title} — click for details`;
+		btn.innerHTML = `<span class="cs__sync-dot"></span>${status.label.qq()}`;
+	}
+
+	/** The whole truth about the connection, including whatever went wrong. */
+	_doShowSyncDetail () {
+		const status = this._syncStatus;
+		if (!status) return;
+
+		const {eleModalInner, doClose} = UiUtil.getShowModal({title: status.title, isMinHeight0: true});
+
+		const rows = status.lines
+			.map(({label, value}) => `<div class="ve-flex ve-mb-1"><span class="bold" style="min-width: 9em; flex-shrink: 0;">${label.qq()}</span><span>${String(value).qq()}</span></div>`)
+			.join("");
+		eleModalInner.insertAdjacentHTML("beforeend", `<div class="ve-mb-2">${rows}</div>`);
+
+		if (status.canSignIn && typeof this._syncAdapter?.getLoginUrl === "function") {
+			eleModalInner.insertAdjacentHTML("beforeend", `<a class="ve-btn ve-btn-primary ve-btn-sm ve-self-flex-start" href="${this._syncAdapter.getLoginUrl().qq()}">Sign in</a>`);
+		}
+
+		if (status.canSignOut && typeof this._syncAdapter?.getLogoutUrl === "function") {
+			const btn = document.createElement("button");
+			btn.className = "ve-btn ve-btn-default ve-btn-sm ve-self-flex-start";
+			btn.type = "button";
+			btn.textContent = "Sign out";
+			btn.addEventListener("click", async () => {
+				await fetch(this._syncAdapter.getLogoutUrl(), {method: "POST", credentials: "same-origin"}).catch(() => {});
+				doClose();
+				await this._pRefreshSyncStatus();
+			});
+			eleModalInner.appendChild(btn);
+		}
 	}
 
 	/** Whether an account system is connected. The panels ask this rather than poking at the adapter. */
 	get isSyncEnabled () { return !!this._syncAdapter; }
+
+	/** What the badge is showing, exposed so a browser test can read it without scraping the DOM. */
+	get syncStatus () { return this._syncStatus; }
 
 	init () {
 		this._buildDom();

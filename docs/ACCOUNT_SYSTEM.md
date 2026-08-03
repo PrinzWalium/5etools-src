@@ -71,6 +71,12 @@ window.CharacterSyncAdapter = {
 
 	// where to send someone to sign in — the OIDC dance is entirely the account app's business
 	getLoginUrl () {},
+
+	// optional
+	getLogoutUrl () {},
+
+	// optional; what the service can actually do *today*, as opposed to what the shape implies
+	getCapabilities () { return {characters: true}; },
 };
 ```
 
@@ -78,6 +84,30 @@ window.CharacterSyncAdapter = {
 valid upload, and there is no second schema to keep in step with this one.
 
 The five `p*` methods are required; an adapter missing any of them is refused.
+
+`getCapabilities` is how an account system that is still being built stays honest. Defining the five
+methods only proves the right *shape*; a service can have sign-in working while character storage is
+not open yet. Returning `{characters: false}` says so, and the badge then reads "this browser is
+still the only copy" instead of promising storage that would fail on first use. An adapter that says
+nothing is taken at its word that everything works.
+
+## The badge
+
+When — and only when — an account system answers, the three pages grow a badge in the toolbar
+(`#cs-sync-badge`, built by the page base so the pages cannot drift). It has three states:
+
+| State | Reads | Meaning |
+| --- | --- | --- |
+| `signedIn` | *Online — Ada* | `pWhoAmI()` returned somebody. Amber, not green, if `characters` is false |
+| `signedOut` | *Signed out* | The service answered; nobody is signed in. Clicking offers `getLoginUrl()` |
+| `error` | *Offline* | The adapter is incomplete, or `pWhoAmI()` threw. Clicking shows the error itself |
+
+Clicking it opens the whole truth: the path it looked at, who the server says you are, the role, and
+whatever went wrong. That is the point — a connection problem should be readable on purpose rather
+than found in the console.
+
+**With no account system deployed there is no badge at all.** Decorating a static build with a red
+badge would report the absence of a feature as a fault.
 
 ## Endpoints the client script is expected to use
 

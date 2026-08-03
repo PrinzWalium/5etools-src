@@ -54,4 +54,76 @@ export async function run ({browser, check}) {
 
 	check("no page errors", page.errors.length === 0, page.errors.slice(0, 2).join(" | "));
 	await page.close();
+
+	// ---------- with an account system answering ----------
+	// The badge is the only thing that tells a player any of this is connected, so it is worth
+	// driving against a real page rather than trusting the pure status function alone.
+
+	const signedOut = await openWithStubAdapter(browser, {user: null});
+	check("a connected account system shows a badge", await signedOut.locator("#cs-sync-badge").count() === 1);
+	check("and says nobody is signed in", (await signedOut.locator("#cs-sync-badge").innerText()).includes("Signed out"),
+		await signedOut.locator("#cs-sync-badge").innerText().catch(() => "(absent)"));
+
+	await signedOut.click("#cs-sync-badge");
+	await signedOut.waitForTimeout(400);
+	const outText = await signedOut.locator(".ve-ui-modal__inner").last().innerText();
+	check("clicking it says where it looked", outText.includes("/online"), outText.slice(0, 200));
+	check("and offers a way to sign in", await signedOut.locator(".ve-ui-modal__inner a:has-text('Sign in')").count() === 1);
+	check("no page errors (signed out)", signedOut.errors.length === 0, signedOut.errors.slice(0, 2).join(" | "));
+	await signedOut.close();
+
+	const signedIn = await openWithStubAdapter(browser, {user: {id: "u1", name: "Ada", role: "admin"}});
+	const inLabel = await signedIn.locator("#cs-sync-badge").innerText();
+	check("a signed-in badge names the person", inLabel.includes("Ada"), inLabel);
+
+	await signedIn.click("#cs-sync-badge");
+	await signedIn.waitForTimeout(400);
+	const inText = await signedIn.locator(".ve-ui-modal__inner").last().innerText();
+	check("the detail shows the role", inText.includes("admin"), inText.slice(0, 200));
+	// Phase 0 of the account system signs you in but stores nothing; that must not read as "online"
+	check("and says characters are not stored online yet", /only copy/.test(inText), inText.slice(0, 300));
+	await signedIn.close();
+
+	// A service that is there but broken is exactly what the badge exists to make visible
+	const broken = await openWithStubAdapter(browser, {failWith: "502 Bad Gateway"});
+	const badLabel = await broken.locator("#cs-sync-badge").innerText();
+	check("an unreachable account system reads as offline", badLabel.includes("Offline"), badLabel);
+
+	await broken.click("#cs-sync-badge");
+	await broken.waitForTimeout(400);
+	check("and clicking it shows the error itself",
+		(await broken.locator(".ve-ui-modal__inner").last().innerText()).includes("502 Bad Gateway"));
+	check("a failing account system is still not a page error", broken.errors.length === 0, broken.errors.slice(0, 2).join(" | "));
+	await broken.close();
+}
+
+/**
+ * A page with a stand-in account system on `/online/client.js`.
+ *
+ * Serving the script rather than injecting the adapter directly is the point: it exercises the same
+ * path a real deployment takes, including the fork refusing to look anywhere else.
+ */
+async function openWithStubAdapter (browser, {user = null, failWith = null} = {}) {
+	const page = await browser.newPage();
+	const errors = [];
+	page.on("pageerror", e => errors.push(e.message));
+	page.errors = errors;
+
+	await page.route("**/online/client.js", route => route.fulfill({
+		contentType: "text/javascript",
+		body: `window.CharacterSyncAdapter = {
+			getCapabilities: function () { return {characters: false}; },
+			pWhoAmI: function () { return ${failWith ? `Promise.reject(new Error(${JSON.stringify(failWith)}))` : `Promise.resolve(${JSON.stringify(user)})`}; },
+			pList: function () { return Promise.reject(new Error("no")); },
+			pLoad: function () { return Promise.reject(new Error("no")); },
+			pSave: function () { return Promise.reject(new Error("no")); },
+			pDelete: function () { return Promise.reject(new Error("no")); },
+			getLoginUrl: function () { return "/online/login"; },
+			getLogoutUrl: function () { return "/online/logout"; },
+		};`,
+	}));
+
+	await page.goto(SHEET_URL, {waitUntil: "load"});
+	await page.waitForTimeout(2500);
+	return page;
 }

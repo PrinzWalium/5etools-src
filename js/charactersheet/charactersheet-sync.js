@@ -29,6 +29,8 @@
  *   pSave   (id, envelope, {version}),   // → {version}            (throws SyncConflictError on 409)
  *   pDelete (id),                        // → void
  *   getLoginUrl (),                      // → string, where to send someone to sign in
+ *   getLogoutUrl ()?,                    // → string, optional
+ *   getCapabilities ()?,                 // → {characters: boolean}, optional; assumed true
  * }
  * ```
  *
@@ -116,6 +118,105 @@ export function isAdapterValid (adapter) {
 export function getMissingAdapterMethods (adapter) {
 	if (!adapter || typeof adapter !== "object") return [..._ADAPTER_METHODS];
 	return _ADAPTER_METHODS.filter(fn => typeof adapter[fn] !== "function");
+}
+
+/**
+ * What an adapter says it can actually do today.
+ *
+ * Defining the five methods only proves an adapter has the right *shape*. An account system that is
+ * still being built can be honestly connected — sign-in working — while character storage is not
+ * open yet, and it should be able to say so rather than accept a save and fail. An adapter that
+ * says nothing is taken at its word that everything works, which is the older contract unchanged.
+ *
+ * @return {{characters: boolean}}
+ */
+export function getSyncCapabilities (adapter) {
+	let declared = null;
+	try {
+		declared = typeof adapter?.getCapabilities === "function" ? adapter.getCapabilities() : adapter?.capabilities;
+	} catch (e) {
+		declared = null;
+	}
+	return {characters: declared?.characters !== false};
+}
+
+/**
+ * The state of the connection, as something a badge can render and a person can read.
+ *
+ * Pure, and deliberately given plain facts rather than the adapter itself: the page gathers what it
+ * knows (did the script load, is anything missing, who does the server say we are, what went wrong)
+ * and this decides what that amounts to. `kind` is the whole answer; `lines` is what the popover
+ * shows when it is clicked.
+ *
+ * `off` means show nothing at all. No account system deployed is the ordinary state of this repo —
+ * a static build has no proxy in front of it — and decorating that page with a red badge would be
+ * reporting the absence of a feature as a fault.
+ */
+export const SYNC_STATUS_KINDS = ["off", "error", "signedOut", "signedIn"];
+
+export function getSyncStatus ({basePath = null, isLoaded = false, missingMethods = [], user = null, error = null, capabilities = null} = {}) {
+	const lines = [];
+	if (basePath) lines.push({label: "Account system", value: basePath});
+
+	if (!basePath || !isLoaded) return {kind: "off", label: "", tone: "", title: "", lines, canSignIn: false, canSignOut: false};
+
+	if (missingMethods.length) {
+		return {
+			kind: "error",
+			label: "Offline",
+			tone: "bad",
+			title: "The account system answered, but cannot be used",
+			lines: [...lines, {label: "Problem", value: `the adapter is missing ${missingMethods.join(", ")}`}],
+			canSignIn: false,
+			canSignOut: false,
+		};
+	}
+
+	if (error) {
+		return {
+			kind: "error",
+			label: "Offline",
+			tone: "bad",
+			title: "The account system could not be reached",
+			lines: [...lines, {label: "Error", value: String(error?.message || error)}],
+			canSignIn: false,
+			canSignOut: false,
+		};
+	}
+
+	// Connected but not yet storing characters: say so plainly, or "online" would be a promise the
+	// service has not made
+	const isCharacters = capabilities?.characters !== false;
+	const limited = isCharacters
+		? []
+		: [{label: "Characters", value: "not stored online yet — this browser is still the only copy"}];
+
+	if (!user) {
+		return {
+			kind: "signedOut",
+			label: "Signed out",
+			tone: "warn",
+			title: "An account system is connected, but nobody is signed in",
+			lines: [...lines, ...limited],
+			canSignIn: true,
+			canSignOut: false,
+		};
+	}
+
+	return {
+		kind: "signedIn",
+		label: user.name ? `Online — ${user.name}` : "Online",
+		tone: isCharacters ? "ok" : "warn",
+		title: "Signed in to the account system",
+		lines: [
+			...lines,
+			{label: "Signed in as", value: user.name || user.id || "(unnamed)"},
+			...(user.role ? [{label: "Role", value: user.role}] : []),
+			...limited,
+		],
+		canSignIn: false,
+		canSignOut: true,
+	};
 }
 
 /**

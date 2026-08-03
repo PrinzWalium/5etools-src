@@ -7,6 +7,67 @@
 		font-style: italic;
 	}
 
+	// The account-system badge. Present only when an account system actually answered, so its mere
+	// existence already says something; the colour says which of the three states it is in.
+	.cs__sync-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		padding: 2px 9px;
+		border: 1px solid transparent;
+		border-radius: 999px;
+		background: transparent;
+		font-size: 0.78em;
+		line-height: 1.6;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.cs__sync-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: currentColor;
+		flex-shrink: 0;
+	}
+
+	.cs__sync-badge--ok {
+		color: #3c763d;
+		border-color: #c3e0c3;
+		background: #eaf5ea;
+	}
+
+	.cs__sync-badge--warn {
+		color: #8a6d3b;
+		border-color: #ecd9a8;
+		background: #fcf6e6;
+	}
+
+	.cs__sync-badge--bad {
+		color: #a94442;
+		border-color: #e6c3c3;
+		background: #fbeaea;
+	}
+
+	// The pale fills above vanish against a dark page, so night mode gets its own values
+	.ve-night-mode .cs__sync-badge--ok {
+		color: #8fce8f;
+		border-color: #3d5a3d;
+		background: #23301f;
+	}
+
+	.ve-night-mode .cs__sync-badge--warn {
+		color: #e0c07a;
+		border-color: #5c4c2a;
+		background: #322a1c;
+	}
+
+	.ve-night-mode .cs__sync-badge--bad {
+		color: #e39b9b;
+		border-color: #5d3535;
+		background: #331f1f;
+	}
+
 	.cs__lbl {
 		display: block;
 		font-size: 0.72em;
