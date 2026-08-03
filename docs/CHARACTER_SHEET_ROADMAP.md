@@ -188,12 +188,13 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
   today cannot be lost except by the user's own browser. Delegating identity to Authentik removes
   the worst of the liability, not all of it.
 
-  **The plan is written up** in `docs/ACCOUNT_SYSTEM_PLAN.md`: the data model (users, campaigns,
-  memberships, characters, history), the three kinds of versioning, the sync rules, and six phases
-  from an OIDC-only proof through to the party sheet. It belongs in the account system's repository
-  and lives here only until that exists. Fork-side work is confined to a status bubble (phase 0),
-  an Online panel with first-sign-in migration (1), a campaign selector (2), the conflict dialog
-  (3), a History view (4) and the party page (5) — no new upstream conflict points in any of them.
+  **The service now exists**: <https://github.com/PrinzWalium/5etools-online>, which carries the
+  plan (`docs/PLAN.md`) — data model, the three kinds of versioning, the sync rules, and six phases
+  from an OIDC-only proof through to the party sheet. Phase 0 runs: it serves a deliberately
+  incomplete adapter, which this fork refuses, so sync stays off and the pages are unchanged.
+  Fork-side work is confined to a status bubble (phase 0), an Online panel with first-sign-in
+  migration (1), a campaign selector (2), the conflict dialog (3), a History view (4) and the party
+  page (5) — no new upstream conflict points in any of them.
 
 ## Housekeeping
 

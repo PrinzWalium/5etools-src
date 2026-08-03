@@ -53,7 +53,7 @@ Each page's controller keeps only its own DOM assembly + rendering.
 
 Exact snippets and resolution steps: `docs/CHARACTER_SHEET_MAINTENANCE.md`.
 The account-system contract (a *separate* repo): `docs/ACCOUNT_SYSTEM.md`.
-Its feature plan and phasing: `docs/ACCOUNT_SYSTEM_PLAN.md`.
+That system, and its feature plan: <https://github.com/PrinzWalium/5etools-online>.
 The sidekick builder's own user-facing guide: `docs/SIDEKICK_BUILDER.md`.
 
 ## Critical gotcha: the page HTML is generated

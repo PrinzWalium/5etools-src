@@ -1,6 +1,6 @@
 # The account system — what this repo provides, and what it expects
 
-The account system is **a separate project**. This repository holds only the seam it plugs into
+The account system is **a separate project**: <https://github.com/PrinzWalium/5etools-online>. This repository holds only the seam it plugs into
 (`js/charactersheet/charactersheet-sync.js` plus a loader in `charactersheet-pagebase.js`), so that
 the fork stays easy to update from upstream and every later sync feature ships from the other
 repository instead of this one.
