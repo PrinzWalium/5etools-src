@@ -23,16 +23,16 @@ class _AttacksRenderableCollection extends RenderableCollectionBase {
 		const tr = document.createElement("tr");
 		tr.className = "cs__atk-row";
 		tr.innerHTML = `
-			<td><input type="text" class="ve-form-control ve-input-xs cs__atk-name" placeholder="e.g. Longsword"></td>
+			<td><input type="text" class="ve-form-control ve-input-xs cs__atk-name" aria-label="Attack name" placeholder="e.g. Longsword"></td>
 			<td class="ve-text-center">
 				<div class="cs__atk-cell">
-					<input type="number" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs cs__atk-bonus">
+					<input type="number" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs cs__atk-bonus" aria-label="Attack bonus">
 					<span class="cs__roll cs__atk-hit"></span>
 				</div>
 			</td>
 			<td class="ve-text-center">
 				<div class="cs__atk-cell">
-					<input type="text" class="ve-form-control ve-input-xs cs__atk-dmg" placeholder="e.g. 1d8+3 slashing">
+					<input type="text" class="ve-form-control ve-input-xs cs__atk-dmg" aria-label="Damage and type" placeholder="e.g. 1d8+3 slashing">
 					<span class="cs__roll cs__atk-dmgroll"></span>
 				</div>
 			</td>

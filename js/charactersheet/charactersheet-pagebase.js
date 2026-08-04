@@ -1102,14 +1102,18 @@ export class CharacterPageBase {
 	}
 
 	_buildDeathSaves () {
-		[["cs-death-success", "deathSuccess"], ["cs-death-fail", "deathFail"]]
-			.forEach(([id, prop]) => {
+		[["cs-death-success", "deathSuccess", "success"], ["cs-death-fail", "deathFail", "failure"]]
+			.forEach(([id, prop, word]) => {
 				const wrp = document.getElementById(id);
 				const max = Number(wrp.getAttribute("data-cs-max"));
 				for (let i = 0; i < max; ++i) {
 					const dot = document.createElement("button");
 					dot.type = "button";
 					dot.className = "cs__death-dot";
+					// Six identical circles are one control to a mouse and six anonymous buttons to
+					// anything else; each says which it is, and `aria-pressed` says whether it is set
+					dot.setAttribute("aria-label", `Death save ${word} ${i + 1}`);
+					dot.setAttribute("aria-pressed", "false");
 					dot.addEventListener("click", () => {
 						const cur = this._comp._state[prop];
 						this._comp._state[prop] = (i + 1 === cur) ? i : i + 1;
@@ -1123,7 +1127,10 @@ export class CharacterPageBase {
 		[["cs-death-success", this._comp._state.deathSuccess], ["cs-death-fail", this._comp._state.deathFail]]
 			.forEach(([id, cnt]) => {
 				const dots = document.getElementById(id).querySelectorAll(".cs__death-dot");
-				dots.forEach((dot, ix) => dot.classList.toggle("cs__death-dot--active", ix < cnt));
+				dots.forEach((dot, ix) => {
+					dot.classList.toggle("cs__death-dot--active", ix < cnt);
+					dot.setAttribute("aria-pressed", ix < cnt ? "true" : "false");
+				});
 			});
 	}
 
@@ -1424,6 +1431,7 @@ export class CharacterPageBase {
 				chip.title = explanation;
 				chip.classList.add("cs__has-breakdown");
 				chip.dataset.csBreakdown = `${it.name} — ${explanation}`;
+				CharacterPageBase._markBreakdownTarget(chip);
 
 				const name = document.createElement("span");
 				name.textContent = it.name;
@@ -1509,6 +1517,7 @@ export class CharacterPageBase {
 				chip.title = explanation;
 				chip.classList.add("cs__has-breakdown");
 				chip.dataset.csBreakdown = `${it.name} — ${explanation}`;
+				CharacterPageBase._markBreakdownTarget(chip);
 
 				const name = document.createElement("span");
 				name.textContent = it.note ? `${it.name}*` : it.name;
@@ -1993,6 +2002,7 @@ export class CharacterPageBase {
 			ele.removeAttribute("title");
 			ele.classList.remove("cs__has-breakdown");
 			delete ele.dataset.csBreakdown;
+			CharacterPageBase._unmarkBreakdownTarget(ele);
 			CharacterPageBase._BREAKDOWN_PARTS.delete(ele);
 			return;
 		}
@@ -2005,6 +2015,7 @@ export class CharacterPageBase {
 		if (!isTapTarget) return;
 		ele.classList.add("cs__has-breakdown");
 		ele.dataset.csBreakdown = text;
+		CharacterPageBase._markBreakdownTarget(ele);
 		// The popover needs the parts themselves, not the flattened line, so it can offer each one's
 		// rule. Kept beside the element rather than serialised into a data attribute: the sheet
 		// re-renders constantly, and a WeakMap lets the old entries go with the old nodes.
@@ -2093,6 +2104,19 @@ export class CharacterPageBase {
 			evt.preventDefault();
 			CharacterPageBase._showBreakdownPopover(ele);
 		});
+		// The same thing from the keyboard. `Space` would otherwise scroll the page, so it is claimed
+		// here; a rollable link inside keeps its own behaviour, as it does for a click.
+		document.addEventListener("keydown", evt => {
+			if (evt.key === "Escape") return CharacterPageBase._closeBreakdownPopover();
+			if (evt.key !== "Enter" && evt.key !== " ") return;
+
+			const ele = evt.target.closest?.("[data-cs-breakdown]");
+			if (!ele || evt.target !== ele) return;
+
+			evt.preventDefault();
+			CharacterPageBase._showBreakdownPopover(ele);
+		});
+
 		// Scrolling away should dismiss it, since it is positioned against a spot on the page. But the
 		// act of opening it can itself scroll — bringing the value into view first — and that trailing
 		// event must not close what the same gesture just opened. Compare positions rather than
@@ -2103,8 +2127,27 @@ export class CharacterPageBase {
 		}, {passive: true});
 	}
 
+	/**
+	 * Make a value that carries a breakdown behave like the control it already is.
+	 *
+	 * These are `<span>`s and `<div>`s opened by a click delegate, which made the whole "every number
+	 * cites its rule" feature reachable by mouse and by nothing else. A role and a tab stop cost two
+	 * attributes and hand it to the keyboard.
+	 */
+	static _markBreakdownTarget (ele) {
+		ele.setAttribute("role", "button");
+		ele.setAttribute("tabindex", "0");
+		ele.setAttribute("aria-expanded", "false");
+	}
+
+	static _unmarkBreakdownTarget (ele) {
+		["role", "tabindex", "aria-expanded"].forEach(attr => ele.removeAttribute(attr));
+	}
+
 	static _closeBreakdownPopover () {
 		document.getElementById("cs-breakdown-popover")?.remove();
+		document.querySelectorAll("[data-cs-breakdown][aria-expanded=\"true\"]")
+			.forEach(ele => ele.setAttribute("aria-expanded", "false"));
 	}
 
 	static _showBreakdownPopover (ele) {
@@ -2114,6 +2157,10 @@ export class CharacterPageBase {
 		const pop = document.createElement("div");
 		pop.id = "cs-breakdown-popover";
 		pop.className = "cs__breakdown-pop";
+		// Informational rather than a dialog: it takes no focus and demands no dismissal, so it is
+		// announced where it stands rather than interrupting
+		pop.setAttribute("role", "group");
+		ele.setAttribute("aria-expanded", "true");
 		const meta = CharacterPageBase._BREAKDOWN_PARTS.get(ele);
 		if (meta) pop.appendChild(CharacterPageBase._getBreakdownBody(meta));
 		else pop.textContent = ele.dataset.csBreakdown;

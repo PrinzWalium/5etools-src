@@ -68,8 +68,16 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
 - [ ] **Print polish.** The print path now works and is tested by hand, but it has no automated
       coverage, and a long character still spills onto a third page. Worth a pass once the layout
       settles: tighter margins, a deliberate page break between play data and reference text.
-- [ ] **Accessibility.** Focus rings, labels on icon-only buttons, keyboard access to the feature
-      cards. Noticed during the UI rework and deliberately left out of its scope.
+- [x] **Accessibility.** Audited all three pages rather than guessed at, and the findings fixed:
+      every field labelled (the class/background/species inputs had a label-shaped `<span>` that was
+      not one; four textareas had only a placeholder), the six death-save dots named and reporting
+      `aria-pressed`, attack-row inputs named. The real one: **the breakdowns were mouse-only** —
+      "every number cites its rule" opened from a click delegate on plain `<span>`s, so the whole
+      feature was unreachable by keyboard. Those are now controls with a role, a tab stop,
+      Enter/Space to open, Escape to close, and a focus ring. Held in place by
+      `test/e2e/a11y.e2e.mjs`, which resolves `aria-labelledby` rather than trusting its presence —
+      a dangling reference reads as a label to a naive check and as nothing at all to a screen
+      reader, and it caught exactly that twice while this was being written.
 - [x] **Character portrait and appearance fields.** An *Appearance* panel on the sheet and the
       builder: age, height, weight, eyes, skin and hair, and a portrait. The portrait is downscaled
       to 400px on its longest edge and re-encoded as JPEG before it is stored, and one over half a

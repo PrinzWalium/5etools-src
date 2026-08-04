@@ -313,6 +313,21 @@
 		text-decoration-color: rgb(255 255 255 / 30%);
 	}
 
+	// Values that carry a breakdown are focusable, so they have to show it. `:focus-visible` keeps
+	// the ring for the keyboard without ringing every click.
+	.cs__has-breakdown:focus-visible,
+	.cs__death-dot:focus-visible,
+	.cs__sync-badge:focus-visible {
+		outline: 2px solid #337ab7;
+		outline-offset: 2px;
+	}
+
+	.ve-night-mode .cs__has-breakdown:focus-visible,
+	.ve-night-mode .cs__death-dot:focus-visible,
+	.ve-night-mode .cs__sync-badge:focus-visible {
+		outline-color: #7db6e8;
+	}
+
 	input.cs__has-breakdown {
 		text-decoration: none;
 	}
