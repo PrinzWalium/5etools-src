@@ -40,6 +40,11 @@
  *   pCreateInvite (campaignId, opts),    // → {code, role, maxUses, expiresAt}
  *   pListCampaignCharacters (campaignId),// → [{id, name, ownerName, isMine, ...}]
  *   pSetCharacterCampaign (id, campaignId), // → void   (null to take it off a table)
+ *
+ *   // History — optional as a set, same reasoning
+ *   pListVersions (id),                  // → {versions: [{version, createdAt}], current}
+ *   pLoadVersion (id, version),          // → {envelope, version, createdAt}
+ *   pRestoreVersion (id, version),       // → {version}   (writes forward; never rewinds)
  * }
  * ```
  *
@@ -133,6 +138,12 @@ const _ADAPTER_CAMPAIGN_METHODS = [
 export const hasCampaignSupport = adapter =>
 	!!adapter && _ADAPTER_CAMPAIGN_METHODS.every(fn => typeof adapter[fn] === "function");
 
+/** History, likewise all-or-nothing: listing versions with no way to restore one is a tease. */
+const _ADAPTER_HISTORY_METHODS = ["pListVersions", "pLoadVersion", "pRestoreVersion"];
+
+export const hasHistorySupport = adapter =>
+	!!adapter && _ADAPTER_HISTORY_METHODS.every(fn => typeof adapter[fn] === "function");
+
 /**
  * Whether what turned up is usable. A half-implemented adapter is worse than none: it would take
  * the storage path over and then fail partway, so anything incomplete is refused outright.
@@ -170,6 +181,7 @@ export function getSyncCapabilities (adapter) {
 		// Judged by what the adapter can actually do, not by what it claims: a service that says
 		// `campaigns: true` without the methods would give the pages a table nobody could join
 		campaigns: hasCampaignSupport(adapter) && declared?.campaigns !== false,
+		history: hasHistorySupport(adapter) && declared?.history !== false,
 	};
 }
 

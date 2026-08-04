@@ -482,8 +482,105 @@ export class CharacterPageBase {
 
 		if (row.where !== "online") addBtn("Push", "Upload this browser's copy", () => this._pPushCharacter(row.id));
 		if (row.where !== "local") addBtn("Pull", "Download the online copy into this browser", () => this._pPullCharacter(row.id));
+		if (row.where === "both" && getSyncCapabilities(this._syncAdapter).history) {
+			addBtn("History", "Earlier saved versions of this character", () => this._pShowHistory(row.id, row.name));
+		}
 
 		return ele;
+	}
+
+	/* -------------------------------------------- History -------------------------------------------- */
+
+	/**
+	 * What this character looked like before.
+	 *
+	 * The list is timestamps, because that is all the server can honestly label a snapshot with —
+	 * it does not read inside an envelope. Picking one fetches it and shows what it *was*, computed
+	 * here from the same rules the sheet uses, so a restore is a decision made after looking rather
+	 * than a guess at a date.
+	 */
+	async _pShowHistory (id, name) {
+		const {eleModalInner} = UiUtil.getShowModal({title: `History — ${name}`, isMinHeight0: true});
+		eleModalInner.innerHTML = `<div class="ve-muted ve-small">Loading…</div>`;
+
+		let listing;
+		try {
+			listing = await this._syncAdapter.pListVersions(id);
+		} catch (e) {
+			eleModalInner.innerHTML = `<div class="ve-muted ve-small">Could not load the history: ${(e?.message || String(e)).qq()}</div>`;
+			return;
+		}
+
+		eleModalInner.innerHTML = "";
+		if (!listing.versions?.length) {
+			eleModalInner.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">Nothing saved online yet.</div>`);
+			return;
+		}
+
+		const wrpPreview = document.createElement("div");
+		wrpPreview.className = "ve-muted ve-small ve-mt-2";
+
+		listing.versions.forEach(entry => {
+			const line = document.createElement("div");
+			line.className = "ve-flex-v-center ve-mb-1";
+			const when = new Date(entry.createdAt).toLocaleString();
+			const tagCurrent = entry.version === listing.current ? ` <span class="ve-muted ve-small">current</span>` : "";
+			line.insertAdjacentHTML("beforeend", `<span style="flex: 1; min-width: 0;">${when.qq()}${tagCurrent}</span>`);
+
+			const btnLook = document.createElement("button");
+			btnLook.className = "ve-btn ve-btn-default ve-btn-xs ve-ml-1";
+			btnLook.type = "button";
+			btnLook.textContent = "Look";
+			btnLook.addEventListener("click", () => this._pPreviewVersion(id, entry.version, wrpPreview));
+			line.appendChild(btnLook);
+
+			if (entry.version !== listing.current) {
+				const btnRestore = document.createElement("button");
+				btnRestore.className = "ve-btn ve-btn-default ve-btn-xs ve-ml-1";
+				btnRestore.type = "button";
+				btnRestore.textContent = "Restore";
+				btnRestore.addEventListener("click", () => this._pRestoreVersion(id, entry.version, when));
+				line.appendChild(btnRestore);
+			}
+
+			eleModalInner.appendChild(line);
+		});
+
+		eleModalInner.appendChild(wrpPreview);
+	}
+
+	async _pPreviewVersion (id, version, wrp) {
+		wrp.textContent = "Loading…";
+		try {
+			const {envelope} = await this._syncAdapter.pLoadVersion(id, version);
+			const summary = getCharacterSummary(envelope?.state || {});
+			wrp.innerHTML = getSummaryLines(summary)
+				.slice(0, 8)
+				.map(({label, value}) => `<div class="ve-flex"><span class="bold" style="min-width: 11em; flex-shrink: 0;">${label.qq()}</span><span>${String(value).qq()}</span></div>`)
+				.join("");
+		} catch (e) {
+			wrp.textContent = `Could not open that version: ${e?.message || e}`;
+		}
+	}
+
+	/**
+	 * Restoring writes the old contents *forward*, so it is itself undoable — and then the browser
+	 * pulls, because the point of restoring is to be looking at the restored character.
+	 */
+	async _pRestoreVersion (id, version, when) {
+		if (!await InputUiUtil.pGetUserBoolean({
+			title: "Restore",
+			htmlDescription: `<div>Go back to the version saved <b>${when.qq()}</b>?<br>The current version is kept in the history, so this can be undone.</div>`,
+			textYes: "Restore",
+			textNo: "Cancel",
+		})) return;
+
+		try {
+			await this._syncAdapter.pRestoreVersion(id, version);
+			await this._pPullCharacter(id);
+		} catch (e) {
+			JqueryUtil.doToast({type: "danger", content: `Could not restore: ${e?.message || e}`});
+		}
 	}
 
 	/* -------------------------------------------- Tables -------------------------------------------- */

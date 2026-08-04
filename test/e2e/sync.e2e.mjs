@@ -246,6 +246,73 @@ async function runAutoPush ({browser, check}) {
 	await page.close();
 
 	await runTables({browser, check});
+	await runHistory({browser, check});
+}
+
+/**
+ * History and restore.
+ *
+ * The point of automatic push is that nobody has to think about saving; the point of this is that
+ * nobody has to be afraid of it. So what matters here is that going back really does bring the old
+ * character to the screen, and that the version it replaced is still there afterwards.
+ */
+async function runHistory ({browser, check}) {
+	const page = await openWithStubAdapter(browser, {user: {id: "u1", name: "Ada"}, isStorage: true});
+
+	const openPanel = async () => {
+		await page.click("#cs-sync-badge");
+		await page.waitForTimeout(700);
+		return page.locator(".ve-ui-modal__inner").last();
+	};
+
+	await setField(page, "cs-name", "Level One");
+	await setField(page, "cs-hp-max", 8);
+	await page.waitForTimeout(800);
+
+	let panel = await openPanel();
+	await panel.locator("button:has-text('Upload')").first().click();
+	await page.waitForTimeout(900);
+	await page.keyboard.press("Escape");
+	await page.waitForTimeout(300);
+
+	// A second save, pushed automatically, is the version we will want to come back from
+	await setField(page, "cs-name", "Level Two");
+	await setField(page, "cs-hp-max", 15);
+	await page.waitForTimeout(6500);
+	check("two versions exist after an edit and its automatic save",
+		(await page.evaluate(() => Object.values(window.__stubStore.characters)[0].history.length)) === 2,
+		JSON.stringify(await page.evaluate(() => Object.values(window.__stubStore.characters)[0].history.map(h => h.version))));
+
+	panel = await openPanel();
+	check("a character that is in both places offers its history",
+		await panel.locator("button:has-text('History')").count() === 1);
+
+	await panel.locator("button:has-text('History')").first().click();
+	await page.waitForTimeout(900);
+	const hist = page.locator(".ve-ui-modal__inner").last();
+	check("which lists what was saved, marking the current one", /current/.test(await hist.innerText()), (await hist.innerText()).slice(0, 200));
+
+	await hist.locator("button:has-text('Look')").last().click();
+	await page.waitForTimeout(900);
+	check("looking at one shows what the character was then",
+		/Hit Points/.test(await hist.innerText()), (await hist.innerText()).slice(0, 300));
+
+	await hist.locator("button:has-text('Restore')").last().click();
+	await page.waitForTimeout(700);
+	const confirm = page.locator(".ve-ui-modal__inner").last();
+	await confirm.locator("button:has-text('Restore')").first().click();
+	await page.waitForTimeout(2500);
+
+	const st = await getState(page);
+	check("restoring brings the old character back to the screen", st.name === "Level One" && st.hpMax === 8,
+		JSON.stringify({name: st.name, hpMax: st.hpMax}));
+
+	// Restoring writes forward, so what it replaced is still there to return to
+	const versions = await page.evaluate(() => Object.values(window.__stubStore.characters)[0].history.map(h => h.envelope.state.name));
+	check("and the version it replaced is still in the history", versions.includes("Level Two"), JSON.stringify(versions));
+
+	check("no page errors (history)", page.errors.length === 0, page.errors.slice(0, 3).join(" | "));
+	await page.close();
 }
 
 /**
@@ -330,7 +397,7 @@ async function openWithStubAdapter (browser, {user = null, failWith = null, isSt
 	const storage = `
 		window.__stubStore = {characters: {}, campaigns: []};
 		window.CharacterSyncAdapter = {
-			getCapabilities: function () { return {characters: true, campaigns: true}; },
+			getCapabilities: function () { return {characters: true, campaigns: true, history: true}; },
 			pWhoAmI: function () { return ${whoAmI}; },
 			pList: function () {
 				return Promise.resolve(Object.entries(window.__stubStore.characters).map(function (e) {
@@ -340,6 +407,22 @@ async function openWithStubAdapter (browser, {user = null, failWith = null, isSt
 			pLoad: function (id) {
 				var e = window.__stubStore.characters[id];
 				return e ? Promise.resolve({envelope: e.envelope, version: e.version}) : Promise.reject(new Error("not found"));
+			},
+			pListVersions: function (id) {
+				var e = window.__stubStore.characters[id];
+				return Promise.resolve({versions: e.history.slice().reverse(), current: e.version});
+			},
+			pLoadVersion: function (id, version) {
+				var found = window.__stubStore.characters[id].history.filter(function (v) { return v.version === version; })[0];
+				return found ? Promise.resolve(found) : Promise.reject(new Error("no such version"));
+			},
+			pRestoreVersion: function (id, version) {
+				var e = window.__stubStore.characters[id];
+				var found = e.history.filter(function (v) { return v.version === version; })[0];
+				e.version += 1;
+				e.envelope = JSON.parse(JSON.stringify(found.envelope));
+				e.history.push({version: e.version, createdAt: Date.now(), envelope: e.envelope});
+				return Promise.resolve({version: e.version, restored: version});
 			},
 			pSave: function (id, envelope, opts) {
 				var known = (opts || {}).version;
@@ -352,7 +435,9 @@ async function openWithStubAdapter (browser, {user = null, failWith = null, isSt
 					return Promise.reject(err);
 				}
 				var next = cur ? cur.version + 1 : 1;
-				window.__stubStore.characters[id] = {envelope: envelope, version: next};
+				var history = (cur && cur.history) || [];
+				history.push({version: next, createdAt: Date.now(), envelope: envelope});
+				window.__stubStore.characters[id] = {envelope: envelope, version: next, history: history, campaignId: cur && cur.campaignId};
 				return Promise.resolve({version: next});
 			},
 			pDelete: function (id) { delete window.__stubStore.characters[id]; return Promise.resolve(); },

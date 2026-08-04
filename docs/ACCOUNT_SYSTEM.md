@@ -154,6 +154,20 @@ and reports itself once rather than on every attempt. A conflict still opens the
 The whole thing can be switched off in the panel (`syncAuto` in the store); it is something the page
 does on your behalf, so it is yours to stop.
 
+## History
+
+A character that is in both places grows a *History* button. The list is timestamps — that is all
+the server can honestly label a snapshot with, since it does not read inside an envelope — and
+*Look* fetches one and shows what the character **was**, computed here from the same rules the sheet
+uses. A restore is then a decision made after looking rather than a guess at a date.
+
+**Restoring writes forward**: the old contents become a new version, so the restore is itself in the
+history and itself undoable. The browser pulls straight afterwards, because the point of restoring
+is to be looking at the restored character.
+
+Only the owner and an admin can see a history — not a GM, not the rest of the table, whatever party
+visibility says.
+
 ## Tables
 
 When the adapter does campaigns, the panel grows a **Tables** section: the campaigns you belong to
