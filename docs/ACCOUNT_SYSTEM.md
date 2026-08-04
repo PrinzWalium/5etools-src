@@ -135,6 +135,25 @@ reach for mid-session.
 
 There is no merge. A character is one document, and mine/theirs/both are the only honest options.
 
+### Automatic push
+
+A character the server already knows about uploads itself. Edits queue, debounced (4s quiet, forced
+after 30s so a long session still saves), and flush on `visibilitychange`/`pagehide` so locking a
+phone does not lose the last few seconds. The badge reads *Unsaved (n)*, then *Saving…*, then goes
+back to naming you.
+
+Two limits, both deliberate:
+
+- **Only characters already online.** Signing in must never silently upload everything in a browser;
+  the first upload stays an explicit act.
+- **Push only.** Downloading over what is on screen is always a decision.
+
+A failed push keeps the character queued and retries — a minute offline must not cost the session —
+and reports itself once rather than on every attempt. A conflict still opens the same dialog.
+
+The whole thing can be switched off in the panel (`syncAuto` in the store); it is something the page
+does on your behalf, so it is yours to stop.
+
 ## Endpoints the client script is expected to use
 
 Given a base of `/online`, `getSyncEndpoints` documents the shape:

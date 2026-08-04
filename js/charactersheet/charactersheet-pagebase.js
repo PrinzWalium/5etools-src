@@ -74,7 +74,13 @@ export class CharacterPageBase {
 		this._isLoading = false;
 		this._lastDeathSaves = {deathSuccess: 0, deathFail: 0};
 		this._saveTimer = null;
-		this._store = null; // {storeVersion, currentId, characters: {id: envelope}}
+		this._store = null; // {storeVersion, currentId, characters: {id: envelope}, syncMeta, syncAuto}
+
+		// Characters edited since their last upload, and the timers that will send them
+		this._syncPending = new Set();
+		this._isSyncFlushing = false;
+		this._syncDebounce = null;
+		this._syncMaxWait = null;
 		this._fnsSyncInput = []; // unconditional input-sync functions, for bulk state loads
 		this._lastLevel = 1;
 		this._suppressLevelPrompt = 0;
@@ -162,6 +168,20 @@ export class CharacterPageBase {
 		this._syncAdapter = adapter;
 		this._syncBasePath = basePath;
 		await this._pRefreshSyncStatus();
+		this._bindSyncFlushOnLeave();
+	}
+
+	/**
+	 * Send what is waiting when the page is being left, rather than four seconds later.
+	 *
+	 * `visibilitychange` is the one that actually fires when a phone is locked or a tab is switched
+	 * away from; `pagehide` covers the tab closing. Neither can be awaited, so this is best effort —
+	 * which is why the queue survives in the store either way.
+	 */
+	_bindSyncFlushOnLeave () {
+		const flush = () => { if (document.visibilityState === "hidden") this._pFlushSyncQueue(); };
+		document.addEventListener("visibilitychange", flush);
+		window.addEventListener("pagehide", () => this._pFlushSyncQueue());
 	}
 
 	/**
@@ -189,8 +209,89 @@ export class CharacterPageBase {
 			user,
 			error,
 			capabilities: getSyncCapabilities(adapter),
+			pending: this._syncPending.size,
+			isSaving: this._isSyncFlushing,
 		});
 		this._renderSyncBadge();
+	}
+
+	/* -------------------------------------------- Automatic push -------------------------------------------- */
+
+	/**
+	 * Characters already online follow you without being told to.
+	 *
+	 * Manual push is a good safety net and a poor default: play a session on the laptop, never open
+	 * the panel, and the phone has last week's character. So an edit to a character the server
+	 * already knows about schedules an upload, debounced so that typing a name is one save rather
+	 * than nine.
+	 *
+	 * Two deliberate limits:
+	 *
+	 *  - **Only characters already online.** Signing in must never silently upload everything in a
+	 *    browser; the first upload stays an explicit act.
+	 *  - **Push only.** Pulling over what is on screen is always a decision, never a background one.
+	 */
+	static _SYNC_DEBOUNCE_MS = 4000;
+	static _SYNC_MAX_WAIT_MS = 30000;
+
+	get _isAutoPushOn () { return this._store?.syncAuto !== false; }
+
+	_isAutoPushEligible (id) {
+		return this._isAutoPushOn
+			&& !this._isLoading
+			&& !!this._syncAdapter
+			&& this._syncStatus?.kind === "signedIn"
+			&& getSyncCapabilities(this._syncAdapter).characters
+			// Never a character the server has not seen: that upload is the person's to make
+			&& !!getSyncMeta(this._store, id);
+	}
+
+	_queueSyncPush (id) {
+		if (!id || !this._isAutoPushEligible(id)) return;
+
+		this._syncPending.add(id);
+		this._renderSyncBadge();
+
+		if (this._syncDebounce) clearTimeout(this._syncDebounce);
+		this._syncDebounce = setTimeout(() => this._pFlushSyncQueue(), CharacterPageBase._SYNC_DEBOUNCE_MS);
+
+		// A long editing session would otherwise keep pushing the debounce out and never save at all
+		if (!this._syncMaxWait) {
+			this._syncMaxWait = setTimeout(() => this._pFlushSyncQueue(), CharacterPageBase._SYNC_MAX_WAIT_MS);
+		}
+	}
+
+	_clearSyncTimers () {
+		if (this._syncDebounce) clearTimeout(this._syncDebounce);
+		if (this._syncMaxWait) clearTimeout(this._syncMaxWait);
+		this._syncDebounce = null;
+		this._syncMaxWait = null;
+	}
+
+	/**
+	 * Send everything waiting, one character at a time.
+	 *
+	 * Serial on purpose: a conflict opens a modal, and two of those at once would be unusable. A
+	 * failure leaves the character queued rather than dropping it — being offline for a minute must
+	 * not cost the session.
+	 */
+	async _pFlushSyncQueue () {
+		this._clearSyncTimers();
+		if (this._isSyncFlushing || !this._syncPending.size) return;
+
+		this._isSyncFlushing = true;
+		this._renderSyncBadge();
+		try {
+			for (const id of [...this._syncPending]) {
+				if (!this._isAutoPushEligible(id)) { this._syncPending.delete(id); continue; }
+				await this._pPushCharacter(id, {isQuiet: true});
+			}
+		} finally {
+			this._isSyncFlushing = false;
+			this._renderSyncBadge();
+			// Anything that failed is still queued; try again after the ordinary quiet period
+			if (this._syncPending.size) this._syncDebounce = setTimeout(() => this._pFlushSyncQueue(), CharacterPageBase._SYNC_DEBOUNCE_MS);
+		}
 	}
 
 	/**
@@ -201,6 +302,10 @@ export class CharacterPageBase {
 	 * system: that is this repo's ordinary state, not a fault to report.
 	 */
 	_renderSyncBadge () {
+		// Re-derive the label from the same facts, so "Unsaved (2)" needs no round trip to appear
+		if (this._syncStatus?.kind === "signedIn") {
+			this._syncStatus = {...this._syncStatus, ...this._getWorkLabel()};
+		}
 		const status = this._syncStatus;
 		const toolbar = document.querySelector(".cs__toolbar");
 		if (!toolbar) return;
@@ -245,6 +350,8 @@ export class CharacterPageBase {
 		}
 
 		if (status.kind === "signedIn" && getSyncCapabilities(this._syncAdapter).characters) {
+			eleModalInner.appendChild(this._getAutoPushToggle());
+
 			const wrpChars = document.createElement("div");
 			wrpChars.className = "ve-flex-col ve-mb-2";
 			eleModalInner.appendChild(wrpChars);
@@ -263,6 +370,28 @@ export class CharacterPageBase {
 			});
 			eleModalInner.appendChild(btn);
 		}
+	}
+
+	/** Automatic uploads are something this page does on your behalf, so they can be switched off. */
+	_getAutoPushToggle () {
+		const wrp = document.createElement("label");
+		wrp.className = "ve-flex-v-center ve-mb-2";
+
+		const cb = document.createElement("input");
+		cb.type = "checkbox";
+		cb.className = "ve-mr-1";
+		cb.checked = this._isAutoPushOn;
+		cb.addEventListener("change", () => {
+			this._store.syncAuto = cb.checked;
+			this._persistNow();
+			if (cb.checked) this._pFlushSyncQueue();
+			else this._clearSyncTimers();
+			this._renderSyncBadge();
+		});
+
+		wrp.appendChild(cb);
+		wrp.insertAdjacentHTML("beforeend", `<span>Save changes online automatically <span class="ve-muted ve-small">(characters already online; downloads always stay manual)</span></span>`);
+		return wrp;
 	}
 
 	/* -------------------------------------------- Push and pull -------------------------------------------- */
@@ -350,7 +479,11 @@ export class CharacterPageBase {
 	}
 
 	/** Upload, stating the version being replaced. A refusal is a conflict, and gets asked about. */
-	async _pPushCharacter (id) {
+	/**
+	 * @param isQuiet for an automatic push: a toast for every save would be noise, and a failure
+	 *        while offline is not news the second time.
+	 */
+	async _pPushCharacter (id, {isQuiet = false} = {}) {
 		const envelope = this._store.characters[id] ?? {version: 2, state: {}};
 		const known = getSyncMeta(this._store, id);
 
@@ -358,10 +491,21 @@ export class CharacterPageBase {
 			const {version} = await this._syncAdapter.pSave(id, envelope, {version: known?.version ?? null});
 			setSyncMeta(this._store, id, {version, at: Date.now()});
 			this._persistNow();
-			JqueryUtil.doToast({type: "success", content: `${getCharacterLabel(envelope)} saved online.`});
+			// After the persist, which would otherwise queue it straight back up
+			this._syncPending.delete(id);
+			this._syncLastError = null;
+			this._renderSyncBadge();
+			if (!isQuiet) JqueryUtil.doToast({type: "success", content: `${getCharacterLabel(envelope)} saved online.`});
 		} catch (e) {
-			if (isSyncConflict(e)) return this._pResolveSyncConflict(id, envelope, e);
-			JqueryUtil.doToast({type: "danger", content: `Could not save online: ${e?.message || e}`});
+			if (isSyncConflict(e)) {
+				this._syncPending.delete(id);
+				return this._pResolveSyncConflict(id, envelope, e);
+			}
+
+			// Keep it queued: a minute offline must not cost the session
+			const message = `Could not save online: ${e?.message || e}`;
+			if (!isQuiet || this._syncLastError !== message) JqueryUtil.doToast({type: "danger", content: message});
+			this._syncLastError = message;
 		}
 	}
 
@@ -438,6 +582,19 @@ export class CharacterPageBase {
 		} catch (e) {
 			JqueryUtil.doToast({type: "danger", content: `Could not save online: ${e?.message || e}`});
 		}
+	}
+
+	/** The badge's text while work is in flight; the same rule as `getSyncStatus`, applied live. */
+	_getWorkLabel () {
+		const pending = this._syncPending.size;
+		const work = this._isSyncFlushing ? "Saving…" : (pending > 0 ? `Unsaved (${pending})` : null);
+		if (!work) return {label: this._syncStatus.baseLabel ?? this._syncStatus.label, tone: this._syncStatus.baseTone ?? this._syncStatus.tone};
+		return {
+			label: work,
+			tone: this._isSyncFlushing ? (this._syncStatus.baseTone ?? this._syncStatus.tone) : "warn",
+			baseLabel: this._syncStatus.baseLabel ?? this._syncStatus.label,
+			baseTone: this._syncStatus.baseTone ?? this._syncStatus.tone,
+		};
 	}
 
 	/** Whether an account system is connected. The panels ask this rather than poking at the adapter. */
@@ -2051,6 +2208,7 @@ export class CharacterPageBase {
 		this._store.characters[this._store.currentId] = this._comp.getSaveableState();
 		StorageUtil.syncSet(CharacterPageBase._SHARED_STORAGE_KEY, this._store);
 		this._renderCharacterSelect();
+		this._queueSyncPush(this._store.currentId);
 	}
 
 	/**

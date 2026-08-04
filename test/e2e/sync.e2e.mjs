@@ -186,6 +186,64 @@ async function runStorage ({browser, check}) {
 
 	check("no page errors (storage)", page.errors.length === 0, page.errors.slice(0, 3).join(" | "));
 	await page.close();
+
+	await runAutoPush({browser, check});
+}
+
+/**
+ * Automatic push.
+ *
+ * The point of it is that nobody has to remember, so the test does not press anything: it edits and
+ * waits. It also checks the two limits — a character the server has never seen is not uploaded
+ * behind your back, and switching the setting off really stops it.
+ */
+async function runAutoPush ({browser, check}) {
+	const page = await openWithStubAdapter(browser, {user: {id: "u1", name: "Ada"}, isStorage: true});
+
+	await setField(page, "cs-name", "Autosaver");
+	await page.waitForTimeout(6000);
+	check("a character that has never been online is not uploaded on its own",
+		(await page.evaluate(() => Object.keys(window.__stubStore.characters).length)) === 0,
+		JSON.stringify(await page.evaluate(() => window.__stubStore.characters)));
+
+	// Upload it once, by hand — after which it is the server's to keep up to date
+	await page.click("#cs-sync-badge");
+	await page.waitForTimeout(600);
+	const panel = page.locator(".ve-ui-modal__inner").last();
+	await panel.locator("button:has-text('Upload')").first().click();
+	await page.waitForTimeout(900);
+	await page.keyboard.press("Escape");
+	await page.waitForTimeout(300);
+
+	await setField(page, "cs-hp-max", 33);
+	await page.waitForTimeout(1000);
+	const badgeMid = await page.locator("#cs-sync-badge").innerText();
+	check("an edit shows as unsaved straight away", /Unsaved/.test(badgeMid), badgeMid);
+
+	await page.waitForTimeout(6000);
+	const uploaded = await page.evaluate(() => Object.values(window.__stubStore.characters)[0]);
+	check("and is uploaded without anybody pressing anything", uploaded.envelope.state.hpMax === 33,
+		JSON.stringify({hpMax: uploaded.envelope.state.hpMax, version: uploaded.version}));
+
+	const badgeAfter = await page.locator("#cs-sync-badge").innerText();
+	check("after which the badge goes back to naming the person", badgeAfter.includes("Ada"), badgeAfter);
+
+	// ---------- and it can be switched off ----------
+	await page.click("#cs-sync-badge");
+	await page.waitForTimeout(600);
+	await page.locator(".ve-ui-modal__inner").last().locator("input[type=checkbox]").first().uncheck();
+	await page.waitForTimeout(300);
+	await page.keyboard.press("Escape");
+	await page.waitForTimeout(300);
+
+	const versionBefore = await page.evaluate(() => Object.values(window.__stubStore.characters)[0].version);
+	await setField(page, "cs-hp-max", 44);
+	await page.waitForTimeout(6000);
+	const versionAfter = await page.evaluate(() => Object.values(window.__stubStore.characters)[0].version);
+	check("switching it off really stops it", versionBefore === versionAfter, `${versionBefore} → ${versionAfter}`);
+
+	check("no page errors (auto push)", page.errors.length === 0, page.errors.slice(0, 3).join(" | "));
+	await page.close();
 }
 
 /**

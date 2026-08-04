@@ -154,7 +154,7 @@ export function getSyncCapabilities (adapter) {
  */
 export const SYNC_STATUS_KINDS = ["off", "error", "signedOut", "signedIn"];
 
-export function getSyncStatus ({basePath = null, isLoaded = false, missingMethods = [], user = null, error = null, capabilities = null} = {}) {
+export function getSyncStatus ({basePath = null, isLoaded = false, missingMethods = [], user = null, error = null, capabilities = null, pending = 0, isSaving = false} = {}) {
 	const lines = [];
 	if (basePath) lines.push({label: "Account system", value: basePath});
 
@@ -203,19 +203,26 @@ export function getSyncStatus ({basePath = null, isLoaded = false, missingMethod
 		};
 	}
 
+	// Work still on its way up is the one thing worth saying instead of the name: closing the laptop
+	// on an unsaved character is exactly what the badge is there to prevent
+	const work = isSaving ? "Saving…" : (pending > 0 ? `Unsaved (${pending})` : null);
+
 	return {
 		kind: "signedIn",
-		label: user.name ? `Online — ${user.name}` : "Online",
-		tone: isCharacters ? "ok" : "warn",
+		label: work || (user.name ? `Online — ${user.name}` : "Online"),
+		tone: work && !isSaving ? "warn" : (isCharacters ? "ok" : "warn"),
 		title: "Signed in to the account system",
 		lines: [
 			...lines,
 			{label: "Signed in as", value: user.name || user.id || "(unnamed)"},
 			...(user.role ? [{label: "Role", value: user.role}] : []),
+			...(pending > 0 ? [{label: "Waiting to save", value: `${pending} character${pending === 1 ? "" : "s"}`}] : []),
 			...limited,
 		],
 		canSignIn: false,
 		canSignOut: true,
+		pending,
+		isSaving,
 	};
 }
 
