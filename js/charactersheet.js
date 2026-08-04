@@ -10,6 +10,7 @@ import {CharacterSpellsPanel} from "./charactersheet/charactersheet-spellspanel.
 import {CharacterActionsPanel} from "./charactersheet/charactersheet-actionspanel.js";
 import {CharacterPageBase} from "./charactersheet/charactersheet-pagebase.js";
 import {CharacterCardsPanel} from "./charactersheet/charactersheet-cardspanel.js";
+import {CharacterJournalPanel} from "./charactersheet/charactersheet-journalpanel.js";
 
 /** Renders the attacks table from the model's `attacks` collection. */
 class _AttacksRenderableCollection extends RenderableCollectionBase {
@@ -22,16 +23,16 @@ class _AttacksRenderableCollection extends RenderableCollectionBase {
 		const tr = document.createElement("tr");
 		tr.className = "cs__atk-row";
 		tr.innerHTML = `
-			<td><input type="text" class="ve-form-control ve-input-xs cs__atk-name" placeholder="e.g. Longsword"></td>
+			<td><input type="text" class="ve-form-control ve-input-xs cs__atk-name" aria-label="Attack name" placeholder="e.g. Longsword"></td>
 			<td class="ve-text-center">
 				<div class="cs__atk-cell">
-					<input type="number" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs cs__atk-bonus">
+					<input type="number" class="ve-form-control ve-input-xs cs__ipt-num cs__ipt-num--xs cs__atk-bonus" aria-label="Attack bonus">
 					<span class="cs__roll cs__atk-hit"></span>
 				</div>
 			</td>
 			<td class="ve-text-center">
 				<div class="cs__atk-cell">
-					<input type="text" class="ve-form-control ve-input-xs cs__atk-dmg" placeholder="e.g. 1d8+3 slashing">
+					<input type="text" class="ve-form-control ve-input-xs cs__atk-dmg" aria-label="Damage and type" placeholder="e.g. 1d8+3 slashing">
 					<span class="cs__roll cs__atk-dmgroll"></span>
 				</div>
 			</td>
@@ -83,7 +84,7 @@ class _AttacksRenderableCollection extends RenderableCollectionBase {
 		const dmg = (entity.damage || "").trim();
 
 		meta.dispHit.innerHTML = Renderer.get().render(`{@hit ${bonus}|${CharacterPageBase.fmtBonus(bonus)}|${name || "Attack"}}`);
-		CharacterPageBase.setBreakdownTitle(meta.dispHit, `${name || "Attack"} to hit`, entity.atkParts, bonus);
+		CharacterPageBase.setBreakdownTitle(meta.dispHit, `${name || "Attack"} to hit`, entity.atkParts, bonus, {citeKind: "attack"});
 
 		if (dmg && /\d\s*d\s*\d/i.test(dmg)) {
 			meta.dispDmg.innerHTML = Renderer.get().render(`{@dice ${dmg}|${dmg}|${name || "Damage"}}`);
@@ -138,6 +139,8 @@ class CharacterSheetPage extends CharacterPageBase {
 		this._actionsPanel.init();
 		// Built only when asked for: the deck needs the whole spell list loaded
 		this._cardsPanel = new CharacterCardsPanel({comp: this._comp, wrp: document.getElementById("cs-cards")});
+		this._journalPanel = new CharacterJournalPanel({comp: this._comp, wrp: document.getElementById("cs-journal")});
+		this._journalPanel.init();
 		this._bindClick("cs-btn-cards", () => this._cardsPanel.pPrint());
 
 		this._comp._addHookBase("pickTags", () => this._renderPickLinks());
@@ -198,9 +201,13 @@ class CharacterSheetPage extends CharacterPageBase {
 		const eleComputed = document.getElementById("cs-ac-computed");
 		if (!eleComputed) return;
 		eleComputed.textContent = `${armorClass.ac}`;
-		eleComputed.title = armorClass.note === "manual"
-			? "Manual AC"
-			: `Armor Class: ${formatBreakdown(armorClass.parts, armorClass.ac, {isTotalValue: true})}`;
+		if (armorClass.note === "manual") {
+			eleComputed.title = "Manual AC";
+			CharacterPageBase.setBreakdownTitle(eleComputed, "Armor Class", null);
+		} else {
+			CharacterPageBase.setBreakdownTitle(eleComputed, "Armor Class", armorClass.parts, armorClass.ac,
+				{isTotalValue: true, citeKind: "ac"});
+		}
 		// In manual mode the number is editable; otherwise it is computed from equipped gear.
 		const isManual = (this._comp._state.acMode || "auto") === "manual";
 		const eleManual = document.getElementById("cs-ac");
@@ -271,7 +278,7 @@ class CharacterSheetPage extends CharacterPageBase {
 			const u = derived.unarmedStrike;
 			const hitRoll = Renderer.get().render(`{@d20 ${u.atkBonus}|${CharacterPageBase.fmtBonus(u.atkBonus)}|Unarmed Strike}`);
 			eleUnarmed.innerHTML = `<span class="ve-muted">Unarmed Strike:</span> ${hitRoll} <span class="ve-muted">to hit,</span> ${u.damage.qq()}`;
-			CharacterPageBase.setBreakdownTitle(eleUnarmed, "Unarmed Strike", u.atkParts, u.atkBonus);
+			CharacterPageBase.setBreakdownTitle(eleUnarmed, "Unarmed Strike", u.atkParts, u.atkBonus, {citeKind: "attack"});
 		}
 
 		this._renderCombatNotes();
@@ -293,15 +300,15 @@ class CharacterSheetPage extends CharacterPageBase {
 		const initParts = [...derived.initiativeParts];
 		const featureInit = initiative - derived.initiative;
 		if (featureInit) initParts.push({label: "Features", value: featureInit});
-		CharacterPageBase.setBreakdownTitle(eleInit, "Initiative", initParts, initiative);
+		CharacterPageBase.setBreakdownTitle(eleInit, "Initiative", initParts, initiative, {citeKind: "initiative"});
 
 		const eleDc = document.getElementById("cs-spell-dc");
 		const eleAtk = document.getElementById("cs-spell-atk");
 		if (derived.spell) {
 			eleDc.textContent = `${derived.spell.dc}`;
-			CharacterPageBase.setBreakdownTitle(eleDc, "Spell save DC", derived.spell.dcParts, derived.spell.dc, {isTotalValue: true});
+			CharacterPageBase.setBreakdownTitle(eleDc, "Spell save DC", derived.spell.dcParts, derived.spell.dc, {isTotalValue: true, citeKind: "spellDc"});
 			eleAtk.innerHTML = Renderer.get().render(`{@d20 ${derived.spell.atkMod}|${CharacterPageBase.fmtBonus(derived.spell.atkMod)}|Spell attack}`);
-			CharacterPageBase.setBreakdownTitle(eleAtk, "Spell attack", derived.spell.atkParts, derived.spell.atkMod);
+			CharacterPageBase.setBreakdownTitle(eleAtk, "Spell attack", derived.spell.atkParts, derived.spell.atkMod, {citeKind: "spellAttack"});
 		} else {
 			eleDc.textContent = "—";
 			eleAtk.textContent = "—";
@@ -312,5 +319,7 @@ class CharacterSheetPage extends CharacterPageBase {
 
 window.addEventListener("load", () => {
 	const page = new CharacterSheetPage();
-	page.init();
+	// Exposed so the browser tests can ask the page about itself (e.g. whether sync is connected)
+	window.__csPage = page;
+	page.pInit();
 });

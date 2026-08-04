@@ -23,7 +23,7 @@ Each page's controller keeps only its own DOM assembly + rendering.
 - `js/charactersheet.js`, `js/charbuilder.js`, `js/sidekick.js` — the three page entry points
 - `js/charactersheet/*.js` — the shared modules: pure rules (`derive`,
   `levelengine`, `choices`, `abilityscores`, `equipment`, `actions`, `charstore`,
-  `defenses`, `sidekick`, `consts`), data access (`classdata`), the model (`model`), the page
+  `defenses`, `sidekick`, `citations`, `journal`, `portrait`, `sync`, `consts`), data access (`classdata`), the model (`model`), the page
   base (`pagebase`), and the panel renderers (`classpanel`, `inventorypanel`,
   `spellspanel`, `actionspanel`, `wizard`)
 - `css/charactersheet.css`, `scss/charactersheet.scss` (shared by all three pages)
@@ -31,7 +31,13 @@ Each page's controller keeps only its own DOM assembly + rendering.
   `.../template-page-charbuilder.hbs`, `.../template-page-sidekick.hbs`
 - `test/jest/CharacterSheet*.test.js` — unit tests for the pure modules
 - `test/e2e/` — browser tests driving the real pages (see `test/e2e/README.md`)
-- `.github/workflows/charactersheet-ci.yml`, `.github/workflows/sync-upstream.yml`
+- `.github/workflows/` — `charactersheet-ci.yml`, `sync-upstream.yml`, and
+  `docker-image.yml` (the `:latest` / `:beta` image build). Upstream ships only
+  `main.yml` and `pages.yml`; leave those alone.
+- `scripts/` — upstream has no such directory. `update-from-upstream.sh` (the
+  preferred way to take an upstream update) and `rehearse-upstream-sync.sh`
+  (replays the sync workflow's steps over a synthetic upstream, so the merge and
+  conflict paths can be tested without waiting for upstream to move).
 
 **Shared upstream files the fork edits (the ONLY upstream-merge conflict points):**
 1. `js/navigation.js` — three `_addElement_li({... page: "….html" ...})` lines
@@ -46,6 +52,8 @@ Each page's controller keeps only its own DOM assembly + rendering.
 4. `package.json` — a `test:e2e` script and the `playwright-core` dev dependency (two lines)
 
 Exact snippets and resolution steps: `docs/CHARACTER_SHEET_MAINTENANCE.md`.
+The account-system contract (a *separate* repo): `docs/ACCOUNT_SYSTEM.md`.
+That system, and its feature plan: <https://github.com/PrinzWalium/5etools-online>.
 The sidekick builder's own user-facing guide: `docs/SIDEKICK_BUILDER.md`.
 
 ## Critical gotcha: the page HTML is generated
@@ -121,6 +129,37 @@ template, run `node node/generate-pages.js` and commit both.
   - **Traits & Actions** is a list of editable rows (kind, name, text) with an
     Add button — seeded per stat-block entry, tagged when a level granted it.
   - Every seeded value stays hand-editable; nothing is locked.
+- **Every number cites its rule**: a breakdown popover lists one contribution per
+  line, and beside each is the rule that lets it count — clicking shows the book's
+  own text with its source and page. `charactersheet-citations.js` holds the
+  catalogue (the 2024 glossary states Proficiency, Armor Class, Passive Perception
+  etc. as addressable `variantrule` entries, so almost nothing is curated); a part
+  names its own rule in `derive.js` rather than anything guessing from the label.
+  A bonus with two possible causes stays unlinked instead of picking one.
+- **Accounts are a seam, not a feature here.** `charactersheet-sync.js` holds the
+  adapter contract and the mount path (configurable; default `/online`); the page
+  base loads `<base>/client.js` in `pInit` and keeps `window.CharacterSyncAdapter`
+  only if it implements the whole contract. The account system itself — OIDC
+  against Authentik, sessions, storage — is a **separate repository** behind a
+  reverse proxy on the same subdomain. Nothing deployed is a supported state, so
+  never make sync a precondition for anything. See `docs/ACCOUNT_SYSTEM.md`.
+- **Homebrew** works on all three pages, but only because `pInit` (page base) runs
+  `PrereleaseUtil.pInit()` / `BrewUtil2.pInit()` / `ExcludeUtil.pInitialise()` before
+  `init()`. `classdata` and `SearchWidget` were always brew-aware; without that
+  setup every brew call returns nothing. The *Homebrew* toolbar button opens
+  5etools' own `ManageBrewUi`.
+- **Appearance** (sheet + builder): age/height/weight/eyes/skin/hair and a
+  portrait, built once in the page base so the two cannot drift. A portrait is
+  downscaled to 400px and re-encoded before storing (`charactersheet-portrait.js`
+  decides the size and is tested); the whole store shares one quota.
+- **Session journal** (`charactersheet.html`): the sheet records play as it
+  happens — hit points lost and regained, going down, death saves, rests, spent
+  slots and class resources, conditions, charges, ammunition, levels — and writes
+  each session up as a sentence. `charactersheet-journal.js` is pure: it groups
+  events into sessions (a six-hour silence, or an explicit *New session*), infers
+  fights from bursts of damage, and summarises. Recording is paused while loading
+  (`_setLoading` → `setJournalPaused`), or re-opening the sheet would log the
+  restored hit-point total as a fight. Capped at 1000 events, oldest dropped.
 - **Reference cards** (`charactersheet.html`, the *Cards* button): the character's
   known spells and attacks printed as index cards, built on demand
   (`charactersheet-cards.js` + `-cardspanel.js`) and visible only on paper. The
@@ -193,6 +232,14 @@ pages, runs Character Sheet lint + tests, makes a safety backup branch). If a
 conflict occurs it will be in one of the 4 shared files above — resolve by
 keeping BOTH the fork's registration line(s) and upstream's changes, per
 `docs/CHARACTER_SHEET_MAINTENANCE.md`.
+
+It also happens nightly, unattended, via `.github/workflows/sync-upstream.yml`.
+Read its green tick carefully: on a night when upstream has not moved it skips
+everything after its second step, so success means only "nothing to do". To
+exercise it for real, dispatch it with `force` (and `dry_run` to keep the result
+off `main`), or run `bash scripts/rehearse-upstream-sync.sh clean|conflict`,
+which replays its steps over a synthetic upstream in a throwaway clone — the
+only way to reach the conflict path deliberately.
 
 ## Verifying Character Sheet changes
 

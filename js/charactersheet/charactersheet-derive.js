@@ -9,6 +9,7 @@ import {
 	PROF_STATE_PROFICIENT,
 } from "./charactersheet-consts.js";
 import {getChosenFeatureEffects} from "./charactersheet-features.js";
+import {PG_OPT_FEATURES, getItemCitation} from "./charactersheet-citations.js";
 import {getExpectedHp} from "./charactersheet-levelengine.js";
 
 /**
@@ -25,6 +26,10 @@ const _MAX_LEVEL = 20;
  * A breakdown is the list of contributions behind a derived number, so the sheet can explain where
  * a value came from ("Dexterity +3, Proficiency +2, Archery +2"). Zero-value parts are dropped
  * unless they carry an explanatory note.
+ *
+ * A part may also carry `cite`: which rule allows it to be there, either a key into `CITATIONS` or
+ * a `{name, source, page}` descriptor for an entity the character actually has. The producer names
+ * its own rule — nothing downstream tries to infer one from the label.
  */
 function _mkParts (...parts) {
 	return parts.filter(p => p && (p.value || p.isKeep || p.isText));
@@ -129,7 +134,7 @@ export function deriveCharacterSheet (state) {
 	const pb = getProfBonus(state);
 	const magic = getEquippedMagicBonuses(state);
 	const exhaustion = getExhaustionPenalty(state);
-	const partExhaustion = {label: `Exhaustion ${getExhaustionLevel(state)}`, value: exhaustion};
+	const partExhaustion = {label: `Exhaustion ${getExhaustionLevel(state)}`, value: exhaustion, cite: "exhaustion"};
 
 	const abilities = {};
 	CHAR_SHEET_ABILITIES.forEach(([abv]) => {
@@ -152,9 +157,9 @@ export function deriveCharacterSheet (state) {
 			isProf,
 			mod,
 			parts: _mkParts(
-				{label: Parser.attAbvToFull(abv), value: abilities[abv].mod, isKeep: true},
-				isProf ? {label: "Proficiency", value: pb} : null,
-				{label: "Magic items", value: magic.savingThrow},
+				{label: Parser.attAbvToFull(abv), value: abilities[abv].mod, isKeep: true, cite: "abilityModifier"},
+				isProf ? {label: "Proficiency", value: pb, cite: "proficiency"} : null,
+				{label: "Magic items", value: magic.savingThrow, cite: _citeSoleItem(getMagicBonusItems(state, "bonusSavingThrow"))},
 				partExhaustion,
 			),
 		};
@@ -170,8 +175,8 @@ export function deriveCharacterSheet (state) {
 			ability,
 			mod: abilities[ability].mod + (pb * profMult) + exhaustion,
 			parts: _mkParts(
-				{label: Parser.attAbvToFull(ability), value: abilities[ability].mod, isKeep: true},
-				profMult ? {label: profLabel, value: pb * profMult} : null,
+				{label: Parser.attAbvToFull(ability), value: abilities[ability].mod, isKeep: true, cite: "abilityModifier"},
+				profMult ? {label: profLabel, value: pb * profMult, cite: "proficiency"} : null,
 				partExhaustion,
 			),
 		};
@@ -186,14 +191,14 @@ export function deriveCharacterSheet (state) {
 			atkMod: pb + abilities[spellAbility].mod + magic.spellAttack + exhaustion,
 			dcParts: _mkParts(
 				{label: "Base", value: 8, isRaw: true},
-				{label: "Proficiency", value: pb},
-				{label: Parser.attAbvToFull(spellAbility), value: abilities[spellAbility].mod, isKeep: true},
-				{label: "Magic items", value: magic.spellSaveDc},
+				{label: "Proficiency", value: pb, cite: "proficiency"},
+				{label: Parser.attAbvToFull(spellAbility), value: abilities[spellAbility].mod, isKeep: true, cite: "abilityModifier"},
+				{label: "Magic items", value: magic.spellSaveDc, cite: _citeSoleItem(getMagicBonusItems(state, "bonusSpellSaveDc"))},
 			),
 			atkParts: _mkParts(
-				{label: "Proficiency", value: pb},
-				{label: Parser.attAbvToFull(spellAbility), value: abilities[spellAbility].mod, isKeep: true},
-				{label: "Magic items", value: magic.spellAttack},
+				{label: "Proficiency", value: pb, cite: "proficiency"},
+				{label: Parser.attAbvToFull(spellAbility), value: abilities[spellAbility].mod, isKeep: true, cite: "abilityModifier"},
+				{label: "Magic items", value: magic.spellAttack, cite: _citeSoleItem(getMagicBonusItems(state, "bonusSpellAttack"))},
 				partExhaustion,
 			),
 		}
@@ -209,13 +214,13 @@ export function deriveCharacterSheet (state) {
 		skills,
 		passivePerception: 10 + skills.perception.mod,
 		passivePerceptionParts: _mkParts(
-			{label: "Base", value: 10, isRaw: true},
+			{label: "Base", value: 10, isRaw: true, cite: "passivePerception"},
 			...skills.perception.parts,
 		),
 		// Initiative is a Dexterity check, so exhaustion drags it down too
 		initiative: abilities.dex.mod + initMisc + exhaustion,
 		initiativeParts: _mkParts(
-			{label: "Dexterity", value: abilities.dex.mod, isKeep: true},
+			{label: "Dexterity", value: abilities.dex.mod, isKeep: true, cite: "abilityModifier"},
 			{label: "Misc", value: initMisc},
 			partExhaustion,
 		),
@@ -249,37 +254,40 @@ export function deriveArmorClass (state) {
 	let base;
 	let note;
 	const baseParts = [];
+	// The armour itself is the rule for its own base AC; an unarmored formula is the AC rule
+	const citeArmor = armor ? getItemCitation(armor) : "armorClass";
 	if (armor) {
 		const armorAc = Number(armor.baseAc) || 10;
 		const magic = Number(armor.bonusAc) || 0;
-		baseParts.push({label: armor.name, value: armorAc, isRaw: true});
+		baseParts.push({label: armor.name, value: armorAc, isRaw: true, cite: citeArmor});
 		if (armor.type === "LA") {
 			base = armorAc + dexMod + magic;
-			baseParts.push({label: "Dexterity", value: dexMod, isKeep: true});
+			baseParts.push({label: "Dexterity", value: dexMod, isKeep: true, cite: "abilityModifier"});
 		} else if (armor.type === "MA") {
 			const capped = Math.min(dexMod, armor.dexterityMax ?? 2);
 			base = armorAc + capped + magic;
-			baseParts.push({label: `Dexterity (max +${armor.dexterityMax ?? 2})`, value: capped, isKeep: true});
+			baseParts.push({label: `Dexterity (max +${armor.dexterityMax ?? 2})`, value: capped, isKeep: true, cite: citeArmor});
 		} else {
 			base = armorAc + magic; // Heavy: no Dex
 		}
-		if (magic) baseParts.push({label: "Armor magic bonus", value: magic});
+		if (magic) baseParts.push({label: "Armor magic bonus", value: magic, cite: citeArmor});
 		note = armor.name;
 	} else if (mode === "barbarian") {
 		base = 10 + dexMod + getAbilityModifier(state, "con");
-		baseParts.push({label: "Unarmored Defense (Barbarian)", value: 10, isRaw: true},
-			{label: "Dexterity", value: dexMod, isKeep: true},
-			{label: "Constitution", value: getAbilityModifier(state, "con"), isKeep: true});
+		baseParts.push({label: "Unarmored Defense (Barbarian)", value: 10, isRaw: true, cite: "armorClass"},
+			{label: "Dexterity", value: dexMod, isKeep: true, cite: "abilityModifier"},
+			{label: "Constitution", value: getAbilityModifier(state, "con"), isKeep: true, cite: "abilityModifier"});
 		note = "Unarmored Defense (Barbarian)";
 	} else if (mode === "monk") {
 		base = 10 + dexMod + getAbilityModifier(state, "wis");
-		baseParts.push({label: "Unarmored Defense (Monk)", value: 10, isRaw: true},
-			{label: "Dexterity", value: dexMod, isKeep: true},
-			{label: "Wisdom", value: getAbilityModifier(state, "wis"), isKeep: true});
+		baseParts.push({label: "Unarmored Defense (Monk)", value: 10, isRaw: true, cite: "armorClass"},
+			{label: "Dexterity", value: dexMod, isKeep: true, cite: "abilityModifier"},
+			{label: "Wisdom", value: getAbilityModifier(state, "wis"), isKeep: true, cite: "abilityModifier"});
 		note = "Unarmored Defense (Monk)";
 	} else {
 		base = 10 + dexMod;
-		baseParts.push({label: "Unarmored", value: 10, isRaw: true}, {label: "Dexterity", value: dexMod, isKeep: true});
+		baseParts.push({label: "Unarmored", value: 10, isRaw: true, cite: "armorClass"},
+			{label: "Dexterity", value: dexMod, isKeep: true, cite: "abilityModifier"});
 		note = "Unarmored";
 	}
 
@@ -296,9 +304,9 @@ export function deriveArmorClass (state) {
 
 	const parts = _mkParts(
 		...baseParts,
-		{label: "Shield", value: shield},
-		{label: "Magic items", value: otherMagic},
-		{label: "Defense (fighting style)", value: feature},
+		{label: "Shield", value: shield, cite: _citeSoleItem(equipped.filter(it => it.type === "S"))},
+		{label: "Magic items", value: otherMagic, cite: _citeSoleItem(equipped.filter(it => !it.isArmor && it.type !== "S" && it.bonusAc))},
+		{label: "Defense (fighting style)", value: feature, cite: {name: "Defense", source: "PHB", page: PG_OPT_FEATURES}},
 		{label: "Misc", value: misc},
 	);
 
@@ -321,6 +329,19 @@ export function getEquippedMagicBonuses (state) {
 			out.spellAttack += Number(it.bonusSpellAttack) || 0;
 		});
 	return out;
+}
+
+/** The equipped items actually contributing one of those bonuses, so the part can cite them. */
+export function getMagicBonusItems (state, key) {
+	return (state.inventory || []).filter(it => it.equipped && Number(it[key]));
+}
+
+/**
+ * A "Magic items" part can only point somewhere when exactly one item is responsible. With two
+ * contributing there is no single rule to show, and inventing a combined one would be a lie.
+ */
+function _citeSoleItem (items) {
+	return items.length === 1 ? getItemCitation(items[0]) : null;
 }
 
 /**
@@ -368,16 +389,16 @@ export function getWeaponAttack (state, item) {
 		atkBonus: abilMod + pb + bonusAttack + featureAttack + exhaustion,
 		damage,
 		atkParts: _mkParts(
-			{label: abilName, value: abilMod, isKeep: true},
-			{label: "Proficiency", value: pb},
-			{label: "Magic weapon", value: bonusAttack},
-			{label: "Archery (fighting style)", value: featureAttack},
-			{label: `Exhaustion ${getExhaustionLevel(state)}`, value: exhaustion},
+			{label: abilName, value: abilMod, isKeep: true, cite: "abilityModifier"},
+			{label: "Proficiency", value: pb, cite: "proficiency"},
+			{label: "Magic weapon", value: bonusAttack, cite: getItemCitation(item)},
+			{label: "Archery (fighting style)", value: featureAttack, cite: {name: "Archery", source: "PHB", page: PG_OPT_FEATURES}},
+			{label: `Exhaustion ${getExhaustionLevel(state)}`, value: exhaustion, cite: "exhaustion"},
 		),
 		damageParts: _mkParts(
-			{label: item.dmg1 || "", isText: !!item.dmg1},
-			{label: abilName, value: abilMod, isKeep: true},
-			{label: "Magic weapon", value: bonusDamage},
+			{label: item.dmg1 || "", isText: !!item.dmg1, cite: getItemCitation(item)},
+			{label: abilName, value: abilMod, isKeep: true, cite: "abilityModifier"},
+			{label: "Magic weapon", value: bonusDamage, cite: getItemCitation(item)},
 			{label: "Fighting style", value: featureDamage},
 		),
 	};
@@ -394,9 +415,9 @@ export function getUnarmedStrike (state) {
 		atkBonus: strMod + pb + exhaustion,
 		damage: `${Math.max(0, dmg)} bludgeoning`,
 		atkParts: _mkParts(
-			{label: "Strength", value: strMod, isKeep: true},
-			{label: "Proficiency", value: pb},
-			{label: `Exhaustion ${getExhaustionLevel(state)}`, value: exhaustion},
+			{label: "Strength", value: strMod, isKeep: true, cite: "abilityModifier"},
+			{label: "Proficiency", value: pb, cite: "proficiency"},
+			{label: `Exhaustion ${getExhaustionLevel(state)}`, value: exhaustion, cite: "exhaustion"},
 		),
 	};
 }

@@ -68,12 +68,31 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
 - [ ] **Print polish.** The print path now works and is tested by hand, but it has no automated
       coverage, and a long character still spills onto a third page. Worth a pass once the layout
       settles: tighter margins, a deliberate page break between play data and reference text.
-- [ ] **Accessibility.** Focus rings, labels on icon-only buttons, keyboard access to the feature
-      cards. Noticed during the UI rework and deliberately left out of its scope.
-- [ ] **Character portrait and appearance fields.**
+- [x] **Accessibility.** Audited all three pages rather than guessed at, and the findings fixed:
+      every field labelled (the class/background/species inputs had a label-shaped `<span>` that was
+      not one; four textareas had only a placeholder), the six death-save dots named and reporting
+      `aria-pressed`, attack-row inputs named. The real one: **the breakdowns were mouse-only** —
+      "every number cites its rule" opened from a click delegate on plain `<span>`s, so the whole
+      feature was unreachable by keyboard. Those are now controls with a role, a tab stop,
+      Enter/Space to open, Escape to close, and a focus ring. Held in place by
+      `test/e2e/a11y.e2e.mjs`, which resolves `aria-labelledby` rather than trusting its presence —
+      a dangling reference reads as a label to a naive check and as nothing at all to a screen
+      reader, and it caught exactly that twice while this was being written.
+- [x] **Character portrait and appearance fields.** An *Appearance* panel on the sheet and the
+      builder: age, height, weight, eyes, skin and hair, and a portrait. The portrait is downscaled
+      to 400px on its longest edge and re-encoded as JPEG before it is stored, and one over half a
+      megabyte is refused — every character in the store shares one `localStorage` quota, so an
+      untouched phone photo would break saving for all of them, not just the one it was added to.
 - [ ] **Sharing a character** with a DM — a link or an export they can open read-only.
-- [ ] **Homebrew.** 5etools has a homebrew loader; the builder ignores it entirely, so a
-      homebrew class or species cannot be picked.
+- [x] **Homebrew.** Not what this said it was. `charactersheet-classdata.js` had *always* asked the
+      `DataLoader` for brew alongside site content, and `SearchWidget` already indexes brew for the
+      species/background/item pickers — but none of it can return anything until `BrewUtil2.pInit()`
+      has run, and no character page ever ran it. So the builder was not ignoring homebrew; it was
+      missing one line of setup, and every brew-aware call it already made was dead code. The three
+      pages now initialise prerelease, brew and the exclusion list before building, and carry on with
+      a toast if that fails — a character matters more than the content it could have picked from.
+      A *Homebrew* button in each toolbar opens 5etools' own manager, so brew added here is the same
+      brew every other page sees.
 
 ## Ideas worth building, easiest first
 
@@ -95,18 +114,28 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       weapon mastery, a missing class/species/background). It reports and never blocks — a DM
       ruling beats it. The counts come from the same pure functions the class panel uses to *offer*
       those choices, so the audit cannot drift from what the panel asks for.
-- [ ] **Every number cites its rule.** The breakdowns already say "Dexterity +3, Proficiency +2,
-      Archery +2"; a click should show the rule's own text — the Archery entry, the armor's rules,
-      the exhaustion table. This app *contains the books*, so it can trace a number to its source
-      paragraph in a way no licensed sheet can. The work is the mapping: a feat, item or class
-      feature is an addressable entity, but "Proficiency" is prose in a chapter and needs a curated
-      pointer.
-- [ ] **A session journal the sheet writes itself.** The sheet sees every HP swing, death save,
-      rest, spent slot, condition and charge, and records none of it. It could: "Session 12 — took
-      47 damage across three fights, went down once, burned six slots, two long rests, gained a
-      level, fired 23 arrows and recovered 11." Nothing else does this and it needs no sync, but it
-      is the biggest of the five: an event log in the model, session boundaries, storage growth,
-      and a summariser.
+- [x] **Every number cites its rule.** A breakdown is now a list rather than a line, and beside each
+      contribution sits the rule that lets it count — one click away from the book's own paragraph,
+      with its source and page. The mapping turned out to need no curated prose at all: the 2024
+      rules glossary states Proficiency, Ability Score and Modifier, Armor Class, Passive Perception,
+      Initiative and the rest as their own addressable entries, so a "Proficiency +3" part points at
+      the actual rule, and gear, fighting styles and the exhaustion condition point at themselves. A
+      magic bonus names the item responsible when exactly one is — with two contributing there is no
+      single rule to show, and it stays unlinked rather than inventing one. So does a house-ruled
+      Misc. A unit test asserts every catalogue entry exists in the shipped data, so a citation
+      cannot rot into an empty modal.
+- [x] **A session journal the sheet writes itself.** A *Session Journal* panel on the sheet, newest
+      session first, each written up as a sentence: "Took 47 damage across three fights, went down
+      once, burned six slots, two long rests, gained a level and fired 23 pieces of ammunition and
+      recovered 11." Nothing is typed — every hit point, death save, rest, spent slot, class
+      resource, condition, charge and arrow is recorded as it happens.
+      *Sessions* split on a six-hour silence, or wherever *New session* is pressed, because a player
+      who says a session ended knows better than a clock. *Fights* are inferred from bursts of
+      damage separated by quiet or by a rest — approximate by design, since the sheet is never told
+      initiative was rolled. *Storage* is capped at 1000 events, oldest dropped, so it cannot grow
+      forever beside the character. *Recording pauses while loading*, so re-opening the sheet and
+      restoring a saved hit-point total does not read as a fight — the same `hpCur` hook the
+      concentration prompt uses, so the two can never disagree about what damage is.
 
 ## Maybe
 
@@ -122,36 +151,58 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       is nearly as good as live — but it costs every player a send at each level-up, and only the
       DM sees the benefit. Worth doing if that trade stops feeling annoying.
 
-- [ ] **Server-side characters.** The thing that would make the party sheet live, and let a player
-      pick up their character on another device. Sketched here so the shape is on record; not
-      committed to, because it is the first part of this project that could break for other people.
+- [ ] **Accounts and server-side characters** — *the client side is prepared; the server is a
+      separate project.* An account system that lets a player pick their character up on another
+      device, and makes the party sheet above live.
 
-  **The client barely changes.** Persistence is already behind a seam — `CharacterPageBase` owns
-  `_initStore` / `_persistNow` / `_doLoadState`, and the store format is a pure module. Define a
-  storage adapter (`list`, `load`, `save`, `delete`) with two implementations, `LocalStorage` and
-  `Remote`, and pick one at init. The model, the panels and the derivations never learn about it.
-  One new fork-owned module and a few lines in the page base: **no new upstream conflict points**,
-  the count stays at four.
+  **It lives in its own repository**, deployed behind the same subdomain on its own path by a
+  reverse proxy — *not* in this repo. That decision does the most work of any here:
 
-  **Local-first, never server-first.** Write to localStorage always, then queue a push. The UI
-  never blocks on the network, play survives the wifi dying mid-session, and with no sync URL
-  configured the app behaves exactly as it does today.
+  - the four shared upstream files stay four, and this repo gains no server, no second dependency
+    tree and no second CI;
+  - every later sync feature ships from that repo, with no change to 5etools-src at all;
+  - same-origin means the browser's own session cookie authenticates each call. No token in
+    `localStorage`, nothing for the client to store or leak, and no CORS to configure.
 
-  **The server is small.** A key-value store of character envelopes with ownership:
-  `POST /api/session` (join with a campaign invite code → long-lived token), then
-  `GET/PUT/DELETE /api/characters[/:id]`. Concurrency by a per-character version and `If-Match`;
-  on a 409 ask "keep mine / take theirs" rather than attempting a merge — characters are
-  single-writer in practice. The wire format is the existing save-file envelope, so an export is a
-  valid upload and there is no second schema to maintain.
+  **Authentication is OIDC against an existing Authentik instance.** The account app is a
+  confidential OIDC client; this fork never sees a token, an identity or a password — only whether
+  `pWhoAmI()` answers. Nothing here has to own credentials, resets or revocation.
 
-  **Deployment stays boring.** A Cloudflare Worker with D1/KV needs no container and no backups to
-  run; the alternative is a small container beside the existing image, which is yours to patch and
-  restore. Either way the client reads the sync URL from a runtime `config.js` the image can drop
-  in, so the Pages build keeps producing a working, sync-less site. The server lives in `server/`
-  with its own `package.json`, so the root dependency tree and CI are untouched.
+  **What is already in this repo** (`charactersheet-sync.js`, fork-owned, tested):
 
-  **The real cost is not the code** — that is a weekend. It is owning uptime, backups, restores and
-  token revocation, for data that today cannot be lost except by the user's own browser.
+  - the adapter contract — `pWhoAmI`, `pList`, `pLoad`, `pSave`, `pDelete`, `getLoginUrl`;
+  - the mount path as configuration, defaulting to `/online`, overridable by
+    `window.CHARACTER_SYNC_PATH` or a `<meta name="character-sync-path">` a proxy can inject, and
+    settable to `""` to switch the whole thing off;
+  - `_pLoadSyncAdapter` in the page base, which loads `<base>/client.js` during `pInit` and keeps
+    the adapter only if it implements the whole contract. A half-implemented one is refused with a
+    reason rather than allowed to take storage over and fail partway;
+  - a `SyncConflictError` carrying what the server holds, so a clash asks *keep mine / take theirs*
+    rather than attempting a merge — characters are single-writer in practice.
+
+  **Nothing deployed is a supported state, not a fallback.** No account app, a 404, a script that
+  throws — each leaves the pages exactly as they are today, which is what the static Pages build
+  needs. A browser suite (`test/e2e/sync.e2e.mjs`) holds that: no adapter, no console error, and a
+  character still edited and persisted locally across a reload.
+
+  **What the other repository still owns:** the OIDC dance, sessions, character envelopes with
+  ownership, campaign invite codes, and the `client.js` implementing the adapter. The wire format is
+  the existing save-file envelope, so an export is a valid upload and there is no second schema.
+  Concurrency by a per-character version and `If-Match`. Writes stay **local-first**: `localStorage`
+  always, then a queued push, so the UI never blocks on the network and play survives the wifi
+  dying mid-session.
+
+  **The real cost is still not the code.** It is owning uptime, backups and restores for data that
+  today cannot be lost except by the user's own browser. Delegating identity to Authentik removes
+  the worst of the liability, not all of it.
+
+  **The service now exists**: <https://github.com/PrinzWalium/5etools-online>, which carries the
+  plan (`docs/PLAN.md`) — data model, the three kinds of versioning, the sync rules, and six phases
+  from an OIDC-only proof through to the party sheet. Phase 0 runs: it serves a deliberately
+  incomplete adapter, which this fork refuses, so sync stays off and the pages are unchanged.
+  Fork-side work is confined to a status bubble (phase 0), an Online panel with first-sign-in
+  migration (1), a campaign selector (2), the conflict dialog (3), a History view (4) and the party
+  page (5) — no new upstream conflict points in any of them.
 
 ## Housekeeping
 
@@ -169,5 +220,11 @@ the UI rework, the sidekick builder, print/PDF export, and the test/CI setup bel
       The workflow also gained `force` / `dry_run` dispatch inputs, so the merge path can be run
       on demand instead of only on a night upstream happens to move, and it now lints
       `js/sidekick.js` along with the other two entry points.
-- [ ] **Port the remaining ad-hoc smokes** — magic-item bonuses, multiclass Expertise, origin
-      feats, the session/store round-trip — into `test/e2e/` as their coverage is needed.
+- [x] **Port the remaining ad-hoc smokes.** All four are now `test/e2e/smokes.e2e.mjs`: a magic
+      item's AC bonus appearing and going again with the armour, Expertise offered and claimed, a
+      2024 background's origin feat, and the store surviving a reload with a second character beside
+      it. Writing them corrected three assumptions about the app that were simply wrong: Expertise
+      is *offered*, never taken automatically (the panel says "gain skill proficiencies first" when
+      there is nothing to double), an origin feat is offered rather than forced, and the shared
+      `resolveModals` helper clicks *Skip* by design — right for other suites, wrong for a suite
+      whose subject is the optional grant, so this one accepts instead.

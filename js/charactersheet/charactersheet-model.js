@@ -5,6 +5,17 @@ import {getEntityDefenses} from "./charactersheet-defenses.js";
 import {getStateWithMigratedAbilityNotes} from "./charactersheet-charstore.js";
 import {getAmmoRecovered, getChargesAfterRest} from "./charactersheet-equipment.js";
 import {
+	EV_AMMO_FIRED,
+	EV_AMMO_RECOVERED,
+	EV_CHARGE,
+	EV_CONDITION,
+	EV_RESOURCE,
+	EV_REST,
+	EV_SESSION,
+	EV_SLOT,
+	appendJournalEvent,
+} from "./charactersheet-journal.js";
+import {
 	getCreatureTraitEntries,
 	getSidekickRoleOfCreature,
 	getSidekickTypeOfCreature,
@@ -123,6 +134,15 @@ export class CharacterModel extends BaseComponent {
 			defenses: [], // [{id, kind, name, note, source}] — resistances/immunities/vulnerabilities/senses (gear is derived, not stored)
 			traitChoices: [], // [{id, source, trait, level, option, resist}] — "choose one" species traits
 			pendingAbilityOffers: [], // [{id, source, offer, packages}] — ability increases offered but not yet assigned
+			journal: [], // [{t, k, v, n}] — what happened at the table, grouped into sessions on read
+
+			portrait: "", // a data URL, downscaled on import — it shares localStorage with everything else
+			appearanceAge: "",
+			appearanceHeight: "",
+			appearanceWeight: "",
+			appearanceEyes: "",
+			appearanceSkin: "",
+			appearanceHair: "",
 
 			featuresText: "",
 			equipmentText: "",
@@ -428,14 +448,41 @@ export class CharacterModel extends BaseComponent {
 		this._state.weaponMasteries = [...set];
 	}
 
+	/* -------------------------------------------- The session journal -------------------------------------------- */
+
+	/**
+	 * Record something that happened at the table. Silent while the sheet is loading or switching
+	 * character: restoring a saved hit-point total is not damage, and would otherwise write a fight
+	 * into the journal every time the page opened.
+	 */
+	logJournal (k, {v = null, n = null} = {}) {
+		if (this._isJournalPaused) return;
+		const ev = {k};
+		if (v != null) ev.v = v;
+		if (n != null) ev.n = n;
+		this._state.journal = appendJournalEvent(this._state.journal, ev);
+	}
+
+	/** Stop recording (while loading), or start again. */
+	setJournalPaused (isPaused) { this._isJournalPaused = !!isPaused; }
+
+	/** Draw a line: whatever comes next belongs to a new session. */
+	startJournalSession () {
+		this._state.journal = appendJournalEvent(this._state.journal, {k: EV_SESSION});
+	}
+
+	clearJournal () { this._state.journal = []; }
+
 	/* -------------------------------------------- Rests & conditions -------------------------------------------- */
 
 	/** Toggle a named condition on/off. */
 	toggleCondition (name) {
 		const set = new Set(this._state.conditions || []);
-		if (set.has(name)) set.delete(name);
-		else set.add(name);
+		const isAdding = !set.has(name);
+		if (isAdding) set.add(name);
+		else set.delete(name);
 		this._state.conditions = [...set];
+		this.logJournal(EV_CONDITION, {n: name, v: isAdding ? 1 : 0});
 	}
 
 	/**
@@ -453,6 +500,7 @@ export class CharacterModel extends BaseComponent {
 		this._state.concentration = "";
 		this._state.exhaustion = Math.max(0, (Number(this._state.exhaustion) || 0) - 1);
 		this.rechargeItems("long");
+		this.logJournal(EV_REST, {n: "long"});
 	}
 
 	/** A short rest: restore Pact Magic slots (Warlock) and short-rest class resources (Ki, Wild Shape, ...). */
@@ -462,6 +510,7 @@ export class CharacterModel extends BaseComponent {
 		Object.keys(used).forEach(label => { if (EXPENDABLE_RESOURCES[label] === "short") used[label] = 0; });
 		this._state.resourcesUsed = used;
 		this.rechargeItems("short");
+		this.logJournal(EV_REST, {n: "short"});
 	}
 
 	/* -------------------------------------------- Charges & ammunition -------------------------------------------- */
@@ -494,7 +543,9 @@ export class CharacterModel extends BaseComponent {
 		const item = this._state.inventory.find(it => it.id === id);
 		if (!item?.chargesMax) return;
 		const used = Math.max(0, Number(item.chargesUsed) || 0);
-		item.chargesUsed = Math.max(0, Math.min(item.chargesMax, used - delta));
+		const after = Math.max(0, Math.min(item.chargesMax, used - delta));
+		if (after > used) this.logJournal(EV_CHARGE, {n: item.name, v: after - used});
+		item.chargesUsed = after;
 		this._triggerCollectionUpdate("inventory");
 	}
 
@@ -510,6 +561,7 @@ export class CharacterModel extends BaseComponent {
 		if (!spend) return;
 		item.quantity = have - spend;
 		item.ammoSpent = (Number(item.ammoSpent) || 0) + spend;
+		this.logJournal(EV_AMMO_FIRED, {n: item.name, v: spend});
 		this._triggerCollectionUpdate("inventory");
 	}
 
@@ -520,6 +572,7 @@ export class CharacterModel extends BaseComponent {
 		const recovered = getAmmoRecovered(item.ammoSpent);
 		item.quantity = (Number(item.quantity) || 0) + recovered;
 		item.ammoSpent = 0;
+		this.logJournal(EV_AMMO_RECOVERED, {n: item.name, v: recovered});
 		this._triggerCollectionUpdate("inventory");
 		return recovered;
 	}
@@ -531,11 +584,18 @@ export class CharacterModel extends BaseComponent {
 
 	/** Set expended uses of a named class resource (Rages, Ki Points, Wild Shape, ...). */
 	setResourceUsed (label, n) {
-		this._state.resourcesUsed = {...this._state.resourcesUsed, [label]: Math.max(0, Number(n) || 0)};
+		const before = Math.max(0, Number((this._state.resourcesUsed || {})[label]) || 0);
+		const after = Math.max(0, Number(n) || 0);
+		// Only spending is worth recording; a rest giving them back is already logged as the rest
+		if (after > before) this.logJournal(EV_RESOURCE, {n: label, v: after - before});
+		this._state.resourcesUsed = {...this._state.resourcesUsed, [label]: after};
 	}
 
 	setSlotsUsed (level, count) {
-		this._state.slotsUsed = {...this._state.slotsUsed, [level]: Math.max(0, Number(count) || 0)};
+		const before = Math.max(0, Number((this._state.slotsUsed || {})[level]) || 0);
+		const after = Math.max(0, Number(count) || 0);
+		if (after > before) this.logJournal(EV_SLOT, {n: `${level}`, v: after - before});
+		this._state.slotsUsed = {...this._state.slotsUsed, [level]: after};
 	}
 
 	appendToTextProp (prop, text) {

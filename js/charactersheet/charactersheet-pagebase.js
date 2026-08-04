@@ -11,6 +11,11 @@ import {PROF_KIND_LANGUAGE, PROF_KIND_TOOL, PROF_KINDS, groupProficienciesByKind
 import {DEFENSE_KINDS, DEFENSE_KIND_RESIST, DEFENSE_KIND_SENSE, getAllDefenses, groupDefensesByKind} from "./charactersheet-defenses.js";
 import {getTraitChoiceResist, getTraitChoices} from "./charactersheet-traitchoices.js";
 import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterPredicate, getOutOfFilterSources, isSourceAllowed, isSourceFilterInactive} from "./charactersheet-sources.js";
+import {getBreakdownCitation, getPartCitations, isSameCitation, resolveCitation} from "./charactersheet-citations.js";
+import {EV_DAMAGE, EV_DEATH_SAVE, EV_DOWN, EV_HEAL, EV_LEVEL} from "./charactersheet-journal.js";
+import {PORTRAIT_MIME, PORTRAIT_QUALITY, getPortraitTargetSize, isPortraitTooLarge} from "./charactersheet-portrait.js";
+import {getCharacterSummary, getSummaryLines} from "./charactersheet-summary.js";
+import {deleteSyncMeta, getKeptBothName, getMissingAdapterMethods, getSyncBasePath, getSyncCapabilities, getSyncClientUrl, getSyncMeta, getSyncStatus, getUnsyncedRows, isAdapterValid, isSameOrigin, isSyncConflict, planSync, setSyncMeta} from "./charactersheet-sync.js";
 
 /**
  * Shared foundation for the two character pages (the play-focused sheet and the build-focused
@@ -68,8 +73,15 @@ export class CharacterPageBase {
 	constructor () {
 		this._comp = new CharacterModel();
 		this._isLoading = false;
+		this._lastDeathSaves = {deathSuccess: 0, deathFail: 0};
 		this._saveTimer = null;
-		this._store = null; // {storeVersion, currentId, characters: {id: envelope}}
+		this._store = null; // {storeVersion, currentId, characters: {id: envelope}, syncMeta, syncAuto}
+
+		// Characters edited since their last upload, and the timers that will send them
+		this._syncPending = new Set();
+		this._isSyncFlushing = false;
+		this._syncDebounce = null;
+		this._syncMaxWait = null;
 		this._fnsSyncInput = []; // unconditional input-sync functions, for bulk state loads
 		this._lastLevel = 1;
 		this._suppressLevelPrompt = 0;
@@ -79,7 +91,807 @@ export class CharacterPageBase {
 
 	static fmtBonus (n) { return `${n >= 0 ? "+" : "−"}${Math.abs(n)}`; }
 
+	/** Breakdown parts, keyed by the element showing them; see `setBreakdownTitle`. */
+	static _BREAKDOWN_PARTS = new WeakMap();
+	/** Where the page stood when the breakdown popover opened; see `_bindBreakdownPopovers`. */
+	static _breakdownScrollY = 0;
+
 	/* -------------------------------------------- Lifecycle -------------------------------------------- */
+
+	/**
+	 * Load homebrew (and prerelease content, and the exclusion list) before the page builds itself.
+	 *
+	 * `charactersheet-classdata.js` has always asked the `DataLoader` for brew alongside site content,
+	 * and `SearchWidget` indexes brew for the species/background/item pickers — but none of it can
+	 * return anything until `BrewUtil2.pInit()` has run, and nothing on these three pages ever ran it.
+	 * So the builder appeared to ignore homebrew entirely when in fact it was only ever missing this.
+	 *
+	 * A brew that fails to load must not take the sheet down with it: a character is more important
+	 * than the content it could have picked from, so a failure is reported and the page carries on.
+	 */
+	async pInit () {
+		try {
+			await Promise.all([PrereleaseUtil.pInit(), BrewUtil2.pInit()]);
+			await ExcludeUtil.pInitialise();
+		} catch (e) {
+			JqueryUtil.doToast({type: "danger", content: `Homebrew could not be loaded${e?.message ? `: ${e.message}` : ""}. The rest of the sheet still works.`});
+		}
+		await this._pLoadSyncAdapter();
+		this.init();
+		// After `init`, so the badge lands on an assembled toolbar whichever way the load went
+		this._renderSyncBadge();
+	}
+
+	/**
+	 * Look for an account system on the configured path and, if one answers, keep its adapter.
+	 *
+	 * Everything about this is optional. No account app deployed, a 404, a script that throws, an
+	 * adapter missing half its methods — each leaves `_syncAdapter` null and the pages exactly as
+	 * they are without it. That is the supported static deployment, not a degraded one.
+	 *
+	 * See `charactersheet-sync.js` for the contract; the implementation lives in its own repository.
+	 */
+	async _pLoadSyncAdapter () {
+		this._syncAdapter = null;
+		this._syncStatus = getSyncStatus({});
+
+		const basePath = getSyncBasePath();
+		const url = getSyncClientUrl(basePath);
+		if (!url) return;
+
+		try {
+			await new Promise((resolve, reject) => {
+				const script = document.createElement("script");
+				script.src = url;
+				script.async = true;
+				script.onload = resolve;
+				// Nothing deployed there is the ordinary case, so this is not worth a toast
+				script.onerror = () => reject(new Error("no account system is deployed there"));
+				document.head.appendChild(script);
+			});
+		} catch (e) {
+			return;
+		}
+
+		const adapter = window.CharacterSyncAdapter;
+		if (!adapter) return;
+
+		if (!isAdapterValid(adapter)) {
+			// Half an adapter would take over storage and then fail partway, which is worse than none
+			this._syncStatus = getSyncStatus({basePath, isLoaded: true, missingMethods: getMissingAdapterMethods(adapter)});
+			return;
+		}
+
+		if (!isSameOrigin(basePath)) {
+			JqueryUtil.doToast({type: "warning", content: `The account system is on another origin (${basePath}), so the session cookie may not be sent.`});
+		}
+
+		this._syncAdapter = adapter;
+		this._syncBasePath = basePath;
+		await this._pRefreshSyncStatus();
+		this._bindSyncFlushOnLeave();
+	}
+
+	/**
+	 * Send what is waiting when the page is being left, rather than four seconds later.
+	 *
+	 * `visibilitychange` is the one that actually fires when a phone is locked or a tab is switched
+	 * away from; `pagehide` covers the tab closing. Neither can be awaited, so this is best effort —
+	 * which is why the queue survives in the store either way.
+	 */
+	_bindSyncFlushOnLeave () {
+		const flush = () => { if (document.visibilityState === "hidden") this._pFlushSyncQueue(); };
+		document.addEventListener("visibilitychange", flush);
+		window.addEventListener("pagehide", () => this._pFlushSyncQueue());
+	}
+
+	/**
+	 * Ask the account system who we are, and work out what to show.
+	 *
+	 * A failure here is a connection problem, not a page problem: it becomes the badge's text, so it
+	 * can be read on purpose rather than found in the console.
+	 */
+	async _pRefreshSyncStatus () {
+		const basePath = this._syncBasePath;
+		const adapter = this._syncAdapter;
+		if (!adapter) return;
+
+		let user = null;
+		let error = null;
+		try {
+			user = await adapter.pWhoAmI();
+		} catch (e) {
+			error = e;
+		}
+
+		this._syncStatus = getSyncStatus({
+			basePath,
+			isLoaded: true,
+			user,
+			error,
+			capabilities: getSyncCapabilities(adapter),
+			pending: this._syncPending.size,
+			isSaving: this._isSyncFlushing,
+		});
+		this._renderSyncBadge();
+	}
+
+	/* -------------------------------------------- Automatic push -------------------------------------------- */
+
+	/**
+	 * Characters already online follow you without being told to.
+	 *
+	 * Manual push is a good safety net and a poor default: play a session on the laptop, never open
+	 * the panel, and the phone has last week's character. So an edit to a character the server
+	 * already knows about schedules an upload, debounced so that typing a name is one save rather
+	 * than nine.
+	 *
+	 * Two deliberate limits:
+	 *
+	 *  - **Only characters already online.** Signing in must never silently upload everything in a
+	 *    browser; the first upload stays an explicit act.
+	 *  - **Push only.** Pulling over what is on screen is always a decision, never a background one.
+	 */
+	static _SYNC_DEBOUNCE_MS = 4000;
+	static _SYNC_MAX_WAIT_MS = 30000;
+
+	get _isAutoPushOn () { return this._store?.syncAuto !== false; }
+
+	_isAutoPushEligible (id) {
+		return this._isAutoPushOn
+			&& !this._isLoading
+			&& !!this._syncAdapter
+			&& this._syncStatus?.kind === "signedIn"
+			&& getSyncCapabilities(this._syncAdapter).characters
+			// Never a character the server has not seen: that upload is the person's to make
+			&& !!getSyncMeta(this._store, id);
+	}
+
+	_queueSyncPush (id) {
+		if (!id || !this._isAutoPushEligible(id)) return;
+
+		this._syncPending.add(id);
+		this._renderSyncBadge();
+
+		if (this._syncDebounce) clearTimeout(this._syncDebounce);
+		this._syncDebounce = setTimeout(() => this._pFlushSyncQueue(), CharacterPageBase._SYNC_DEBOUNCE_MS);
+
+		// A long editing session would otherwise keep pushing the debounce out and never save at all
+		if (!this._syncMaxWait) {
+			this._syncMaxWait = setTimeout(() => this._pFlushSyncQueue(), CharacterPageBase._SYNC_MAX_WAIT_MS);
+		}
+	}
+
+	_clearSyncTimers () {
+		if (this._syncDebounce) clearTimeout(this._syncDebounce);
+		if (this._syncMaxWait) clearTimeout(this._syncMaxWait);
+		this._syncDebounce = null;
+		this._syncMaxWait = null;
+	}
+
+	/**
+	 * Send everything waiting, one character at a time.
+	 *
+	 * Serial on purpose: a conflict opens a modal, and two of those at once would be unusable. A
+	 * failure leaves the character queued rather than dropping it — being offline for a minute must
+	 * not cost the session.
+	 */
+	async _pFlushSyncQueue () {
+		this._clearSyncTimers();
+		if (this._isSyncFlushing || !this._syncPending.size) return;
+
+		this._isSyncFlushing = true;
+		this._renderSyncBadge();
+		try {
+			for (const id of [...this._syncPending]) {
+				if (!this._isAutoPushEligible(id)) { this._syncPending.delete(id); continue; }
+				await this._pPushCharacter(id, {isQuiet: true});
+			}
+		} finally {
+			this._isSyncFlushing = false;
+			this._renderSyncBadge();
+			// Anything that failed is still queued; try again after the ordinary quiet period
+			if (this._syncPending.size) this._syncDebounce = setTimeout(() => this._pFlushSyncQueue(), CharacterPageBase._SYNC_DEBOUNCE_MS);
+		}
+	}
+
+	/**
+	 * A badge in the toolbar saying whether the account system is there, and who it thinks you are.
+	 *
+	 * Built here rather than in the three page templates so the pages cannot drift, and so that
+	 * adding it needs no change to generated HTML. Nothing is rendered when there is no account
+	 * system: that is this repo's ordinary state, not a fault to report.
+	 */
+	_renderSyncBadge () {
+		// Re-derive the label from the same facts, so "Unsaved (2)" needs no round trip to appear
+		if (this._syncStatus?.kind === "signedIn") {
+			this._syncStatus = {...this._syncStatus, ...this._getWorkLabel()};
+		}
+		const status = this._syncStatus;
+		const toolbar = document.querySelector(".cs__toolbar");
+		if (!toolbar) return;
+
+		let btn = document.getElementById("cs-sync-badge");
+		if (status?.kind === "off" || !status) {
+			btn?.remove();
+			return;
+		}
+
+		if (!btn) {
+			btn = document.createElement("button");
+			btn.id = "cs-sync-badge";
+			btn.type = "button";
+			btn.className = "cs__sync-badge no-print";
+			btn.addEventListener("click", () => this._doShowSyncDetail());
+			// Before whatever is pushed to the right-hand end, so the badge sits with the buttons
+			const rhs = toolbar.querySelector(".ve-ml-auto");
+			if (rhs) toolbar.insertBefore(btn, rhs);
+			else toolbar.appendChild(btn);
+		}
+
+		btn.className = `cs__sync-badge cs__sync-badge--${status.tone} no-print`;
+		btn.title = `${status.title} — click for details`;
+		btn.innerHTML = `<span class="cs__sync-dot"></span>${status.label.qq()}`;
+	}
+
+	/** The whole truth about the connection, including whatever went wrong — and the push/pull panel. */
+	_doShowSyncDetail () {
+		const status = this._syncStatus;
+		if (!status) return;
+
+		const {eleModalInner, doClose} = UiUtil.getShowModal({title: status.title, isMinHeight0: true});
+
+		const rows = status.lines
+			.map(({label, value}) => `<div class="ve-flex ve-mb-1"><span class="bold" style="min-width: 9em; flex-shrink: 0;">${label.qq()}</span><span>${String(value).qq()}</span></div>`)
+			.join("");
+		eleModalInner.insertAdjacentHTML("beforeend", `<div class="ve-mb-2">${rows}</div>`);
+
+		if (status.canSignIn && typeof this._syncAdapter?.getLoginUrl === "function") {
+			eleModalInner.insertAdjacentHTML("beforeend", `<a class="ve-btn ve-btn-primary ve-btn-sm ve-self-flex-start" href="${this._syncAdapter.getLoginUrl().qq()}">Sign in</a>`);
+		}
+
+		if (status.kind === "signedIn" && getSyncCapabilities(this._syncAdapter).characters) {
+			eleModalInner.appendChild(this._getAutoPushToggle());
+
+			const wrpChars = document.createElement("div");
+			wrpChars.className = "ve-flex-col ve-mb-2";
+			eleModalInner.appendChild(wrpChars);
+			this._pRenderSyncCharacters(wrpChars);
+
+			if (getSyncCapabilities(this._syncAdapter).campaigns) {
+				const wrpTables = document.createElement("div");
+				wrpTables.className = "ve-flex-col ve-mb-2";
+				eleModalInner.appendChild(wrpTables);
+				this._pRenderTables(wrpTables);
+			}
+		}
+
+		if (status.canSignOut && typeof this._syncAdapter?.getLogoutUrl === "function") {
+			const btn = document.createElement("button");
+			btn.className = "ve-btn ve-btn-default ve-btn-sm ve-self-flex-start";
+			btn.type = "button";
+			btn.textContent = "Sign out";
+			btn.addEventListener("click", async () => {
+				await fetch(this._syncAdapter.getLogoutUrl(), {method: "POST", credentials: "same-origin"}).catch(() => {});
+				doClose();
+				await this._pRefreshSyncStatus();
+			});
+			eleModalInner.appendChild(btn);
+		}
+	}
+
+	/** Automatic uploads are something this page does on your behalf, so they can be switched off. */
+	_getAutoPushToggle () {
+		const wrp = document.createElement("label");
+		wrp.className = "ve-flex-v-center ve-mb-2";
+
+		const cb = document.createElement("input");
+		cb.type = "checkbox";
+		cb.className = "ve-mr-1";
+		cb.checked = this._isAutoPushOn;
+		cb.addEventListener("change", () => {
+			this._store.syncAuto = cb.checked;
+			this._persistNow();
+			if (cb.checked) this._pFlushSyncQueue();
+			else this._clearSyncTimers();
+			this._renderSyncBadge();
+		});
+
+		wrp.appendChild(cb);
+		wrp.insertAdjacentHTML("beforeend", `<span>Save changes online automatically <span class="ve-muted ve-small">(characters already online; downloads always stay manual)</span></span>`);
+		return wrp;
+	}
+
+	/* -------------------------------------------- Push and pull -------------------------------------------- */
+
+	/**
+	 * Both directions, by hand.
+	 *
+	 * Nothing uploads or downloads on its own. Working out which side is "newer" would mean trusting
+	 * clocks across two devices and a server, and being wrong once means overwriting somebody's
+	 * evening — so the page shows what is where and a person chooses. That is also why there is no
+	 * merge: a character is one document, and the only honest options are mine, theirs, or both.
+	 */
+	async _pRenderSyncCharacters (wrp) {
+		wrp.innerHTML = `<div class="ve-muted ve-small">Loading…</div>`;
+
+		let remote;
+		try {
+			remote = await this._syncAdapter.pList();
+		} catch (e) {
+			wrp.innerHTML = `<div class="ve-muted ve-small">Could not list your online characters: ${(e?.message || String(e)).qq()}</div>`;
+			return;
+		}
+
+		// The current character is only written to the store on persist, so read it live
+		this._persistNow();
+		const rows = planSync({
+			localCharacters: this._store.characters,
+			remote,
+			syncMeta: this._store.syncMeta,
+			fnLabel: envelope => getCharacterLabel(envelope),
+		});
+
+		wrp.innerHTML = "";
+		wrp.insertAdjacentHTML("beforeend", `<div class="bold ve-mb-1">Characters</div>`);
+
+		const unsynced = getUnsyncedRows(rows);
+		if (unsynced.length) {
+			const btnAll = document.createElement("button");
+			btnAll.className = "ve-btn ve-btn-primary ve-btn-xs ve-self-flex-start ve-mb-2";
+			btnAll.type = "button";
+			btnAll.textContent = `Upload ${unsynced.length} character${unsynced.length === 1 ? "" : "s"} not yet online`;
+			btnAll.addEventListener("click", async () => {
+				for (const row of unsynced) await this._pPushCharacter(row.id);
+				this._pRenderSyncCharacters(wrp);
+			});
+			wrp.appendChild(btnAll);
+		}
+
+		rows.forEach(row => wrp.appendChild(this._getSyncRow(row, wrp)));
+
+		if (!rows.length) wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">Nothing here or online yet.</div>`);
+	}
+
+	_getSyncRow (row, wrp) {
+		const ele = document.createElement("div");
+		ele.className = "ve-flex-v-center ve-mb-1";
+
+		const WHERE = {
+			both: {text: "in both", tone: "ve-muted"},
+			local: {text: "this browser only", tone: "ve-muted"},
+			online: {text: "online only", tone: "ve-muted"},
+		}[row.where];
+
+		ele.insertAdjacentHTML("beforeend",
+			`<span style="flex: 1; min-width: 0;"><span class="bold">${row.name.qq()}</span>`
+			+ `<span class="${WHERE.tone} ve-small ve-ml-1">${WHERE.text}</span></span>`);
+
+		const addBtn = (text, title, fn) => {
+			const btn = document.createElement("button");
+			btn.className = "ve-btn ve-btn-default ve-btn-xs ve-ml-1";
+			btn.type = "button";
+			btn.textContent = text;
+			btn.title = title;
+			btn.addEventListener("click", async () => {
+				btn.disabled = true;
+				try { await fn(); } finally { this._pRenderSyncCharacters(wrp); }
+			});
+			ele.appendChild(btn);
+		};
+
+		if (row.where !== "online") addBtn("Push", "Upload this browser's copy", () => this._pPushCharacter(row.id));
+		if (row.where !== "local") addBtn("Pull", "Download the online copy into this browser", () => this._pPullCharacter(row.id));
+		if (row.where === "both" && getSyncCapabilities(this._syncAdapter).history) {
+			addBtn("History", "Earlier saved versions of this character", () => this._pShowHistory(row.id, row.name));
+		}
+
+		return ele;
+	}
+
+	/* -------------------------------------------- History -------------------------------------------- */
+
+	/**
+	 * What this character looked like before.
+	 *
+	 * The list is timestamps, because that is all the server can honestly label a snapshot with —
+	 * it does not read inside an envelope. Picking one fetches it and shows what it *was*, computed
+	 * here from the same rules the sheet uses, so a restore is a decision made after looking rather
+	 * than a guess at a date.
+	 */
+	async _pShowHistory (id, name) {
+		const {eleModalInner} = UiUtil.getShowModal({title: `History — ${name}`, isMinHeight0: true});
+		eleModalInner.innerHTML = `<div class="ve-muted ve-small">Loading…</div>`;
+
+		let listing;
+		try {
+			listing = await this._syncAdapter.pListVersions(id);
+		} catch (e) {
+			eleModalInner.innerHTML = `<div class="ve-muted ve-small">Could not load the history: ${(e?.message || String(e)).qq()}</div>`;
+			return;
+		}
+
+		eleModalInner.innerHTML = "";
+		if (!listing.versions?.length) {
+			eleModalInner.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">Nothing saved online yet.</div>`);
+			return;
+		}
+
+		const wrpPreview = document.createElement("div");
+		wrpPreview.className = "ve-muted ve-small ve-mt-2";
+
+		listing.versions.forEach(entry => {
+			const line = document.createElement("div");
+			line.className = "ve-flex-v-center ve-mb-1";
+			const when = new Date(entry.createdAt).toLocaleString();
+			const tagCurrent = entry.version === listing.current ? ` <span class="ve-muted ve-small">current</span>` : "";
+			line.insertAdjacentHTML("beforeend", `<span style="flex: 1; min-width: 0;">${when.qq()}${tagCurrent}</span>`);
+
+			const btnLook = document.createElement("button");
+			btnLook.className = "ve-btn ve-btn-default ve-btn-xs ve-ml-1";
+			btnLook.type = "button";
+			btnLook.textContent = "Look";
+			btnLook.addEventListener("click", () => this._pPreviewVersion(id, entry.version, wrpPreview));
+			line.appendChild(btnLook);
+
+			if (entry.version !== listing.current) {
+				const btnRestore = document.createElement("button");
+				btnRestore.className = "ve-btn ve-btn-default ve-btn-xs ve-ml-1";
+				btnRestore.type = "button";
+				btnRestore.textContent = "Restore";
+				btnRestore.addEventListener("click", () => this._pRestoreVersion(id, entry.version, when));
+				line.appendChild(btnRestore);
+			}
+
+			eleModalInner.appendChild(line);
+		});
+
+		eleModalInner.appendChild(wrpPreview);
+	}
+
+	async _pPreviewVersion (id, version, wrp) {
+		wrp.textContent = "Loading…";
+		try {
+			const {envelope} = await this._syncAdapter.pLoadVersion(id, version);
+			const summary = getCharacterSummary(envelope?.state || {});
+			wrp.innerHTML = getSummaryLines(summary)
+				.slice(0, 8)
+				.map(({label, value}) => `<div class="ve-flex"><span class="bold" style="min-width: 11em; flex-shrink: 0;">${label.qq()}</span><span>${String(value).qq()}</span></div>`)
+				.join("");
+		} catch (e) {
+			wrp.textContent = `Could not open that version: ${e?.message || e}`;
+		}
+	}
+
+	/**
+	 * Restoring writes the old contents *forward*, so it is itself undoable — and then the browser
+	 * pulls, because the point of restoring is to be looking at the restored character.
+	 */
+	async _pRestoreVersion (id, version, when) {
+		if (!await InputUiUtil.pGetUserBoolean({
+			title: "Restore",
+			htmlDescription: `<div>Go back to the version saved <b>${when.qq()}</b>?<br>The current version is kept in the history, so this can be undone.</div>`,
+			textYes: "Restore",
+			textNo: "Cancel",
+		})) return;
+
+		try {
+			await this._syncAdapter.pRestoreVersion(id, version);
+			await this._pPullCharacter(id);
+		} catch (e) {
+			JqueryUtil.doToast({type: "danger", content: `Could not restore: ${e?.message || e}`});
+		}
+	}
+
+	/* -------------------------------------------- Tables -------------------------------------------- */
+
+	/**
+	 * Campaigns, from the player's side and the GM's.
+	 *
+	 * A table is where a GM can see the party's characters — read-only, always. The current
+	 * character's table is a plain dropdown here rather than a field on the sheet, because which
+	 * table a character sits at is an account-system fact, not part of the character.
+	 */
+	async _pRenderTables (wrp) {
+		wrp.innerHTML = `<div class="bold ve-mb-1">Tables</div><div class="ve-muted ve-small">Loading…</div>`;
+
+		let campaigns;
+		try {
+			campaigns = await this._syncAdapter.pListCampaigns();
+		} catch (e) {
+			wrp.innerHTML = `<div class="bold ve-mb-1">Tables</div><div class="ve-muted ve-small">Could not list your tables: ${(e?.message || String(e)).qq()}</div>`;
+			return;
+		}
+
+		wrp.innerHTML = `<div class="bold ve-mb-1">Tables</div>`;
+		wrp.appendChild(this._getCurrentTablePicker(campaigns, wrp));
+
+		campaigns.forEach(campaign => wrp.appendChild(this._getTableRow(campaign, wrp)));
+		if (!campaigns.length) wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small ve-mb-1">You are not at any table yet.</div>`);
+
+		const wrpBtns = document.createElement("div");
+		wrpBtns.className = "ve-flex ve-mt-1";
+		wrpBtns.appendChild(this._getTableActionBtn("New table", async () => {
+			const name = await InputUiUtil.pGetUserString({title: "Name the table"});
+			if (name?.trim()) await this._syncAdapter.pCreateCampaign(name.trim());
+		}, wrp));
+		wrpBtns.appendChild(this._getTableActionBtn("Join with a code", async () => {
+			const code = await InputUiUtil.pGetUserString({title: "Paste the invite code"});
+			if (code?.trim()) await this._syncAdapter.pJoinCampaign(code.trim());
+		}, wrp));
+		wrp.appendChild(wrpBtns);
+	}
+
+	_getTableActionBtn (text, pFn, wrp) {
+		const btn = document.createElement("button");
+		btn.className = "ve-btn ve-btn-default ve-btn-xs ve-mr-1";
+		btn.type = "button";
+		btn.textContent = text;
+		btn.addEventListener("click", async () => {
+			try {
+				await pFn();
+			} catch (e) {
+				JqueryUtil.doToast({type: "danger", content: `${e?.message || e}`});
+			}
+			this._pRenderTables(wrp);
+		});
+		return btn;
+	}
+
+	/** Which table the character being edited belongs to — the owner's decision, and only theirs. */
+	_getCurrentTablePicker (campaigns, wrp) {
+		const id = this._store.currentId;
+		const ele = document.createElement("label");
+		ele.className = "ve-flex-v-center ve-mb-2";
+		ele.insertAdjacentHTML("beforeend", `<span class="ve-mr-1">This character's table</span>`);
+
+		const sel = document.createElement("select");
+		sel.className = "ve-form-control ve-input-xs";
+		sel.style.width = "auto";
+		sel.innerHTML = [`<option value="">(no table)</option>`, ...campaigns.map(c => `<option value="${c.id.qq()}">${c.name.qq()}</option>`)].join("");
+		sel.value = getSyncMeta(this._store, id)?.campaignId || "";
+
+		if (!getSyncMeta(this._store, id)) {
+			sel.disabled = true;
+			sel.title = "Upload this character first";
+		}
+
+		sel.addEventListener("change", async () => {
+			try {
+				await this._syncAdapter.pSetCharacterCampaign(id, sel.value || null);
+				setSyncMeta(this._store, id, {...getSyncMeta(this._store, id), campaignId: sel.value || null});
+				this._persistNow();
+			} catch (e) {
+				JqueryUtil.doToast({type: "danger", content: `Could not move this character: ${e?.message || e}`});
+			}
+			this._pRenderTables(wrp);
+		});
+
+		ele.appendChild(sel);
+		return ele;
+	}
+
+	_getTableRow (campaign, wrp) {
+		const ele = document.createElement("div");
+		ele.className = "ve-flex-v-center ve-mb-1";
+		ele.insertAdjacentHTML("beforeend",
+			`<span style="flex: 1; min-width: 0;"><span class="bold">${campaign.name.qq()}</span>`
+			+ `<span class="ve-muted ve-small ve-ml-1">${campaign.role.qq()}</span></span>`);
+
+		const addBtn = (text, pFn) => {
+			const btn = document.createElement("button");
+			btn.className = "ve-btn ve-btn-default ve-btn-xs ve-ml-1";
+			btn.type = "button";
+			btn.textContent = text;
+			btn.addEventListener("click", () => pFn().catch(e => JqueryUtil.doToast({type: "danger", content: `${e?.message || e}`})));
+			ele.appendChild(btn);
+		};
+
+		addBtn("Characters", () => this._pShowTableCharacters(campaign));
+		// Only a GM can invite, so only a GM is offered it
+		if (campaign.role === "gm") {
+			addBtn("Invite", async () => {
+				const invite = await this._syncAdapter.pCreateInvite(campaign.id, {role: "player"});
+				await InputUiUtil.pGetUserString({title: `Invite code for ${campaign.name}`, default: invite.code, autocomplete: "off"});
+				this._pRenderTables(wrp);
+			});
+		}
+
+		return ele;
+	}
+
+	async _pShowTableCharacters (campaign) {
+		const {eleModalInner} = UiUtil.getShowModal({title: campaign.name, isMinHeight0: true});
+		eleModalInner.innerHTML = `<div class="ve-muted ve-small">Loading…</div>`;
+
+		let rows;
+		try {
+			rows = await this._syncAdapter.pListCampaignCharacters(campaign.id);
+		} catch (e) {
+			eleModalInner.innerHTML = `<div class="ve-muted ve-small">Could not list the party: ${(e?.message || String(e)).qq()}</div>`;
+			return;
+		}
+
+		eleModalInner.innerHTML = "";
+		if (!rows.length) {
+			eleModalInner.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">Nobody has put a character at this table yet.</div>`);
+			return;
+		}
+
+		rows.forEach(row => {
+			const line = document.createElement("div");
+			line.className = "ve-flex-v-center ve-mb-1";
+			line.insertAdjacentHTML("beforeend",
+				`<span style="flex: 1; min-width: 0;"><span class="bold">${row.name.qq()}</span>`
+				+ `<span class="ve-muted ve-small ve-ml-1">${(row.ownerName || "").qq()}</span></span>`);
+
+			const btn = document.createElement("button");
+			btn.className = "ve-btn ve-btn-default ve-btn-xs ve-ml-1";
+			btn.type = "button";
+			btn.textContent = row.isMine ? "View" : "View (read-only)";
+			btn.addEventListener("click", () => this._pShowCharacterSummary(row.id, row.name));
+			line.appendChild(btn);
+
+			eleModalInner.appendChild(line);
+		});
+	}
+
+	/**
+	 * Somebody else's character, at a glance.
+	 *
+	 * Read-only *by construction*: it loads an envelope, computes from it with the same pure modules
+	 * the sheet uses, and prints values. Nothing here touches the store, so there is no path by
+	 * which a GM looking at a sheet could change it — which is the rule the server enforces too.
+	 */
+	async _pShowCharacterSummary (id, name) {
+		const {eleModalInner} = UiUtil.getShowModal({title: name, isMinHeight0: true});
+		eleModalInner.innerHTML = `<div class="ve-muted ve-small">Loading…</div>`;
+
+		let envelope;
+		try {
+			({envelope} = await this._syncAdapter.pLoad(id));
+		} catch (e) {
+			eleModalInner.innerHTML = `<div class="ve-muted ve-small">Could not open it: ${(e?.message || String(e)).qq()}</div>`;
+			return;
+		}
+
+		const summary = getCharacterSummary(envelope?.state || {});
+		const abilities = summary.abilities
+			.map(a => `<div class="ve-mr-3"><div class="ve-small ve-muted">${a.label.qq()}</div><div class="bold">${a.score} <span class="ve-muted">(${a.modText})</span></div></div>`)
+			.join("");
+		const lines = getSummaryLines(summary)
+			.map(({label, value}) => `<div class="ve-flex ve-mb-1"><span class="bold" style="min-width: 11em; flex-shrink: 0;">${label.qq()}</span><span>${String(value).qq()}</span></div>`)
+			.join("");
+
+		eleModalInner.innerHTML = `<div class="ve-muted ve-small ve-mb-2">Read-only.</div>
+			<div class="ve-flex ve-flex-wrap ve-mb-2">${abilities}</div>
+			${lines}`;
+	}
+
+	/** Upload, stating the version being replaced. A refusal is a conflict, and gets asked about. */
+	/**
+	 * @param isQuiet for an automatic push: a toast for every save would be noise, and a failure
+	 *        while offline is not news the second time.
+	 */
+	async _pPushCharacter (id, {isQuiet = false} = {}) {
+		const envelope = this._store.characters[id] ?? {version: 2, state: {}};
+		const known = getSyncMeta(this._store, id);
+
+		try {
+			const {version} = await this._syncAdapter.pSave(id, envelope, {version: known?.version ?? null});
+			setSyncMeta(this._store, id, {version, at: Date.now()});
+			this._persistNow();
+			// After the persist, which would otherwise queue it straight back up
+			this._syncPending.delete(id);
+			this._syncLastError = null;
+			this._renderSyncBadge();
+			if (!isQuiet) JqueryUtil.doToast({type: "success", content: `${getCharacterLabel(envelope)} saved online.`});
+		} catch (e) {
+			if (isSyncConflict(e)) {
+				this._syncPending.delete(id);
+				return this._pResolveSyncConflict(id, envelope, e);
+			}
+
+			// Keep it queued: a minute offline must not cost the session
+			const message = `Could not save online: ${e?.message || e}`;
+			if (!isQuiet || this._syncLastError !== message) JqueryUtil.doToast({type: "danger", content: message});
+			this._syncLastError = message;
+		}
+	}
+
+	async _pPullCharacter (id) {
+		try {
+			const {envelope, version} = await this._syncAdapter.pLoad(id);
+			this._doAdoptEnvelope(id, envelope, version);
+			JqueryUtil.doToast({type: "success", content: `${getCharacterLabel(envelope)} downloaded.`});
+		} catch (e) {
+			JqueryUtil.doToast({type: "danger", content: `Could not download: ${e?.message || e}`});
+		}
+	}
+
+	/**
+	 * Take the server's copy of a character into the store.
+	 *
+	 * The ordering here is the whole of it. `_persistNow` writes the *live component* back over the
+	 * current character's entry, so putting an envelope in the store and then persisting quietly
+	 * undoes it — the character on screen wins. The character being edited therefore has to be
+	 * reloaded through `_switchCharacter` instead, which is also the only way the screen can come to
+	 * match what was downloaded.
+	 */
+	_doAdoptEnvelope (id, envelope, version) {
+		this._store.characters[id] = envelope;
+		setSyncMeta(this._store, id, {version, at: Date.now()});
+
+		if (id === this._store.currentId) this._switchCharacter(id, {isSkipPersist: true});
+		else this._persistNow();
+	}
+
+	/**
+	 * Two devices changed one character. Ask; never pick.
+	 *
+	 * "Keep both" exists because it is the only answer that cannot lose anything, and it is the one
+	 * to reach for when the question is hard to answer at the table.
+	 */
+	async _pResolveSyncConflict (id, mine, err) {
+		const name = getCharacterLabel(mine);
+		// The enum prompt renders no description, so the situation has to fit in the title and the
+		// option labels — which is no bad discipline for a question asked mid-session
+		const choice = await InputUiUtil.pGetUserEnum({
+			title: `“${name}” was changed in two places — nothing has been overwritten`,
+			placeholder: "Which copy should be kept?",
+			values: ["Keep this browser's copy", "Keep the online copy", "Keep both"],
+			isResolveItem: true,
+			fnDisplay: it => it,
+		});
+		if (choice == null) return;
+
+		if (choice === "Keep the online copy") {
+			this._doAdoptEnvelope(id, err.serverEnvelope, err.serverVersion);
+			return;
+		}
+
+		if (choice === "Keep both") {
+			// This browser's copy becomes a new character, so neither version is anybody's loss
+			const copyId = CryptUtil.uid();
+			const copy = JSON.parse(JSON.stringify(mine));
+			if (copy.state) copy.state.name = getKeptBothName(name);
+			this._store.characters[copyId] = copy;
+
+			// Adopt first: the copy is safely in the store, and this is what puts the server's
+			// version on screen before anything persists over it
+			this._doAdoptEnvelope(id, err.serverEnvelope, err.serverVersion);
+			await this._pPushCharacter(copyId);
+			return;
+		}
+
+		// Keep mine: save again over the version the server actually holds
+		try {
+			const {version} = await this._syncAdapter.pSave(id, mine, {version: err.serverVersion});
+			setSyncMeta(this._store, id, {version, at: Date.now()});
+			this._persistNow();
+		} catch (e) {
+			JqueryUtil.doToast({type: "danger", content: `Could not save online: ${e?.message || e}`});
+		}
+	}
+
+	/** The badge's text while work is in flight; the same rule as `getSyncStatus`, applied live. */
+	_getWorkLabel () {
+		const pending = this._syncPending.size;
+		const work = this._isSyncFlushing ? "Saving…" : (pending > 0 ? `Unsaved (${pending})` : null);
+		if (!work) return {label: this._syncStatus.baseLabel ?? this._syncStatus.label, tone: this._syncStatus.baseTone ?? this._syncStatus.tone};
+		return {
+			label: work,
+			tone: this._isSyncFlushing ? (this._syncStatus.baseTone ?? this._syncStatus.tone) : "warn",
+			baseLabel: this._syncStatus.baseLabel ?? this._syncStatus.label,
+			baseTone: this._syncStatus.baseTone ?? this._syncStatus.tone,
+		};
+	}
+
+	/** Whether an account system is connected. The panels ask this rather than poking at the adapter. */
+	get isSyncEnabled () { return !!this._syncAdapter; }
+
+	/** What the badge is showing, exposed so a browser test can read it without scraping the DOM. */
+	get syncStatus () { return this._syncStatus; }
 
 	init () {
 		this._buildDom();
@@ -102,6 +914,8 @@ export class CharacterPageBase {
 		this._bindBreakdownPopovers();
 		this._bindPrintPrep();
 		this._bindConcentrationWatch();
+		this._bindDeathSaveWatch();
+		this._buildAppearance();
 		this._initStore();
 
 		this._doRenderAll();
@@ -227,15 +1041,15 @@ export class CharacterPageBase {
 					...abil.scoreParts.slice(1),
 					...(derived.exhaustion?.penalty ? [{label: `Exhaustion ${derived.exhaustion.level}`, value: derived.exhaustion.penalty}] : []),
 				], {isTapTarget: false});
-			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-abil-${abv}`), name, abil.scoreParts);
+			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-abil-${abv}`), name, abil.scoreParts, null, {citeKind: "abilityCheck"});
 			this._renderRoll(`cs-saveroll-${abv}`, derived.saves[abv].mod, `${name} save`, derived.saves[abv].parts, {isTapTarget: false});
-			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-savename-${abv}`), `${name} save`, derived.saves[abv].parts, derived.saves[abv].mod);
+			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-savename-${abv}`), `${name} save`, derived.saves[abv].parts, derived.saves[abv].mod, {citeKind: "save"});
 		});
 
 		CHAR_SHEET_SKILLS.forEach(skill => {
 			const {mod, profState} = derived.skills[skill.key];
 			this._renderRoll(`cs-skillroll-${skill.key}`, mod, skill.name, derived.skills[skill.key].parts, {isTapTarget: false});
-			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-skillname-${skill.key}`), skill.name, derived.skills[skill.key].parts, mod);
+			CharacterPageBase.setBreakdownTitle(document.getElementById(`cs-skillname-${skill.key}`), skill.name, derived.skills[skill.key].parts, mod, {citeKind: "skill"});
 
 			const btn = document.getElementById(`cs-skillprof-${skill.key}`);
 			btn.classList.toggle("cs__prof--1", profState === 1);
@@ -244,7 +1058,7 @@ export class CharacterPageBase {
 
 		const elePassive = document.getElementById("cs-passive-perception");
 		elePassive.textContent = `${derived.passivePerception}`;
-		CharacterPageBase.setBreakdownTitle(elePassive, "Passive Perception", derived.passivePerceptionParts, derived.passivePerception, {isTotalValue: true});
+		CharacterPageBase.setBreakdownTitle(elePassive, "Passive Perception", derived.passivePerceptionParts, derived.passivePerception, {isTotalValue: true, citeKind: "passivePerception"});
 	}
 
 	/* -------------------------------------------- Shared DOM scaffolding -------------------------------------------- */
@@ -288,14 +1102,18 @@ export class CharacterPageBase {
 	}
 
 	_buildDeathSaves () {
-		[["cs-death-success", "deathSuccess"], ["cs-death-fail", "deathFail"]]
-			.forEach(([id, prop]) => {
+		[["cs-death-success", "deathSuccess", "success"], ["cs-death-fail", "deathFail", "failure"]]
+			.forEach(([id, prop, word]) => {
 				const wrp = document.getElementById(id);
 				const max = Number(wrp.getAttribute("data-cs-max"));
 				for (let i = 0; i < max; ++i) {
 					const dot = document.createElement("button");
 					dot.type = "button";
 					dot.className = "cs__death-dot";
+					// Six identical circles are one control to a mouse and six anonymous buttons to
+					// anything else; each says which it is, and `aria-pressed` says whether it is set
+					dot.setAttribute("aria-label", `Death save ${word} ${i + 1}`);
+					dot.setAttribute("aria-pressed", "false");
 					dot.addEventListener("click", () => {
 						const cur = this._comp._state[prop];
 						this._comp._state[prop] = (i + 1 === cur) ? i : i + 1;
@@ -309,7 +1127,10 @@ export class CharacterPageBase {
 		[["cs-death-success", this._comp._state.deathSuccess], ["cs-death-fail", this._comp._state.deathFail]]
 			.forEach(([id, cnt]) => {
 				const dots = document.getElementById(id).querySelectorAll(".cs__death-dot");
-				dots.forEach((dot, ix) => dot.classList.toggle("cs__death-dot--active", ix < cnt));
+				dots.forEach((dot, ix) => {
+					dot.classList.toggle("cs__death-dot--active", ix < cnt);
+					dot.setAttribute("aria-pressed", ix < cnt ? "true" : "false");
+				});
 			});
 	}
 
@@ -360,6 +1181,13 @@ export class CharacterPageBase {
 			// Loading a character or switching to another is not damage
 			if (this._isLoading) return;
 			const damage = prev - next;
+
+			// The same swing the journal records: one hook, so the two can never disagree about
+			// what counts as damage
+			if (damage > 0) this._comp.logJournal(EV_DAMAGE, {v: damage});
+			else if (damage < 0) this._comp.logJournal(EV_HEAL, {v: -damage});
+			if (next <= 0 && prev > 0) this._comp.logJournal(EV_DOWN);
+
 			if (damage <= 0) return;
 			if (!(this._comp._state.concentration || "").trim()) return;
 
@@ -369,6 +1197,132 @@ export class CharacterPageBase {
 		// Dropping the spell by hand also dismisses the prompt
 		this._comp._addHookBase("concentration", () => {
 			if (!(this._comp._state.concentration || "").trim()) this._hideConcentrationPrompt();
+		});
+	}
+
+	/* -------------------------------------------- Appearance & portrait -------------------------------------------- */
+
+	static _APPEARANCE_FIELDS = [
+		["age", "Age"],
+		["height", "Height"],
+		["weight", "Weight"],
+		["eyes", "Eyes"],
+		["skin", "Skin"],
+		["hair", "Hair"],
+	];
+
+	/**
+	 * The description fields the printed sheet has always had a box for, plus a portrait. Built here
+	 * rather than in each template, so the sheet and the builder cannot drift apart.
+	 */
+	_buildAppearance () {
+		const wrp = document.getElementById("cs-appearance");
+		if (!wrp) return;
+
+		wrp.innerHTML = `
+			<div class="cs__appearance">
+				<div class="cs__portrait-wrp">
+					<img id="cs-portrait-img" class="cs__portrait" alt="Character portrait">
+					<div id="cs-portrait-empty" class="cs__portrait cs__portrait--empty" title="No portrait chosen">No portrait</div>
+					<div class="cs__portrait-controls no-print">
+						<label class="ve-btn ve-btn-xs ve-btn-default" title="Choose an image; it is scaled down before it is stored">
+							Choose<input type="file" id="cs-portrait-file" accept="image/*" class="ve-hidden">
+						</label>
+						<button type="button" class="ve-btn ve-btn-xs ve-btn-danger" id="cs-portrait-clear" title="Remove the portrait">Clear</button>
+					</div>
+				</div>
+				<div class="cs__appearance-fields">
+					${CharacterPageBase._APPEARANCE_FIELDS
+		.map(([key, label]) => `<label class="cs__field"><span class="cs__lbl">${label}</span><input type="text" id="cs-appearance-${key}" class="ve-form-control ve-input-xs"></label>`)
+		.join("")}
+				</div>
+			</div>`;
+
+		CharacterPageBase._APPEARANCE_FIELDS
+			.forEach(([key]) => this._bindIptStr(`cs-appearance-${key}`, `appearance${key.uppercaseFirst()}`));
+
+		document.getElementById("cs-portrait-file")
+			?.addEventListener("change", evt => this._pOnPortraitPicked(evt.target));
+		this._bindClick("cs-portrait-clear", () => { this._comp._state.portrait = ""; });
+		this._comp._addHookBase("portrait", () => this._renderPortrait());
+		this._renderPortrait();
+	}
+
+	_renderPortrait () {
+		const img = document.getElementById("cs-portrait-img");
+		const empty = document.getElementById("cs-portrait-empty");
+		if (!img || !empty) return;
+		const src = this._comp._state.portrait || "";
+		img.src = src;
+		img.classList.toggle("ve-hidden", !src);
+		empty.classList.toggle("ve-hidden", !!src);
+	}
+
+	/**
+	 * Read the chosen image, scale it down and re-encode it before storing. A portrait shares
+	 * `localStorage` with every other character, so an untouched photo would be enough on its own to
+	 * break saving for all of them.
+	 */
+	async _pOnPortraitPicked (ipt) {
+		const file = ipt?.files?.[0];
+		if (!file) return;
+		ipt.value = ""; // so choosing the same file twice still fires
+
+		try {
+			const dataUrl = await CharacterPageBase._pScaleImageFile(file);
+			if (isPortraitTooLarge(dataUrl)) {
+				JqueryUtil.doToast({type: "danger", content: "That image is too large to store, even scaled down. Try a smaller one."});
+				return;
+			}
+			this._comp._state.portrait = dataUrl;
+		} catch (e) {
+			JqueryUtil.doToast({type: "danger", content: `Could not read that image${e?.message ? `: ${e.message}` : ""}.`});
+		}
+	}
+
+	static _pScaleImageFile (file) {
+		return new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onerror = () => reject(new Error("the file could not be read"));
+			reader.onload = () => {
+				const img = new Image();
+				img.onerror = () => reject(new Error("it is not an image"));
+				img.onload = () => {
+					const {width, height} = getPortraitTargetSize(img.naturalWidth, img.naturalHeight);
+					if (!width || !height) return reject(new Error("it has no size"));
+					const canvas = document.createElement("canvas");
+					canvas.width = width;
+					canvas.height = height;
+					canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+					resolve(canvas.toDataURL(PORTRAIT_MIME, PORTRAIT_QUALITY));
+				};
+				img.src = reader.result;
+			};
+			reader.readAsDataURL(file);
+		});
+	}
+
+	/** Set the loading guard, and stop the journal recording while it is on. */
+	_setLoading (isLoading) {
+		this._isLoading = isLoading;
+		this._comp.setJournalPaused(isLoading);
+	}
+
+	/**
+	 * A death save is worth remembering, but the counters also go back to zero on a long rest or a
+	 * heal — only a count going *up* is a save that was actually rolled.
+	 */
+	_bindDeathSaveWatch () {
+		["deathSuccess", "deathFail"].forEach(prop => {
+			this._comp._addHookBase(prop, () => {
+				const prev = this._lastDeathSaves[prop] || 0;
+				const next = Number(this._comp._state[prop]) || 0;
+				this._lastDeathSaves[prop] = next;
+				if (this._isLoading || next <= prev) return;
+				for (let i = prev; i < next; ++i) {
+					this._comp.logJournal(EV_DEATH_SAVE, {n: prop === "deathFail" ? "fail" : "success"});
+				}
+			});
 		});
 	}
 
@@ -477,6 +1431,7 @@ export class CharacterPageBase {
 				chip.title = explanation;
 				chip.classList.add("cs__has-breakdown");
 				chip.dataset.csBreakdown = `${it.name} — ${explanation}`;
+				CharacterPageBase._markBreakdownTarget(chip);
 
 				const name = document.createElement("span");
 				name.textContent = it.name;
@@ -562,6 +1517,7 @@ export class CharacterPageBase {
 				chip.title = explanation;
 				chip.classList.add("cs__has-breakdown");
 				chip.dataset.csBreakdown = `${it.name} — ${explanation}`;
+				CharacterPageBase._markBreakdownTarget(chip);
 
 				const name = document.createElement("span");
 				name.textContent = it.note ? `${it.name}*` : it.name;
@@ -1040,12 +1996,14 @@ export class CharacterPageBase {
 	 * tap/click popover for touch devices, where `title` never appears. Cleared when there is nothing
 	 * to say.
 	 */
-	static setBreakdownTitle (ele, name, parts, total = null, {isTotalValue = false, isTapTarget = true} = {}) {
+	static setBreakdownTitle (ele, name, parts, total = null, {isTotalValue = false, isTapTarget = true, citeKind = null} = {}) {
 		if (!ele) return;
 		if (!parts?.length) {
 			ele.removeAttribute("title");
 			ele.classList.remove("cs__has-breakdown");
 			delete ele.dataset.csBreakdown;
+			CharacterPageBase._unmarkBreakdownTarget(ele);
+			CharacterPageBase._BREAKDOWN_PARTS.delete(ele);
 			return;
 		}
 
@@ -1057,6 +2015,11 @@ export class CharacterPageBase {
 		if (!isTapTarget) return;
 		ele.classList.add("cs__has-breakdown");
 		ele.dataset.csBreakdown = text;
+		CharacterPageBase._markBreakdownTarget(ele);
+		// The popover needs the parts themselves, not the flattened line, so it can offer each one's
+		// rule. Kept beside the element rather than serialised into a data attribute: the sheet
+		// re-renders constantly, and a WeakMap lets the old entries go with the old nodes.
+		CharacterPageBase._BREAKDOWN_PARTS.set(ele, {name, parts, total, isTotalValue, citeKind});
 	}
 
 	/* -------------------------------------------- Print / PDF -------------------------------------------- */
@@ -1123,27 +2086,84 @@ export class CharacterPageBase {
 	 */
 	_bindBreakdownPopovers () {
 		document.addEventListener("click", evt => {
+			// A rule button lives inside the popover, so handle it before the dismiss logic below
+			const eleCite = evt.target.closest?.(".cs__cite-btn");
+			if (eleCite) {
+				evt.preventDefault();
+				return CharacterPageBase._pShowCitation(eleCite);
+			}
+
 			const ele = evt.target.closest?.("[data-cs-breakdown]");
-			if (!ele) return CharacterPageBase._closeBreakdownPopover();
+			if (!ele) {
+				// Clicks inside the popover itself must not dismiss it
+				if (evt.target.closest?.("#cs-breakdown-popover")) return;
+				return CharacterPageBase._closeBreakdownPopover();
+			}
 			// Let rollable links roll; the popover is for the surrounding value
 			if (evt.target.closest("a, button, input, select, textarea")) return;
 			evt.preventDefault();
 			CharacterPageBase._showBreakdownPopover(ele);
 		});
-		window.addEventListener("scroll", () => CharacterPageBase._closeBreakdownPopover(), {passive: true});
+		// The same thing from the keyboard. `Space` would otherwise scroll the page, so it is claimed
+		// here; a rollable link inside keeps its own behaviour, as it does for a click.
+		document.addEventListener("keydown", evt => {
+			if (evt.key === "Escape") return CharacterPageBase._closeBreakdownPopover();
+			if (evt.key !== "Enter" && evt.key !== " ") return;
+
+			const ele = evt.target.closest?.("[data-cs-breakdown]");
+			if (!ele || evt.target !== ele) return;
+
+			evt.preventDefault();
+			CharacterPageBase._showBreakdownPopover(ele);
+		});
+
+		// Scrolling away should dismiss it, since it is positioned against a spot on the page. But the
+		// act of opening it can itself scroll — bringing the value into view first — and that trailing
+		// event must not close what the same gesture just opened. Compare positions rather than
+		// reacting to the event: a scroll that did not move the page is not a scroll away.
+		window.addEventListener("scroll", () => {
+			if (Math.abs(window.scrollY - CharacterPageBase._breakdownScrollY) <= 2) return;
+			CharacterPageBase._closeBreakdownPopover();
+		}, {passive: true});
+	}
+
+	/**
+	 * Make a value that carries a breakdown behave like the control it already is.
+	 *
+	 * These are `<span>`s and `<div>`s opened by a click delegate, which made the whole "every number
+	 * cites its rule" feature reachable by mouse and by nothing else. A role and a tab stop cost two
+	 * attributes and hand it to the keyboard.
+	 */
+	static _markBreakdownTarget (ele) {
+		ele.setAttribute("role", "button");
+		ele.setAttribute("tabindex", "0");
+		ele.setAttribute("aria-expanded", "false");
+	}
+
+	static _unmarkBreakdownTarget (ele) {
+		["role", "tabindex", "aria-expanded"].forEach(attr => ele.removeAttribute(attr));
 	}
 
 	static _closeBreakdownPopover () {
 		document.getElementById("cs-breakdown-popover")?.remove();
+		document.querySelectorAll("[data-cs-breakdown][aria-expanded=\"true\"]")
+			.forEach(ele => ele.setAttribute("aria-expanded", "false"));
 	}
 
 	static _showBreakdownPopover (ele) {
 		CharacterPageBase._closeBreakdownPopover();
+		CharacterPageBase._breakdownScrollY = window.scrollY;
 
 		const pop = document.createElement("div");
 		pop.id = "cs-breakdown-popover";
 		pop.className = "cs__breakdown-pop";
-		pop.textContent = ele.dataset.csBreakdown;
+		// Informational rather than a dialog: it takes no focus and demands no dismissal, so it is
+		// announced where it stands rather than interrupting
+		pop.setAttribute("role", "group");
+		ele.setAttribute("aria-expanded", "true");
+		const meta = CharacterPageBase._BREAKDOWN_PARTS.get(ele);
+		if (meta) pop.appendChild(CharacterPageBase._getBreakdownBody(meta));
+		else pop.textContent = ele.dataset.csBreakdown;
 		document.body.appendChild(pop);
 
 		const rect = ele.getBoundingClientRect();
@@ -1157,6 +2177,103 @@ export class CharacterPageBase {
 		pop.style.left = `${left + window.scrollX}px`;
 	}
 
+	/**
+	 * The popover's contents: a row per contribution, and beside each the rule that lets it count.
+	 * A part with no rule to point at is still listed — it just is not a button.
+	 */
+	static _getBreakdownBody ({name, parts, total, isTotalValue, citeKind}) {
+		const wrp = document.createElement("div");
+
+		const head = document.createElement("div");
+		head.className = "cs__breakdown-head";
+		head.textContent = total == null ? name : `${name} ${isTotalValue ? total : CharacterPageBase.fmtBonus(total)}`;
+		wrp.appendChild(head);
+
+		parts.forEach(part => {
+			const row = document.createElement("div");
+			row.className = "cs__breakdown-row";
+
+			const lbl = document.createElement("span");
+			lbl.className = "cs__breakdown-label";
+			lbl.textContent = part.label;
+			row.appendChild(lbl);
+
+			if (!part.isText) {
+				const val = document.createElement("span");
+				val.className = "cs__breakdown-value";
+				val.textContent = part.isRaw ? `${part.value}` : CharacterPageBase.fmtBonus(part.value);
+				row.appendChild(val);
+			}
+
+			const cite = resolveCitation(part.cite);
+			if (cite) row.appendChild(CharacterPageBase._getCiteButton(cite));
+			wrp.appendChild(row);
+		});
+
+		// The rule for the number as a whole, when the parts have not already named it
+		const ruleWhole = getBreakdownCitation(citeKind);
+		if (ruleWhole && !getPartCitations(parts).some(it => isSameCitation(it, ruleWhole))) {
+			const row = document.createElement("div");
+			row.className = "cs__breakdown-row cs__breakdown-row--rule";
+			const lbl = document.createElement("span");
+			lbl.className = "cs__breakdown-label";
+			lbl.textContent = "Rule";
+			row.appendChild(lbl);
+			row.appendChild(CharacterPageBase._getCiteButton(ruleWhole));
+			wrp.appendChild(row);
+		}
+
+		return wrp;
+	}
+
+	static _getCiteButton (cite) {
+		const btn = document.createElement("button");
+		btn.type = "button";
+		btn.className = "cs__cite-btn";
+		btn.textContent = cite.name;
+		btn.title = `Show the rule: ${cite.name}`;
+		btn.dataset.citeName = cite.name;
+		btn.dataset.citeSource = cite.source;
+		btn.dataset.citePage = cite.page;
+		return btn;
+	}
+
+	/**
+	 * Show a cited rule's own text. This app ships the books, so the paragraph is right there in the
+	 * data — no paraphrase, and the page number comes with it.
+	 */
+	static async _pShowCitation (btn) {
+		const {citeName: name, citeSource: source, citePage: page} = btn.dataset;
+		const {eleModalInner} = UiUtil.getShowModal({title: name, isHeaderBorder: true, isUncappedHeight: true});
+
+		const wrp = document.createElement("div");
+		wrp.className = "cs__cite-body";
+		wrp.textContent = "Loading…";
+		eleModalInner.appendChild(wrp);
+
+		const ent = await CharacterPageBase._pLoadCitation({name, source, page});
+		if (!ent) {
+			wrp.textContent = `Could not find "${name}" in ${source}.`;
+			return;
+		}
+
+		wrp.innerHTML = Renderer.get().setFirstSection(true).render({type: "entries", entries: ent.entries || []});
+
+		const src = document.createElement("div");
+		src.className = "cs__cite-source";
+		src.textContent = ent.page
+			? `${Parser.sourceJsonToFull(ent.source)}, p. ${ent.page}`
+			: Parser.sourceJsonToFull(ent.source);
+		wrp.appendChild(src);
+	}
+
+	static async _pLoadCitation ({name, source, page}) {
+		const builder = UrlUtil.URL_TO_HASH_BUILDER[page];
+		if (!builder) return null;
+		const hash = builder({name, source});
+		return DataLoader.pCacheAndGet(page, source, hash, {isCopy: true}).catch(() => null);
+	}
+
 	/* -------------------------------------------- Store controls (toolbar) -------------------------------------------- */
 
 	_bindStoreControls () {
@@ -1164,6 +2281,11 @@ export class CharacterPageBase {
 		this._bindClick("cs-btn-load", () => this._onLoadFromFile());
 		this._bindClick("cs-btn-print", () => this._doPrint());
 		this._bindClick("cs-btn-reset", () => this._onReset());
+		// Opens 5etools' own manager, so brew added here is the same brew every other page sees
+		this._bindClick("cs-btn-homebrew", async () => {
+			const {ManageBrewUi} = await import("../utils-brew/utils-brew-ui-manage.js");
+			await ManageBrewUi.pDoManageBrew();
+		});
 
 		const sel = document.getElementById("cs-char-select");
 		if (sel) sel.addEventListener("change", () => this._switchCharacter(sel.value));
@@ -1208,12 +2330,12 @@ export class CharacterPageBase {
 	_onStoreLoaded () {}
 
 	_doLoadState (saved) {
-		this._isLoading = true;
+		this._setLoading(true);
 		try {
 			const isApplied = this._comp.setStateFrom(saved);
 			if (!isApplied) JqueryUtil.doToast({type: "danger", content: "Could not load character&mdash;unknown save format."});
 		} finally {
-			this._isLoading = false;
+			this._setLoading(false);
 		}
 		this._applySourceFilter();
 		this._doRenderAll();
@@ -1423,6 +2545,7 @@ export class CharacterPageBase {
 		this._store.characters[this._store.currentId] = this._comp.getSaveableState();
 		StorageUtil.syncSet(CharacterPageBase._SHARED_STORAGE_KEY, this._store);
 		this._renderCharacterSelect();
+		this._queueSyncPush(this._store.currentId);
 	}
 
 	/**
@@ -1456,11 +2579,11 @@ export class CharacterPageBase {
 		this._store.currentId = id;
 
 		const envelope = this._store.characters[id];
-		this._isLoading = true;
+		this._setLoading(true);
 		try {
 			this._comp._setState(this._comp._getDefaultState());
 		} finally {
-			this._isLoading = false;
+			this._setLoading(false);
 		}
 		if (envelope) this._doLoadState(envelope);
 		else this._doRenderAll();
@@ -1477,6 +2600,8 @@ export class CharacterPageBase {
 		})) return;
 
 		delete this._store.characters[this._store.currentId];
+		// The remembered online version goes with it; an online copy that survives can still be pulled
+		deleteSyncMeta(this._store, this._store.currentId);
 		const remaining = Object.entries(this._store.characters)
 			.filter(([, envelope]) => this._isCharacterListed(envelope?.state ?? envelope))
 			.map(([id]) => id);
@@ -1512,11 +2637,11 @@ export class CharacterPageBase {
 			textNo: "Cancel",
 		})) return;
 
-		this._isLoading = true;
+		this._setLoading(true);
 		try {
 			this._comp._setState(this._comp._getDefaultState());
 		} finally {
-			this._isLoading = false;
+			this._setLoading(false);
 		}
 		this._onStoreLoaded();
 		this._doRenderAll();
@@ -1531,6 +2656,8 @@ export class CharacterPageBase {
 		this._lastLevel = newLevel;
 
 		if (this._isLoading || this._suppressLevelPrompt > 0 || newLevel <= prevLevel) return;
+
+		for (let lvl = prevLevel + 1; lvl <= newLevel; ++lvl) this._comp.logJournal(EV_LEVEL, {v: lvl});
 
 		const primary = this._comp._state.classes.find(c => c.hdFaces);
 		if (!primary) return;

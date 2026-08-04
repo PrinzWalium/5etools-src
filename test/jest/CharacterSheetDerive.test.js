@@ -448,3 +448,56 @@ describe("Derive: the concentration save after damage", () => {
 		expect(getConcentrationSaveDc(null)).toBe(10);
 	});
 });
+
+describe("Derive: every part names the rule behind it", () => {
+	const citeOf = (parts, label) => parts.find(p => p.label === label)?.cite;
+
+	it("Cites the ability rule, the proficiency rule, and the item itself on a save", () => {
+		const cloak = {name: "Cloak of Protection", source: "DMG", equipped: true, bonusSavingThrow: 1};
+		const state = getBaseState({level: 5, abil_dex: 16, save_dex: true, inventory: [cloak]});
+		const {parts} = deriveCharacterSheet(state).saves.dex;
+		expect(citeOf(parts, "Dexterity")).toBe("abilityModifier");
+		expect(citeOf(parts, "Proficiency")).toBe("proficiency");
+		// The magic bonus points at the thing granting it, not at a generic rule
+		expect(citeOf(parts, "Magic items")).toEqual({name: "Cloak of Protection", source: "DMG", page: "items.html"});
+	});
+
+	it("Leaves a magic bonus uncited when two items share the credit", () => {
+		const inv = [
+			{name: "Cloak of Protection", source: "DMG", equipped: true, bonusSavingThrow: 1},
+			{name: "Ring of Protection", source: "DMG", equipped: true, bonusSavingThrow: 1},
+		];
+		const {parts} = deriveCharacterSheet(getBaseState({inventory: inv})).saves.dex;
+		expect(citeOf(parts, "Magic items")).toBeNull();
+	});
+
+	it("Cites the worn armour for its own AC, and the AC rule when unarmored", () => {
+		const armor = {name: "Chain Mail", source: "PHB", equipped: true, isArmor: true, type: "HA", baseAc: 16};
+		const worn = deriveArmorClass(getBaseState({inventory: [armor]}));
+		expect(citeOf(worn.parts, "Chain Mail")).toEqual({name: "Chain Mail", source: "PHB", page: "items.html"});
+
+		const bare = deriveArmorClass(getBaseState({abil_dex: 14}));
+		expect(citeOf(bare.parts, "Unarmored")).toBe("armorClass");
+		expect(citeOf(bare.parts, "Dexterity")).toBe("abilityModifier");
+	});
+
+	it("Cites the exhaustion condition wherever exhaustion is subtracted", () => {
+		const derived = deriveCharacterSheet(getBaseState({exhaustion: 2, save_dex: true}));
+		expect(citeOf(derived.saves.dex.parts, "Exhaustion 2")).toBe("exhaustion");
+		expect(citeOf(derived.skills.stealth.parts, "Exhaustion 2")).toBe("exhaustion");
+		expect(citeOf(derived.initiativeParts, "Exhaustion 2")).toBe("exhaustion");
+	});
+
+	it("Cites the fighting style, not the weapon, for the Archery bonus", () => {
+		const item = {name: "Longbow", source: "PHB", type: "R", dmg1: "1d8"};
+		const state = getBaseState({classes: [{optionalFeatures: [{name: "Archery"}]}]});
+		const {atkParts} = getWeaponAttack(state, item);
+		expect(citeOf(atkParts, "Archery (fighting style)"))
+			.toEqual({name: "Archery", source: "PHB", page: "optionalfeatures.html"});
+	});
+
+	it("Leaves a part with no rule behind it uncited rather than inventing one", () => {
+		const {initiativeParts} = deriveCharacterSheet(getBaseState({initMisc: 2}));
+		expect(citeOf(initiativeParts, "Misc")).toBeUndefined();
+	});
+});
