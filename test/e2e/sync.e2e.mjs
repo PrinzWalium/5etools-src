@@ -244,6 +244,71 @@ async function runAutoPush ({browser, check}) {
 
 	check("no page errors (auto push)", page.errors.length === 0, page.errors.slice(0, 3).join(" | "));
 	await page.close();
+
+	await runTables({browser, check});
+}
+
+/**
+ * Tables: creating one, putting a character at it, and looking at somebody's sheet without being
+ * able to change it. The read-only view is the part worth driving — the whole point of it is that
+ * it goes nowhere near the store.
+ */
+async function runTables ({browser, check}) {
+	const page = await openWithStubAdapter(browser, {user: {id: "u1", name: "Ada"}, isStorage: true});
+
+	await setField(page, "cs-name", "Tabled");
+	await setField(page, "cs-hp-max", 27);
+	await page.waitForTimeout(800);
+
+	const openPanel = async () => {
+		await page.click("#cs-sync-badge");
+		await page.waitForTimeout(700);
+		return page.locator(".ve-ui-modal__inner").last();
+	};
+
+	let panel = await openPanel();
+	check("the panel offers tables when the service does them", (await panel.innerText()).includes("Tables"),
+		(await panel.innerText()).slice(0, 300));
+	check("and says you are at none yet", (await panel.innerText()).includes("not at any table"), (await panel.innerText()).slice(0, 300));
+
+	// Until a character is online there is nothing to put at a table
+	check("the table picker waits for the character to be uploaded",
+		await panel.locator("select").first().isDisabled());
+
+	await panel.locator("button:has-text('Upload')").first().click();
+	await page.waitForTimeout(900);
+
+	await panel.locator("button:has-text('New table')").click();
+	await page.waitForTimeout(600);
+	const prompt = page.locator(".ve-ui-modal__inner").last();
+	await prompt.locator("input").first().fill("Curse of Strahd");
+	await prompt.locator("button:has-text('OK')").first().click();
+	await page.waitForTimeout(900);
+
+	panel = page.locator(".ve-ui-modal__inner").last();
+	check("a new table appears, with you as its GM", /Curse of Strahd/.test(await panel.innerText()), (await panel.innerText()).slice(0, 300));
+
+	await panel.locator("select").first().selectOption({label: "Curse of Strahd"});
+	await page.waitForTimeout(900);
+	check("the character can then be put at it",
+		(await page.evaluate(() => Object.values(window.__stubStore.characters)[0].campaignId)) === "camp-1");
+
+	await panel.locator("button:has-text('Characters')").first().click();
+	await page.waitForTimeout(900);
+	const party = page.locator(".ve-ui-modal__inner").last();
+	check("the table lists the party", (await party.innerText()).includes("Tabled"), (await party.innerText()).slice(0, 200));
+
+	await party.locator("button:has-text('View')").first().click();
+	await page.waitForTimeout(900);
+	const card = page.locator(".ve-ui-modal__inner").last();
+	const cardText = await card.innerText();
+
+	check("opening one shows a read-only card", cardText.includes("Read-only"), cardText.slice(0, 200));
+	check("with the numbers a GM asks about", /Hit Points/.test(cardText) && /Passive Perception/.test(cardText), cardText.slice(0, 400));
+	check("and no way to edit anything", await card.locator("input, textarea").count() === 0);
+
+	check("no page errors (tables)", page.errors.length === 0, page.errors.slice(0, 3).join(" | "));
+	await page.close();
 }
 
 /**
@@ -263,9 +328,9 @@ async function openWithStubAdapter (browser, {user = null, failWith = null, isSt
 	// An in-memory stand-in for the account system, with the same version rules as the real one, so
 	// the page's conflict handling is driven rather than described
 	const storage = `
-		window.__stubStore = {characters: {}};
+		window.__stubStore = {characters: {}, campaigns: []};
 		window.CharacterSyncAdapter = {
-			getCapabilities: function () { return {characters: true}; },
+			getCapabilities: function () { return {characters: true, campaigns: true}; },
 			pWhoAmI: function () { return ${whoAmI}; },
 			pList: function () {
 				return Promise.resolve(Object.entries(window.__stubStore.characters).map(function (e) {
@@ -291,6 +356,29 @@ async function openWithStubAdapter (browser, {user = null, failWith = null, isSt
 				return Promise.resolve({version: next});
 			},
 			pDelete: function (id) { delete window.__stubStore.characters[id]; return Promise.resolve(); },
+			pListCampaigns: function () { return Promise.resolve(window.__stubStore.campaigns.slice()); },
+			pCreateCampaign: function (name) {
+				var c = {id: "camp-" + (window.__stubStore.campaigns.length + 1), name: name, role: "gm", isPartyVisible: false};
+				window.__stubStore.campaigns.push(c);
+				return Promise.resolve(c);
+			},
+			pJoinCampaign: function (code) {
+				var c = {id: "camp-joined", name: "Joined via " + code, role: "player", isPartyVisible: false};
+				window.__stubStore.campaigns.push(c);
+				return Promise.resolve(c);
+			},
+			pCreateInvite: function () { return Promise.resolve({code: "abc123", role: "player", maxUses: 1}); },
+			pListCampaignCharacters: function (campaignId) {
+				return Promise.resolve(Object.entries(window.__stubStore.characters)
+					.filter(function (e) { return e[1].campaignId === campaignId; })
+					.map(function (e) {
+						return {id: e[0], name: e[1].envelope.state.name, ownerName: "Ada", isMine: true, version: e[1].version};
+					}));
+			},
+			pSetCharacterCampaign: function (id, campaignId) {
+				window.__stubStore.characters[id].campaignId = campaignId;
+				return Promise.resolve();
+			},
 			getLoginUrl: function () { return "/online/login"; },
 			getLogoutUrl: function () { return "/online/logout"; },
 		};`;

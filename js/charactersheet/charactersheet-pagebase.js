@@ -14,6 +14,7 @@ import {SOURCE_MODES, SOURCE_MODE_CUSTOM, getSourceFilterLabel, getSourceFilterP
 import {getBreakdownCitation, getPartCitations, isSameCitation, resolveCitation} from "./charactersheet-citations.js";
 import {EV_DAMAGE, EV_DEATH_SAVE, EV_DOWN, EV_HEAL, EV_LEVEL} from "./charactersheet-journal.js";
 import {PORTRAIT_MIME, PORTRAIT_QUALITY, getPortraitTargetSize, isPortraitTooLarge} from "./charactersheet-portrait.js";
+import {getCharacterSummary, getSummaryLines} from "./charactersheet-summary.js";
 import {deleteSyncMeta, getKeptBothName, getMissingAdapterMethods, getSyncBasePath, getSyncCapabilities, getSyncClientUrl, getSyncMeta, getSyncStatus, getUnsyncedRows, isAdapterValid, isSameOrigin, isSyncConflict, planSync, setSyncMeta} from "./charactersheet-sync.js";
 
 /**
@@ -356,6 +357,13 @@ export class CharacterPageBase {
 			wrpChars.className = "ve-flex-col ve-mb-2";
 			eleModalInner.appendChild(wrpChars);
 			this._pRenderSyncCharacters(wrpChars);
+
+			if (getSyncCapabilities(this._syncAdapter).campaigns) {
+				const wrpTables = document.createElement("div");
+				wrpTables.className = "ve-flex-col ve-mb-2";
+				eleModalInner.appendChild(wrpTables);
+				this._pRenderTables(wrpTables);
+			}
 		}
 
 		if (status.canSignOut && typeof this._syncAdapter?.getLogoutUrl === "function") {
@@ -476,6 +484,191 @@ export class CharacterPageBase {
 		if (row.where !== "local") addBtn("Pull", "Download the online copy into this browser", () => this._pPullCharacter(row.id));
 
 		return ele;
+	}
+
+	/* -------------------------------------------- Tables -------------------------------------------- */
+
+	/**
+	 * Campaigns, from the player's side and the GM's.
+	 *
+	 * A table is where a GM can see the party's characters — read-only, always. The current
+	 * character's table is a plain dropdown here rather than a field on the sheet, because which
+	 * table a character sits at is an account-system fact, not part of the character.
+	 */
+	async _pRenderTables (wrp) {
+		wrp.innerHTML = `<div class="bold ve-mb-1">Tables</div><div class="ve-muted ve-small">Loading…</div>`;
+
+		let campaigns;
+		try {
+			campaigns = await this._syncAdapter.pListCampaigns();
+		} catch (e) {
+			wrp.innerHTML = `<div class="bold ve-mb-1">Tables</div><div class="ve-muted ve-small">Could not list your tables: ${(e?.message || String(e)).qq()}</div>`;
+			return;
+		}
+
+		wrp.innerHTML = `<div class="bold ve-mb-1">Tables</div>`;
+		wrp.appendChild(this._getCurrentTablePicker(campaigns, wrp));
+
+		campaigns.forEach(campaign => wrp.appendChild(this._getTableRow(campaign, wrp)));
+		if (!campaigns.length) wrp.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small ve-mb-1">You are not at any table yet.</div>`);
+
+		const wrpBtns = document.createElement("div");
+		wrpBtns.className = "ve-flex ve-mt-1";
+		wrpBtns.appendChild(this._getTableActionBtn("New table", async () => {
+			const name = await InputUiUtil.pGetUserString({title: "Name the table"});
+			if (name?.trim()) await this._syncAdapter.pCreateCampaign(name.trim());
+		}, wrp));
+		wrpBtns.appendChild(this._getTableActionBtn("Join with a code", async () => {
+			const code = await InputUiUtil.pGetUserString({title: "Paste the invite code"});
+			if (code?.trim()) await this._syncAdapter.pJoinCampaign(code.trim());
+		}, wrp));
+		wrp.appendChild(wrpBtns);
+	}
+
+	_getTableActionBtn (text, pFn, wrp) {
+		const btn = document.createElement("button");
+		btn.className = "ve-btn ve-btn-default ve-btn-xs ve-mr-1";
+		btn.type = "button";
+		btn.textContent = text;
+		btn.addEventListener("click", async () => {
+			try {
+				await pFn();
+			} catch (e) {
+				JqueryUtil.doToast({type: "danger", content: `${e?.message || e}`});
+			}
+			this._pRenderTables(wrp);
+		});
+		return btn;
+	}
+
+	/** Which table the character being edited belongs to — the owner's decision, and only theirs. */
+	_getCurrentTablePicker (campaigns, wrp) {
+		const id = this._store.currentId;
+		const ele = document.createElement("label");
+		ele.className = "ve-flex-v-center ve-mb-2";
+		ele.insertAdjacentHTML("beforeend", `<span class="ve-mr-1">This character's table</span>`);
+
+		const sel = document.createElement("select");
+		sel.className = "ve-form-control ve-input-xs";
+		sel.style.width = "auto";
+		sel.innerHTML = [`<option value="">(no table)</option>`, ...campaigns.map(c => `<option value="${c.id.qq()}">${c.name.qq()}</option>`)].join("");
+		sel.value = getSyncMeta(this._store, id)?.campaignId || "";
+
+		if (!getSyncMeta(this._store, id)) {
+			sel.disabled = true;
+			sel.title = "Upload this character first";
+		}
+
+		sel.addEventListener("change", async () => {
+			try {
+				await this._syncAdapter.pSetCharacterCampaign(id, sel.value || null);
+				setSyncMeta(this._store, id, {...getSyncMeta(this._store, id), campaignId: sel.value || null});
+				this._persistNow();
+			} catch (e) {
+				JqueryUtil.doToast({type: "danger", content: `Could not move this character: ${e?.message || e}`});
+			}
+			this._pRenderTables(wrp);
+		});
+
+		ele.appendChild(sel);
+		return ele;
+	}
+
+	_getTableRow (campaign, wrp) {
+		const ele = document.createElement("div");
+		ele.className = "ve-flex-v-center ve-mb-1";
+		ele.insertAdjacentHTML("beforeend",
+			`<span style="flex: 1; min-width: 0;"><span class="bold">${campaign.name.qq()}</span>`
+			+ `<span class="ve-muted ve-small ve-ml-1">${campaign.role.qq()}</span></span>`);
+
+		const addBtn = (text, pFn) => {
+			const btn = document.createElement("button");
+			btn.className = "ve-btn ve-btn-default ve-btn-xs ve-ml-1";
+			btn.type = "button";
+			btn.textContent = text;
+			btn.addEventListener("click", () => pFn().catch(e => JqueryUtil.doToast({type: "danger", content: `${e?.message || e}`})));
+			ele.appendChild(btn);
+		};
+
+		addBtn("Characters", () => this._pShowTableCharacters(campaign));
+		// Only a GM can invite, so only a GM is offered it
+		if (campaign.role === "gm") {
+			addBtn("Invite", async () => {
+				const invite = await this._syncAdapter.pCreateInvite(campaign.id, {role: "player"});
+				await InputUiUtil.pGetUserString({title: `Invite code for ${campaign.name}`, default: invite.code, autocomplete: "off"});
+				this._pRenderTables(wrp);
+			});
+		}
+
+		return ele;
+	}
+
+	async _pShowTableCharacters (campaign) {
+		const {eleModalInner} = UiUtil.getShowModal({title: campaign.name, isMinHeight0: true});
+		eleModalInner.innerHTML = `<div class="ve-muted ve-small">Loading…</div>`;
+
+		let rows;
+		try {
+			rows = await this._syncAdapter.pListCampaignCharacters(campaign.id);
+		} catch (e) {
+			eleModalInner.innerHTML = `<div class="ve-muted ve-small">Could not list the party: ${(e?.message || String(e)).qq()}</div>`;
+			return;
+		}
+
+		eleModalInner.innerHTML = "";
+		if (!rows.length) {
+			eleModalInner.insertAdjacentHTML("beforeend", `<div class="ve-muted ve-small">Nobody has put a character at this table yet.</div>`);
+			return;
+		}
+
+		rows.forEach(row => {
+			const line = document.createElement("div");
+			line.className = "ve-flex-v-center ve-mb-1";
+			line.insertAdjacentHTML("beforeend",
+				`<span style="flex: 1; min-width: 0;"><span class="bold">${row.name.qq()}</span>`
+				+ `<span class="ve-muted ve-small ve-ml-1">${(row.ownerName || "").qq()}</span></span>`);
+
+			const btn = document.createElement("button");
+			btn.className = "ve-btn ve-btn-default ve-btn-xs ve-ml-1";
+			btn.type = "button";
+			btn.textContent = row.isMine ? "View" : "View (read-only)";
+			btn.addEventListener("click", () => this._pShowCharacterSummary(row.id, row.name));
+			line.appendChild(btn);
+
+			eleModalInner.appendChild(line);
+		});
+	}
+
+	/**
+	 * Somebody else's character, at a glance.
+	 *
+	 * Read-only *by construction*: it loads an envelope, computes from it with the same pure modules
+	 * the sheet uses, and prints values. Nothing here touches the store, so there is no path by
+	 * which a GM looking at a sheet could change it — which is the rule the server enforces too.
+	 */
+	async _pShowCharacterSummary (id, name) {
+		const {eleModalInner} = UiUtil.getShowModal({title: name, isMinHeight0: true});
+		eleModalInner.innerHTML = `<div class="ve-muted ve-small">Loading…</div>`;
+
+		let envelope;
+		try {
+			({envelope} = await this._syncAdapter.pLoad(id));
+		} catch (e) {
+			eleModalInner.innerHTML = `<div class="ve-muted ve-small">Could not open it: ${(e?.message || String(e)).qq()}</div>`;
+			return;
+		}
+
+		const summary = getCharacterSummary(envelope?.state || {});
+		const abilities = summary.abilities
+			.map(a => `<div class="ve-mr-3"><div class="ve-small ve-muted">${a.label.qq()}</div><div class="bold">${a.score} <span class="ve-muted">(${a.modText})</span></div></div>`)
+			.join("");
+		const lines = getSummaryLines(summary)
+			.map(({label, value}) => `<div class="ve-flex ve-mb-1"><span class="bold" style="min-width: 11em; flex-shrink: 0;">${label.qq()}</span><span>${String(value).qq()}</span></div>`)
+			.join("");
+
+		eleModalInner.innerHTML = `<div class="ve-muted ve-small ve-mb-2">Read-only.</div>
+			<div class="ve-flex ve-flex-wrap ve-mb-2">${abilities}</div>
+			${lines}`;
 	}
 
 	/** Upload, stating the version being replaced. A refusal is a conflict, and gets asked about. */

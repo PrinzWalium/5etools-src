@@ -154,6 +154,22 @@ and reports itself once rather than on every attempt. A conflict still opens the
 The whole thing can be switched off in the panel (`syncAuto` in the store); it is something the page
 does on your behalf, so it is yours to stop.
 
+## Tables
+
+When the adapter does campaigns, the panel grows a **Tables** section: the campaigns you belong to
+with the role you hold, a *New table*, a *Join with a code*, and — for a GM — an *Invite* that mints
+a code. The current character's table is a dropdown there rather than a field on the sheet, because
+which table a character sits at is an account-system fact, not part of the character. It stays
+disabled until the character has been uploaded, since there is nothing to place otherwise.
+
+*Characters* on a table lists the party; opening one shows a **read-only card**.
+
+That card is read-only *by construction*, not by a flag. `charactersheet-summary.js` takes a plain
+state, computes with the same pure modules the sheet uses, and returns values — no model, no store,
+no path by which a GM looking at a sheet could change it. The server enforces the same rule from the
+other side. It is also the groundwork for the party sheet, which asks the same question of several
+characters at once.
+
 ## Endpoints the client script is expected to use
 
 Given a base of `/online`, `getSyncEndpoints` documents the shape:

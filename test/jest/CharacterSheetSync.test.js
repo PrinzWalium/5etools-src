@@ -155,19 +155,46 @@ describe("Character Sheet — the account-system seam", () => {
 	});
 
 	describe("getSyncCapabilities", () => {
+		// Every campaign method, so an adapter can be built that really does tables
+		const withCampaigns = extra => ({
+			pListCampaigns: () => {},
+			pCreateCampaign: () => {},
+			pJoinCampaign: () => {},
+			pCreateInvite: () => {},
+			pListCampaignCharacters: () => {},
+			pSetCharacterCampaign: () => {},
+			...extra,
+		});
+
 		it("Should assume everything works when an adapter says nothing", () => {
-			expect(getSyncCapabilities({})).toEqual({characters: true});
-			expect(getSyncCapabilities(null)).toEqual({characters: true});
+			expect(getSyncCapabilities({}).characters).toBe(true);
+			expect(getSyncCapabilities(null).characters).toBe(true);
 		});
 
 		it("Should believe an adapter that says character storage is not open yet", () => {
-			expect(getSyncCapabilities({getCapabilities: () => ({characters: false})})).toEqual({characters: false});
-			expect(getSyncCapabilities({capabilities: {characters: false}})).toEqual({characters: false});
+			expect(getSyncCapabilities({getCapabilities: () => ({characters: false})}).characters).toBe(false);
+			expect(getSyncCapabilities({capabilities: {characters: false}}).characters).toBe(false);
 		});
 
 		// A throwing adapter must not take the page down on the way to drawing a badge
 		it("Should treat a broken declaration as no declaration", () => {
-			expect(getSyncCapabilities({getCapabilities: () => { throw new Error("nope"); }})).toEqual({characters: true});
+			expect(getSyncCapabilities({getCapabilities: () => { throw new Error("nope"); }}).characters).toBe(true);
+		});
+
+		// Tables are optional as a *set*: half of them would give the pages a table nobody could join
+		it("Should report tables only when every campaign method is there", () => {
+			expect(getSyncCapabilities({}).campaigns).toBe(false);
+			expect(getSyncCapabilities({pListCampaigns: () => {}}).campaigns).toBe(false);
+			expect(getSyncCapabilities(withCampaigns()).campaigns).toBe(true);
+		});
+
+		// Judged by what it can do, not by what it claims
+		it("Should not believe a claim of tables without the methods", () => {
+			expect(getSyncCapabilities({getCapabilities: () => ({campaigns: true})}).campaigns).toBe(false);
+		});
+
+		it("Should let an adapter with the methods still switch tables off", () => {
+			expect(getSyncCapabilities(withCampaigns({getCapabilities: () => ({campaigns: false})})).campaigns).toBe(false);
 		});
 	});
 

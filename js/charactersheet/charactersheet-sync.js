@@ -31,6 +31,15 @@
  *   getLoginUrl (),                      // → string, where to send someone to sign in
  *   getLogoutUrl ()?,                    // → string, optional
  *   getCapabilities ()?,                 // → {characters: boolean}, optional; assumed true
+ *
+ *   // Campaigns — all optional, and all present or all absent. A service without them simply has
+ *   // no tables, and the pages show no campaign UI at all.
+ *   pListCampaigns (),                   // → [{id, name, role, isPartyVisible}]
+ *   pCreateCampaign (name),              // → {id, name, role}
+ *   pJoinCampaign (code),                // → {id, name, role}
+ *   pCreateInvite (campaignId, opts),    // → {code, role, maxUses, expiresAt}
+ *   pListCampaignCharacters (campaignId),// → [{id, name, ownerName, isMine, ...}]
+ *   pSetCharacterCampaign (id, campaignId), // → void   (null to take it off a table)
  * }
  * ```
  *
@@ -106,6 +115,25 @@ export function getSyncEndpoints (basePath) {
 const _ADAPTER_METHODS = ["pWhoAmI", "pList", "pLoad", "pSave", "pDelete"];
 
 /**
+ * The campaign half of the contract.
+ *
+ * Optional as a *set*: an adapter either does tables or it does not, and a half-set would give the
+ * pages a campaign list with no way to join one. Absent is a perfectly good answer — it is what
+ * every deployment had until tables existed.
+ */
+const _ADAPTER_CAMPAIGN_METHODS = [
+	"pListCampaigns",
+	"pCreateCampaign",
+	"pJoinCampaign",
+	"pCreateInvite",
+	"pListCampaignCharacters",
+	"pSetCharacterCampaign",
+];
+
+export const hasCampaignSupport = adapter =>
+	!!adapter && _ADAPTER_CAMPAIGN_METHODS.every(fn => typeof adapter[fn] === "function");
+
+/**
  * Whether what turned up is usable. A half-implemented adapter is worse than none: it would take
  * the storage path over and then fail partway, so anything incomplete is refused outright.
  */
@@ -137,7 +165,12 @@ export function getSyncCapabilities (adapter) {
 	} catch (e) {
 		declared = null;
 	}
-	return {characters: declared?.characters !== false};
+	return {
+		characters: declared?.characters !== false,
+		// Judged by what the adapter can actually do, not by what it claims: a service that says
+		// `campaigns: true` without the methods would give the pages a table nobody could join
+		campaigns: hasCampaignSupport(adapter) && declared?.campaigns !== false,
+	};
 }
 
 /**
